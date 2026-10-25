@@ -150,3 +150,27 @@ test('host.readWorldInfo integrates whole book exclusions, entry filtering, and 
   const idxSecond = text.indexOf('【后出现内容】');
   assert.ok(idxFirst < idxSecond, `先出现内容索引 (${idxFirst}) 应小于后出现内容索引 (${idxSecond})`);
 });
+
+test('host.readWorldInfo does not inject entry comment/name into assembled content', async () => {
+  const ctx = {
+    chatId: 'test',
+    chat: [],
+    name1: '用户',
+    characters: [{ name: '角色' }],
+    characterId: 0,
+  };
+  const entries = {
+    0: { constant: true, comment: '【世界书条目名称不应注入】', content: '世界书正文内容' },
+  };
+  const host = createHostAdapter({
+    contextProvider: () => ctx,
+    worldInfoBindings: {
+      getNames: () => ['我的世界书'],
+      load: async () => ({ entries }),
+    },
+  });
+  const text = await host.captureChat().readWorldInfo();
+  assert.ok(text.includes('世界书正文内容'));
+  assert.ok(!text.includes('【世界书条目名称不应注入】'), '条目名/备注不应被注入到提示词中');
+});
+

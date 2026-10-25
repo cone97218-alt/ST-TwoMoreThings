@@ -245,3 +245,44 @@ test('AI can proactively quote, forward, instant-withdraw, poke, and perform mes
   assert.equal(thread[5].poke.suffix, '的小脑袋');
   assert.equal(thread[5].text, '[拍一拍：林舟拍了拍你的小脑袋]');
 });
+
+test('renderChat: quote preview truncates to first line preview and supports jump location', async () => {
+  const { store } = await serviceHarness();
+  const batch = { key: 'test', label: '测试' };
+  const longOriginal = {
+    id: 'orig-1',
+    role: 'assistant',
+    batch,
+    text: '这是一条很长很长的第一行内容超过二十个字测试消息\n第二行额外剧情\n第三行',
+    createdAt: new Date().toISOString(),
+  };
+  const replyingMsg = {
+    id: 'reply-1',
+    role: 'user',
+    batch,
+    text: '好的我知道了',
+    replyToId: 'orig-1',
+    createdAt: new Date().toISOString(),
+  };
+  await store.appendMessage('lin', longOriginal);
+  await store.appendMessage('lin', replyingMsg);
+
+  const state = store.read();
+  const html = renderChat(state, {
+    ui: { view: 'chat', contactId: 'lin', drafts: new Map(), batch, visibleMessages: 60, visibleHistory: 60 },
+    busy: new Set(),
+    entries: {},
+  });
+
+  // 1. 验证支持跳转定位的属性
+  assert.ok(html.includes('data-action="locate-reply-message"'));
+  assert.ok(html.includes('data-target-id="orig-1"'));
+  assert.ok(html.includes('data-message-row-id="orig-1"'));
+
+  // 2. 验证引用文本节约空间：仅截取第一行前20字 + 省略号，不包含第二行
+  const replyMatch = html.match(/<div class="message-reply[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+  assert.ok(replyMatch, '应包含 message-reply 引用预览元素');
+  assert.ok(replyMatch[1].includes('这是一条很长很长的第一行内容超过二十个字…'));
+  assert.ok(!replyMatch[1].includes('第二行额外剧情'), '引用预览不应显示多余行数内容');
+});
+

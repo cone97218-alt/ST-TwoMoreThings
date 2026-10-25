@@ -159,7 +159,7 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
         const trimmed = (rendered || '').trim();
         if (!trimmed || seen.has(trimmed)) continue;
         seen.add(trimmed);
-        const text = `${entry.comment || ''}\n${trimmed}`.slice(0, remaining);
+        const text = trimmed.slice(0, remaining);
         parts.push(text);
         remaining -= text.length;
         if (!remaining) return parts.join('\n\n');

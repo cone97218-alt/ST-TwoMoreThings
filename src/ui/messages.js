@@ -80,7 +80,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
     const actorName = message.poke?.actorName || senderDisplayName;
     const targetName = message.poke?.targetName || (mine ? displayName(contact) : '你');
     const suffix = message.poke?.suffix || '的头像';
-    return `<div class="message-row is-system is-poke" data-poke-id="${escape(message.id)}">
+    return `<div class="message-row is-system is-poke" data-poke-id="${escape(message.id)}" data-message-row-id="${escape(message.id)}">
       <div class="poke-notice" role="status">
         <span class="poke-icon" aria-hidden="true">👉🏻</span>
         <span class="poke-actor">${escape(actorName)}</span>
@@ -107,7 +107,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
   </div>` : '';
 
   if (message.withdrawn) {
-    return `<div class="message-row is-system is-withdrawn" data-withdrawn-id="${escape(message.id)}">
+    return `<div class="message-row is-system is-withdrawn" data-withdrawn-id="${escape(message.id)}" data-message-row-id="${escape(message.id)}">
       <div class="withdrawn-notice" role="status">
         <span>${escape(mine ? '你撤回了一条消息' : `${senderDisplayName}撤回了一条消息`)}</span>
         ${mine && message.withdrawnText && !readOnly ? `<button type="button" class="withdrawn-reedit-btn" data-action="reedit-withdrawn" data-message-id="${escape(message.id)}">重新编辑</button>` : ''}
@@ -161,7 +161,19 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
           : contact),
     )
     : '';
-  const replyBlock = reply ? `<div class="message-reply${reply.missing || reply.withdrawn ? ' is-missing' : ''}"><small>引用${replyName ? ` ${escape(replyName)}` : ''}</small><span>${reply.missing ? '原消息已删除' : reply.withdrawn ? '原消息已撤回' : renderMentionText(reply.messageText, groupPeople)}</span>${reply.translation && !reply.withdrawn ? `<span class="message-translation" lang="zh-CN">${renderMentionText(reply.translation, groupPeople)}</span>` : ''}</div>` : '';
+  let replyText = '';
+  if (reply) {
+    if (reply.missing) {
+      replyText = '原消息已删除';
+    } else if (reply.withdrawn) {
+      replyText = '原消息已撤回';
+    } else {
+      const raw = String(reply.messageText || '').trim();
+      const firstLine = raw.split('\n')[0].trim();
+      replyText = firstLine.length > 20 ? `${firstLine.slice(0, 20)}…` : (raw.includes('\n') && !firstLine.endsWith('…') ? `${firstLine}…` : (firstLine || '消息'));
+    }
+  }
+  const replyBlock = reply ? `<div class="message-reply${reply.missing || reply.withdrawn ? ' is-missing' : ''}" role="button" tabindex="0" data-action="locate-reply-message" data-target-id="${escape(reply.messageId)}" title="点击跳转定位至被引用的消息"><small>引用${replyName ? ` ${escape(replyName)}` : ''}</small><span>${renderMentionText(replyText, groupPeople)}</span></div>` : '';
   const forwardedBlock = message.forwarded
     ? `<div class="message-forwarded-head"><small>↪ 转发自 ${escape(message.forwardedFrom?.senderName || '聊天记录')}${message.forwardedFrom?.isGroup && message.forwardedFrom?.chatName ? ` · ${escape(message.forwardedFrom.chatName)}` : ''}</small></div>`
     : '';
@@ -194,7 +206,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
       : (ui.multiSelectAnchorId ? `<button type="button" class="message-range-btn" data-action="select-range-to" data-message-id="${escape(message.id)}">选到这里</button>` : '')}
   </div>` : '';
 
-  return `<div class="message-row ${mine ? 'is-mine' : 'is-theirs'}${chosen ? ' is-selected' : ''}${multiSelect ? ' is-multi-selecting' : ''}${multiChecked ? ' is-multi-checked' : ''}${showFoot ? ' has-time' : ''}${grouped}">
+  return `<div class="message-row ${mine ? 'is-mine' : 'is-theirs'}${chosen ? ' is-selected' : ''}${multiSelect ? ' is-multi-selecting' : ''}${multiChecked ? ' is-multi-checked' : ''}${showFoot ? ' has-time' : ''}${grouped}" data-message-row-id="${escape(message.id)}">
     ${selectCol}
     ${messageAvatar}
     <div class="message-body">

@@ -656,6 +656,35 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       render();
       return;
     }
+    const locateReplyNode = event.target.closest('[data-action="locate-reply-message"]');
+    if (locateReplyNode) {
+      const targetId = locateReplyNode.dataset.targetId;
+      if (targetId) {
+        let targetRow = root.querySelector(`.message-row[data-message-row-id="${CSS.escape(targetId)}"], [data-message="${CSS.escape(targetId)}"]`)?.closest('.message-row');
+        if (!targetRow) {
+          const convId = conversationId();
+          const allMsgs = store.read()?.conversations?.[convId] || [];
+          const exists = allMsgs.some(m => m.id === targetId);
+          if (exists) {
+            ui.historyOpen = true;
+            ui.visibleHistory = Math.max(ui.visibleHistory, allMsgs.length);
+            render();
+            targetRow = root.querySelector(`.message-row[data-message-row-id="${CSS.escape(targetId)}"], [data-message="${CSS.escape(targetId)}"]`)?.closest('.message-row');
+          }
+        }
+        if (targetRow) {
+          targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          targetRow.classList.remove('is-locate-highlight');
+          void targetRow.offsetWidth;
+          targetRow.classList.add('is-locate-highlight');
+          setTimeout(() => targetRow.classList.remove('is-locate-highlight'), 1800);
+        } else {
+          ui.feedback = { text: '未能定位到该原消息。' };
+          render();
+        }
+      }
+      return;
+    }
     const button = event.target.closest('button');
     if (!button || button.disabled) return;
     if (button.dataset.wallpaper !== undefined) { const theme = store.read().theme; void perform('wallpaper', () => store.setWallpaper(theme, button.dataset.wallpaper)); return; }

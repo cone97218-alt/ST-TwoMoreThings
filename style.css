@@ -863,6 +863,13 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .preset-add-btn { font-size: 11px; font-weight: 500; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--pp-active); background: var(--pp-active); color: var(--pp-paper); cursor: pointer; transition: opacity .15s ease; }
 .preset-add-btn:hover { opacity: 0.9; }
 
+.preset-search-row { position: relative; display: flex; align-items: center; }
+.preset-search-input { width: 100%; border: 1px solid var(--pp-rule); border-radius: 7px; min-height: 28px; height: 28px; font-size: 11px; padding: 4px 26px 4px 8px; background: var(--pp-surface); color: var(--pp-ink); box-sizing: border-box; }
+.preset-search-input:focus { border-color: var(--pp-active); outline: none; }
+.preset-search-input::placeholder { color: var(--pp-muted); opacity: .7; }
+.preset-search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: var(--pp-muted); font-size: 14px; line-height: 1; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.preset-search-clear:hover { color: var(--pp-ink); }
+
 .preset-cards-stack { display: flex; flex-direction: column; gap: 6px; }
 
 /* 条目卡片精致样式 */

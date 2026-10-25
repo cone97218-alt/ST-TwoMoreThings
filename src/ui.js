@@ -213,6 +213,12 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       start: previousPromptSearch.selectionStart,
       end: previousPromptSearch.selectionEnd,
     };
+    const previousPresetSearch = root.querySelector('[data-action="search-preset-entries"]');
+    const presetSearchSelection = previousPresetSearch && (root.activeElement === previousPresetSearch) && {
+      text: previousPresetSearch.value,
+      start: previousPresetSearch.selectionStart,
+      end: previousPresetSearch.selectionEnd,
+    };
     const previousExcludeWorldSearch = root.querySelector('[data-action="search-exclude-world"]');
     const excludeWorldSearchSelection = previousExcludeWorldSearch && (root.activeElement === previousExcludeWorldSearch) && {
       text: previousExcludeWorldSearch.value,
@@ -285,6 +291,13 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       if (searchInput && searchInput.value === promptSearchSelection.text) {
         searchInput.focus({ preventScroll: true });
         searchInput.setSelectionRange(promptSearchSelection.start, promptSearchSelection.end);
+      }
+    }
+    if (presetSearchSelection) {
+      const searchInput = root.querySelector('[data-action="search-preset-entries"]');
+      if (searchInput && searchInput.value === presetSearchSelection.text) {
+        searchInput.focus({ preventScroll: true });
+        searchInput.setSelectionRange(presetSearchSelection.start, presetSearchSelection.end);
       }
     }
     if (excludeWorldSearchSelection) {
@@ -1505,6 +1518,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         }
         break;
       }
+      case 'clear-preset-search': {
+        ui.presetSearch = '';
+        render();
+        break;
+      }
       case 'open-new-preset-dialog': {
         const name = prompt('请输入新预设的名称：', '我的自定义预设');
         if (!name || !name.trim()) break;
@@ -1748,6 +1766,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (event.target.matches('[data-action="search-prompts"]')) {
       ui.promptSearch = event.target.value;
+      render();
+      return;
+    }
+    if (event.target.matches('[data-action="search-preset-entries"]')) {
+      ui.presetSearch = event.target.value;
       render();
       return;
     }

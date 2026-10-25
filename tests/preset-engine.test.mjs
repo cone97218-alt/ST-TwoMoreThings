@@ -578,3 +578,53 @@ test('preset engine: exportPresetToPayload and createPresetFromPayload roundtrip
   assert.equal(compiled[0].content, '【世界观】');
 });
 
+test('preset engine: compiles character thought rules with thought taskScope', () => {
+  const thoughtSlot = PRESET_SLOTS.find(s => s.macro === '{{thought_prompt}}');
+  assert.ok(thoughtSlot, 'PRESET_SLOTS 应包含 {{thought_prompt}} 插槽宏');
+  assert.equal(thoughtSlot.name, '角色隐秘心声推演');
+
+  const thoughtEntry = DEFAULT_PRESET_ENTRIES.find(e => e.id === 'entry_thought_rules');
+  assert.ok(thoughtEntry, 'DEFAULT_PRESET_ENTRIES 应包含 entry_thought_rules 条目');
+  assert.equal(thoughtEntry.scope, '心声');
+  assert.equal(thoughtEntry.role, 'system');
+
+  const preset = {
+    id: 'thought_test_preset',
+    name: '心声测试预设',
+    entries: [
+      { id: 'e_sys', name: '系统人设', role: 'system', scope: '通用', enabled: true, content: '【世界观设定】' },
+      { id: 'e_msg', name: '短信规则', role: 'system', scope: '短信', enabled: true, content: '仅短信：{{messages_prompt}}' },
+      { id: 'e_thought', name: '心声推演', role: 'system', scope: '心声', enabled: true, content: '推演说明：\n{{thought_prompt}}' },
+      { id: 'e_data', name: '输入数据', role: 'user', scope: '通用', enabled: true, content: '{{phone_context}}' },
+    ],
+  };
+
+  const contextData = {
+    phoneContext: {
+      character: { name: '林舟' },
+      targetMessage: { text: '在靠窗的位置。' },
+    },
+  };
+
+  // 1. 当 taskScope === 'thought' 时编译
+  const compiledThought = compilePromptPreset(preset, contextData, 'thought');
+  assert.equal(compiledThought.length, 3, '应包含通用系统人设、心声推演条目及用户输入数据，跳过短信规则');
+
+  assert.equal(compiledThought[0].role, 'system');
+  assert.ok(compiledThought[0].content.includes('【世界观设定】'));
+
+  assert.equal(compiledThought[1].role, 'system');
+  assert.ok(compiledThought[1].content.includes('角色隐秘心声推演') || compiledThought[1].content.includes('潜台词'));
+  assert.ok(!compiledThought[1].content.includes('{{thought_prompt}}'), '{{thought_prompt}} 宏应被完全展开替换');
+
+  assert.equal(compiledThought[2].role, 'user');
+  assert.ok(compiledThought[2].content.includes('在靠窗的位置。'));
+
+  // 2. 当 taskScope === 'chat' 时编译，心声条目应被正确过滤掉
+  const compiledChat = compilePromptPreset(preset, contextData, 'chat');
+  assert.equal(compiledChat.length, 3);
+  assert.ok(!compiledChat.some(m => m.name === '心声推演' || m.content.includes('角色隐秘心声推演')));
+  assert.ok(compiledChat.some(m => m.name === '短信规则'));
+});
+
+

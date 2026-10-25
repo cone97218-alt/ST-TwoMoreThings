@@ -14,6 +14,16 @@ export function renderPromptPresetSettings(state, ui) {
   const activePreset = presets.find(p => p.id === activePresetId) || presets[0];
   const entries = activePreset?.entries || [];
   const storyLayers = activePreset?.storyLayers || 1;
+  const searchQuery = (ui.presetSearch || '').trim().toLowerCase();
+  const filteredEntries = searchQuery
+    ? entries.filter(e =>
+        (e.name || '').toLowerCase().includes(searchQuery) ||
+        (e.scope || '').toLowerCase().includes(searchQuery) ||
+        (e.role || '').toLowerCase().includes(searchQuery) ||
+        (e.category || '').toLowerCase().includes(searchQuery) ||
+        (e.content || '').toLowerCase().includes(searchQuery)
+      )
+    : entries;
 
   return `<div class="preset-manager">
     <!-- 预设选择器栏 -->
@@ -52,14 +62,20 @@ export function renderPromptPresetSettings(state, ui) {
     <!-- 预设条目列表 -->
     <div class="preset-entries-wrap">
       <div class="preset-section-head">
-        <span class="preset-section-title">条目装配管线 <small>(${entries.length} 个条目)</small></span>
+        <span class="preset-section-title">条目装配管线 <small>${ui.presetSearch ? `(匹配 ${filteredEntries.length} / 共 ${entries.length} 条)` : `(${entries.length} 个条目)`}</small></span>
         <button type="button" class="preset-add-btn" data-action="add-preset-entry">+ 新增条目</button>
       </div>
 
+      <div class="preset-search-row">
+        <input type="search" class="preset-search-input" placeholder="搜索条目名称、内容、角色或作用域..." value="${escape(ui.presetSearch || '')}" data-action="search-preset-entries">
+        ${ui.presetSearch ? `<button type="button" class="preset-search-clear" data-action="clear-preset-search" title="清空搜索">×</button>` : ''}
+      </div>
+
       <div class="preset-cards-stack">
-        ${!entries.length ? `<div class="preset-empty-hint">当前预设暂无条目，请点击上方按钮新增条目。</div>` : entries.map((entry, idx) => {
-          const isFirst = idx === 0;
-          const isLast = idx === entries.length - 1;
+        ${!filteredEntries.length ? `<div class="preset-empty-hint">${ui.presetSearch ? `未找到匹配「${escape(ui.presetSearch)}」的预设条目。` : '当前预设暂无条目，请点击上方按钮新增条目。'}</div>` : filteredEntries.map((entry) => {
+          const actualIdx = entries.findIndex(e => e.id === entry.id);
+          const isFirst = actualIdx === 0;
+          const isLast = actualIdx === entries.length - 1;
           const isExpanded = ui.expandedPresetEntries instanceof Set ? ui.expandedPresetEntries.has(entry.id) : false;
           const scope = entry.scope || '通用';
 
@@ -98,6 +114,7 @@ export function renderPromptPresetSettings(state, ui) {
                     <datalist id="preset-scope-options">
                       <option value="通用">全部任务通用</option>
                       <option value="短信">私聊短信生成</option>
+                      <option value="心声">角色隐秘心声推演</option>
                       <option value="群聊">群聊多角色续写</option>
                       <option value="通讯录">通讯录发掘与整理</option>
                       <option value="联系人">联系人线上风格提炼</option>

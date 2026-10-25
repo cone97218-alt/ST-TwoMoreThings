@@ -3,6 +3,7 @@
 import {
   getPrompt,
   MESSAGES_PROMPT,
+  THOUGHT_PROMPT,
   GROUP_PROMPT,
   CONTACTS_PROMPT,
   DIRECTORY_PROMPT,
@@ -27,6 +28,7 @@ export const PRESET_SLOTS = [
   { macro: '{{phone_context}}', name: '手机内部数据', desc: '包含待办事项、日历节日、短信往来记录、公开动态等' },
   { macro: '{{char_personality}}', name: '角色线上表达', desc: '角色的线上文字风格、习惯与人设' },
   { macro: '{{messages_prompt}}', name: '私聊短信生成', desc: '仅私聊：短信回复与主动发信规则' },
+  { macro: '{{thought_prompt}}', name: '角色隐秘心声推演', desc: '仅心声：推演角色发信时的隐秘心理与潜台词' },
   { macro: '{{groups_prompt}}', name: '群聊多角色续写', desc: '仅群聊：群成员发言动机与互动规则' },
   { macro: '{{social_prompt}}', name: 'Ainstagram 动态生成', desc: '仅动态：日常动态发布规则' },
   { macro: '{{comment_prompt}}', name: '动态评论互动回复', desc: '仅动态：留言评论与私信互动规则' },
@@ -64,6 +66,14 @@ export const DEFAULT_PRESET_ENTRIES = [
     role: 'system',
     enabled: true,
     content: `{{messages_prompt}}\n{{rich_messages_prompt}}`,
+  },
+  {
+    id: 'entry_thought_rules',
+    name: '角色隐秘心声推演',
+    scope: '心声',
+    role: 'system',
+    enabled: true,
+    content: `{{thought_prompt}}`,
   },
   {
     id: 'entry_groups_rules',
@@ -195,7 +205,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 2;
+export const PRESET_SCHEMA_VERSION = 3;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -358,6 +368,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       const scopes = scope.split('+').map(s => s.trim());
       const match = scopes.some(s => {
         if (s === '短信' && taskScope === 'chat') return true;
+        if (s === '心声' && taskScope === 'thought') return true;
         if (s === '群聊' && taskScope === 'group-chat') return true;
         if (s === '通讯录' && taskScope === 'directory') return true;
         if (s === '联系人' && taskScope === 'contacts') return true;
@@ -411,6 +422,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
 
     // 功能提示词宏替换：动态支持用户在功能库中修改过的提示词
     const msgPrompt = getPrompt('messages', state) || MESSAGES_PROMPT;
+    const thoughtPrompt = getPrompt('thought', state) || THOUGHT_PROMPT;
     const grpPrompt = getPrompt('groups', state) || GROUP_PROMPT;
     const socPrompt = getPrompt('social', state) || SOCIAL_PROMPT;
     const cmtPrompt = getPrompt('comment', state) || COMMENT_PROMPT;
@@ -432,6 +444,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
 
     content = content
       .replace(/\{\{messages_prompt\}\}/g, msgPrompt)
+      .replace(/\{\{thought_prompt\}\}/g, thoughtPrompt)
       .replace(/\{\{groups_prompt\}\}/g, grpPrompt)
       .replace(/\{\{social_prompt\}\}/g, socPrompt)
       .replace(/\{\{comment_prompt\}\}/g, cmtPrompt)

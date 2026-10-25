@@ -97,7 +97,6 @@ export function createMessageService({ target, store, contextReader, modelClient
         text: messageText(item),
       }));
 
-      const systemPrompt = getPrompt('thought', state) || THOUGHT_PROMPT;
       const userPayload = {
         character: {
           id: contact.id,
@@ -117,10 +116,27 @@ export function createMessageService({ target, store, contextReader, modelClient
         },
       };
 
+      const activePreset = getActivePreset(state);
+      const storyHistoryText = (context.story || []).map(item => `${item.speaker || '角色'}：${item.text}`).join('\n\n');
+      const messagesPayload = compilePromptPreset(activePreset, {
+        worldbook: context.worldbook || '',
+        storyHistory: storyHistoryText,
+        storyMemory: context.storyMemory || '',
+        phoneContext: userPayload,
+        charPersonality: `${contact.name}：${contact.personality || ''}\n线上风格：${contact.expression || ''}`,
+      }, 'thought', state);
+
+      const collapsed = collapseMessages(messagesPayload);
+      const systemEntries = messagesPayload.filter(m => m.role === 'system');
+      const userEntries = messagesPayload.filter(m => m.role !== 'system');
+      const systemPrompt = systemEntries.map(m => m.content).join('\n\n');
+
       const reply = await modelClient.complete({
         label: '角色隐秘心声生成',
         system: systemPrompt,
-        messages: [{ role: 'user', content: JSON.stringify(userPayload) }],
+        messages: userEntries.length ? userEntries : [{ role: 'user', content: JSON.stringify(userPayload) }],
+        entries: messagesPayload,
+        collapsedMessages: collapsed,
       });
       const parsed = parseJsonObject(reply);
       const thought = String(parsed?.thought ?? parsed?.innerThought ?? parsed?.text ?? '').trim();

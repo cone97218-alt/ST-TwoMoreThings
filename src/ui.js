@@ -1,4 +1,5 @@
 import { avatar, refKey } from './ui/shared.js';
+import { partitionHistory } from './timeline.js';
 import { renderHome } from './ui/home.js';
 import { createPhoneClock } from './ui/status.js';
 import { renderFeedback, renderShell } from './ui/shell.js';
@@ -32,6 +33,7 @@ import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.
 import { createPluginUpdatesView } from './ui/plugin-updates-view.js';
 import { createPhoneDialog } from './ui/dialog.js';
 import { MEMORY_CONFLICT_CODE } from './memory-sources.js';
+import { readBaiBaiExcludeSettings, saveBaiBaiExcludeSettings, SHARED_EXCLUDES_EVENT } from './worldbook.js';
 
 // 新应用在这里注册入口和页面，页面模板保留在 src/ui/。
 const apps = [
@@ -61,7 +63,7 @@ const pages = {
   'social-profile': renderSocialProfile,
 };
 
-export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, logger = null, previewBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {} }) {
+export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, logger = null, previewBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {}, host }) {
   const doc = mount.ownerDocument;
   const element = doc.createElement('div');
   element.id = mode === 'embedded' ? 'pocket-phone-card-host' : 'pocket-phone-host';
@@ -99,7 +101,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     groupMembersOpen: false,
     socialAuthorId: '', socialPastOpen: false, socialLimit: 30, socialScroll: 0,
     socialCommentOpen: new Set(), socialDrafts: new Map(), notice: null,
-    drawers: { connection: true, appearance: false, content: false, prompts: false, logs: false },
+    drawers: { connection: true, appearance: false, content: false, worldbook_excludes: false, prompts: false, logs: false },
     expandedLogs: null, backflowPreview: undefined, expandedPresetEntries: new Set(),
     promptCategory: '全部', promptSearch: '', promptDrafts: {},
     manual: false, apiDraft: {}, models: [], modelSearch: '', modelsOpen: false,
@@ -111,6 +113,20 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     calendarAiFestivals: [], calendarAiSchedules: [], calendarAiBusy: false,
     todoEditing: new Set(), todoDrafts: new Map(),
     replyToId: '',
+    reactionMoreMessageId: '',
+    thoughtMessageId: '',
+    editingMessageId: '',
+    editingMessageDraft: undefined,
+    multiSelectMode: false,
+    selectedMessageIds: new Set(),
+    multiSelectAnchorId: '',
+    forwardMessageIds: [],
+    forwardTargetId: '',
+    forwardNote: '',
+    favoritesOpen: false,
+    excludeWorldModalOpen: false,
+    excludeWorldSearch: '',
+    wiPatternDraft: '',
   };
   const busy = new Set();
   if (!control.isEnabled()) ui.view = 'settings';
@@ -197,6 +213,12 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       start: previousPromptSearch.selectionStart,
       end: previousPromptSearch.selectionEnd,
     };
+    const previousExcludeWorldSearch = root.querySelector('[data-action="search-exclude-world"]');
+    const excludeWorldSearchSelection = previousExcludeWorldSearch && (root.activeElement === previousExcludeWorldSearch) && {
+      text: previousExcludeWorldSearch.value,
+      start: previousExcludeWorldSearch.selectionStart,
+      end: previousExcludeWorldSearch.selectionEnd,
+    };
     const scrollTop = inChat() ? root.querySelector('.message-feed')?.scrollTop : undefined;
     const settingsScroll = root.querySelector('.view-settings')?.scrollTop;
     const socialScroll = ['social', 'social-profile'].includes(ui.view) ? root.querySelector(`.view-${ui.view}`)?.scrollTop : undefined;
@@ -221,7 +243,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       ? calendar.month(ui.calendarOffset)
       : ui.view === 'desktop' ? calendar.month(0) : null;
     surface.innerHTML = renderShell({
-      content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview }),
+      content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview, host }),
       view: ui.view, enabled, weather,
       feedback: ui.feedback, photo: ui.photo,
       conflict: ui.conflict, mode, conflictBusy: busy.has('conflict'),
@@ -263,6 +285,13 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       if (searchInput && searchInput.value === promptSearchSelection.text) {
         searchInput.focus({ preventScroll: true });
         searchInput.setSelectionRange(promptSearchSelection.start, promptSearchSelection.end);
+      }
+    }
+    if (excludeWorldSearchSelection) {
+      const searchInput = root.querySelector('[data-action="search-exclude-world"]');
+      if (searchInput && searchInput.value === excludeWorldSearchSelection.text) {
+        searchInput.focus({ preventScroll: true });
+        searchInput.setSelectionRange(excludeWorldSearchSelection.start, excludeWorldSearchSelection.end);
       }
     }
     chatScroll.attach();
@@ -363,11 +392,55 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     return true;
   }
+  function resetChatTransientUi() {
+    ui.reactionMoreMessageId = '';
+    ui.thoughtMessageId = '';
+    ui.editingMessageId = '';
+    ui.editingMessageDraft = undefined;
+    ui.multiSelectMode = false;
+    ui.selectedMessageIds = new Set();
+    ui.multiSelectAnchorId = '';
+    ui.forwardMessageIds = [];
+    ui.forwardTargetId = '';
+    ui.forwardNote = '';
+    ui.favoritesOpen = false;
+  }
+  function sendPoke(targetId, targetName) {
+    if (!inChat()) return;
+    const id = conversationId();
+    const state = store.read();
+    if (ui.view === 'group-chat') {
+      const group = state.groups?.find(g => g.id === id);
+      if (!group || !group.userIsMember) return;
+    }
+    const user = state.userProfile || { name: ui.defaultUser || '我' };
+    const actorName = displayName(user) || '你';
+    const service = ui.view === 'group-chat' ? groups : messages;
+    const draft = {
+      type: 'poke',
+      poke: {
+        actorId: '@user',
+        actorName,
+        targetId: targetId || id,
+        targetName: targetName || '对方',
+        suffix: '的头像',
+      },
+    };
+    void perform(`send:${id}`, () => service.sendCard(id, draft), () => {
+      ui.selectedMessage = '';
+      ui.reactionMoreMessageId = '';
+      ui.chatMenu = false;
+      onContextChange();
+    });
+  }
   function showPage(view, { bottom = false } = {}) {
     if (ui.view === 'social' && view !== 'social') ui.socialScroll = root.querySelector('.view-social')?.scrollTop || 0;
     if (['calendar', 'todos'].includes(ui.view) && !['calendar', 'todos'].includes(view)) ui.calendarScroll = root.querySelector('.phone-main')?.scrollTop || 0;
     dismissMenus();
-    if (view !== 'group-chat') ui.replyToId = '';
+    if (!['chat', 'group-chat'].includes(view)) {
+      ui.replyToId = '';
+      resetChatTransientUi();
+    }
     ui.view = view;
     ui.feedback = null;
     ui.confirmClear = false;
@@ -383,7 +456,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (isGroup) { ui.groupId = id; ui.view = 'group-chat'; }
     else { ui.contactId = id; ui.view = 'chat'; }
     ui.chatMenu = false; ui.inboxMenu = false; ui.confirmClear = false; ui.selectedMessage = ''; ui.visibleMessages = 60; ui.historyOpen = false; ui.visibleHistory = 60; ui.feedback = null;
-    ui.attachment = ''; ui.attachmentDraft = {};
+    ui.attachment = ''; ui.attachmentDraft = {}; ui.replyToId = '';
+    resetChatTransientUi();
     render({ bottom: true });
     recoverVisibleImages();
     void store.markRead(id).catch(() => { ui.feedback = { error: true, text: '消息的已读状态保存失败，请检查酒馆连接。' }; render(); });
@@ -459,10 +533,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (ui.modelsOpen && !event?.composedPath().some(node => node.getRootNode?.() === root && node.matches?.('.model-picker'))) closeModels();
     if (!ui.chatMenu && !ui.inboxMenu && !ui.selectedMessage) return;
-    if (event?.composedPath().some(node => node.getRootNode?.() === root && node.matches?.('.chat-options, .inbox-options, .bubble, .message-actions'))) return;
-    ui.chatMenu = false; ui.inboxMenu = false; ui.selectedMessage = '';
+    if (event?.composedPath().some(node => node.getRootNode?.() === root && node.matches?.('.chat-options, .inbox-options, .bubble, .message-actions, .message-reaction-bar'))) return;
+    ui.chatMenu = false; ui.inboxMenu = false; ui.selectedMessage = ''; ui.reactionMoreMessageId = '';
     // 仅移除弹出操作，保留输入节点和焦点，让下一次点击直接开始打字。
-    root.querySelectorAll('.chat-menu, .message-actions').forEach(node => node.remove());
+    root.querySelectorAll('.chat-menu, .message-actions, .message-reaction-bar').forEach(node => node.remove());
     root.querySelectorAll('.is-selected').forEach(node => node.classList.remove('is-selected'));
     root.querySelectorAll('.bubble[aria-expanded="true"]').forEach(node => node.setAttribute('aria-expanded', 'false'));
   }
@@ -472,6 +546,22 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     const person = kind === 'user' ? state.userProfile || { name: defaultUser } : state.contacts.find(item => item.id === id) || {};
     ui.profileDraft = Object.fromEntries(['name', 'nickname', 'avatar', ...(kind === 'contact' ? ['expression', 'language', 'background'] : [])].map(key => [key, person[key] || '']));
     ui.view = `${kind}-profile`; ui.chatMenu = false; ui.inboxMenu = false; ui.feedback = null; render();
+  }
+  function addWiPattern() {
+    const pat = (ui.wiPatternDraft || '').trim();
+    if (!pat) return;
+    const current = readBaiBaiExcludeSettings(() => host?.readSettings?.());
+    if (!current.excludedWorldInfoPatterns.includes(pat)) {
+      const nextList = [...current.excludedWorldInfoPatterns, pat];
+      void perform('world-excludes', async () => {
+        saveBaiBaiExcludeSettings(host?.readSettings?.(), { excludedWorldInfoPatterns: nextList });
+        host?.saveSettings?.();
+        ui.wiPatternDraft = '';
+      });
+    } else {
+      ui.wiPatternDraft = '';
+      render();
+    }
   }
   function keydown(event) {
     if (ui.conflict) {
@@ -497,9 +587,16 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       if (event.target.id === 'model-search' && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); options[0]?.click(); return; }
       if (modelOption && ['Enter', ' '].includes(event.key)) event.stopPropagation();
     }
+    if (event.target.matches('[data-action="draft-wi-pattern"]') && event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      addWiPattern();
+      return;
+    }
     if (event.key === 'Escape') {
       event.stopPropagation();
-      if (ui.photo) { ui.photo = null; render(); }
+      if (ui.excludeWorldModalOpen) { ui.excludeWorldModalOpen = false; ui.excludeWorldSearch = ''; render(); }
+      else if (ui.photo) { ui.photo = null; render(); }
       else if (ui.notice) dismissPhoneNotice();
       else close();
     } else if (event.target.matches('input, textarea, select') || event.target.isContentEditable) {
@@ -517,6 +614,16 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (event.target.matches('.photo-viewer')) { ui.photo = null; render(); return; }
     if (event.target.matches('.calendar-modal-backdrop')) { ui.calendarAiOpen = false; render(); return; }
+    if (event.target.matches('.chat-modal-backdrop')) {
+      ui.editingMessageId = '';
+      ui.editingMessageDraft = undefined;
+      ui.forwardMessageIds = [];
+      ui.forwardTargetId = '';
+      ui.forwardNote = '';
+      ui.favoritesOpen = false;
+      render();
+      return;
+    }
     const todoOpenNode = event.target.closest('[data-action="open-todo-calendar"]');
     if (todoOpenNode && !event.target.closest('button:not([data-action="open-todo-calendar"]), .todo-form')) {
       const todoId = todoOpenNode.dataset.todoId || todoOpenNode.closest('[data-todo-candidate]')?.dataset.todoCandidate || '';
@@ -528,6 +635,12 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         if (matchDay) ui.calendarDay = matchDay.day;
       }
       showPage('calendar');
+      return;
+    }
+    if (event.target.classList.contains('exclude-world-backdrop') || event.target.dataset.action === 'close-exclude-world-modal') {
+      ui.excludeWorldModalOpen = false;
+      ui.excludeWorldSearch = '';
+      render();
       return;
     }
     const button = event.target.closest('button');
@@ -580,7 +693,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (button.dataset.stickerPack) { ui.stickerPack = button.dataset.stickerPack; render(); return; }
     if (button.dataset.sticker) {
       const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages;
-      void perform(`send:${id}`, () => service.sendCard(id, { type: 'sticker', stickerId: button.dataset.sticker }, ui.view === 'group-chat' ? { replyToId: ui.replyToId } : undefined), () => { ui.attachment = ''; ui.replyToId = ''; onContextChange(); }); return;
+      void perform(`send:${id}`, () => service.sendCard(id, { type: 'sticker', stickerId: button.dataset.sticker }, { replyToId: ui.replyToId }), () => { ui.attachment = ''; ui.replyToId = ''; onContextChange(); }); return;
     }
     if (button.dataset.transferId) {
       const id = conversationId(), batch = ui.batch;
@@ -595,7 +708,26 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (button.dataset.contact || button.dataset.group) {
       openConversation(button.dataset.group || button.dataset.contact, Boolean(button.dataset.group)); return;
     }
-    if (button.dataset.message) { ui.chatMenu = false; ui.selectedMessage = ui.selectedMessage === button.dataset.message ? '' : button.dataset.message; render(); return; }
+    if (button.dataset.message) {
+      ui.chatMenu = false;
+      ui.reactionMoreMessageId = '';
+      if (ui.multiSelectMode) {
+        const msgId = button.dataset.message;
+        if (!(ui.selectedMessageIds instanceof Set)) ui.selectedMessageIds = new Set();
+        if (ui.selectedMessageIds.has(msgId)) {
+          ui.selectedMessageIds.delete(msgId);
+          if (ui.multiSelectAnchorId === msgId) ui.multiSelectAnchorId = [...ui.selectedMessageIds].at(-1) || '';
+        } else {
+          ui.selectedMessageIds.add(msgId);
+          ui.multiSelectAnchorId = msgId;
+        }
+        render();
+        return;
+      }
+      ui.selectedMessage = ui.selectedMessage === button.dataset.message ? '' : button.dataset.message;
+      render();
+      return;
+    }
     if (button.dataset.post) { ui.postId = button.dataset.post; ui.view = 'post'; ui.feedback = null; render(); return; }
     const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages;
     switch (button.dataset.action) {
@@ -952,13 +1084,335 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       }
       case 'delete-message': {
         const messageId = ui.selectedMessage;
-        void perform(`delete:${id}`, () => store.deleteMessage(id, messageId), () => { ui.selectedMessage = ''; onContextChange(); }); break;
+        void perform(`delete:${id}`, () => store.deleteMessage(id, messageId), () => { ui.selectedMessage = ''; ui.reactionMoreMessageId = ''; if (ui.replyToId === messageId) ui.replyToId = ''; onContextChange(); }); break;
       }
       case 'reply-message': {
-        if (ui.view !== 'group-chat') break;
-        ui.replyToId = ui.selectedMessage; ui.selectedMessage = ''; render(); root.querySelector('#sms-draft')?.focus({ preventScroll: true }); break;
+        if (!inChat()) break;
+        ui.replyToId = ui.selectedMessage; ui.selectedMessage = ''; ui.reactionMoreMessageId = ''; render(); root.querySelector('#sms-draft')?.focus({ preventScroll: true }); break;
       }
       case 'cancel-reply': ui.replyToId = ''; render(); root.querySelector('#sms-draft')?.focus({ preventScroll: true }); break;
+      case 'react-message': {
+        const messageId = button.dataset.messageId || ui.selectedMessage;
+        const emoji = button.dataset.emoji;
+        if (!messageId || !emoji) break;
+        void perform(`react:${messageId}`, () => store.toggleMessageReaction(id, messageId, emoji), () => {
+          ui.selectedMessage = '';
+          ui.reactionMoreMessageId = '';
+          onContextChange();
+        });
+        break;
+      }
+      case 'toggle-reaction-more': {
+        const messageId = button.dataset.messageId || ui.selectedMessage;
+        ui.reactionMoreMessageId = ui.reactionMoreMessageId === messageId ? '' : messageId;
+        render();
+        break;
+      }
+      case 'toggle-message-reaction': {
+        const messageId = button.dataset.messageId;
+        const emoji = button.dataset.emoji;
+        if (!messageId || !emoji) break;
+        void perform(`react:${messageId}`, () => store.toggleMessageReaction(id, messageId, emoji), onContextChange);
+        break;
+      }
+      case 'edit-message': {
+        const msg = (store.read().conversations[id] || []).find(item => item.id === ui.selectedMessage);
+        if (!msg || msg.type || msg.withdrawn) break;
+        ui.editingMessageId = msg.id;
+        ui.editingMessageDraft = msg.text || '';
+        ui.selectedMessage = '';
+        ui.reactionMoreMessageId = '';
+        render();
+        root.querySelector('#message-edit-textarea')?.focus({ preventScroll: true });
+        break;
+      }
+      case 'cancel-edit-message': {
+        ui.editingMessageId = '';
+        ui.editingMessageDraft = undefined;
+        render();
+        break;
+      }
+      case 'save-edit-message': {
+        const messageId = ui.editingMessageId;
+        const textarea = root.querySelector('#message-edit-textarea');
+        const nextText = (textarea ? textarea.value : (ui.editingMessageDraft ?? '')).trim();
+        if (!messageId || !nextText) {
+          ui.feedback = { error: true, text: '消息内容不能为空。' };
+          render();
+          break;
+        }
+        void perform(`edit:${messageId}`, () => store.editMessage(id, messageId, nextText), () => {
+          ui.editingMessageId = '';
+          ui.editingMessageDraft = undefined;
+          onContextChange();
+        });
+        break;
+      }
+      case 'copy-message':
+      case 'copy-favorite-item': {
+        const messageId = button.dataset.messageId || ui.selectedMessage;
+        const msg = (store.read().conversations[id] || []).find(item => item.id === messageId);
+        if (msg) {
+          const textToCopy = msg.text || '';
+          if (textToCopy && globalThis.navigator?.clipboard?.writeText) {
+            void globalThis.navigator.clipboard.writeText(textToCopy);
+          }
+          ui.selectedMessage = '';
+          ui.reactionMoreMessageId = '';
+          ui.feedback = { text: '已复制消息内容。' };
+          render();
+        }
+        break;
+      }
+      case 'favorite-message': {
+        const messageId = ui.selectedMessage;
+        if (!messageId) break;
+        void perform(`fav:${messageId}`, () => store.toggleFavoriteMessage(id, messageId), () => {
+          const updated = (store.read().conversations[id] || []).find(item => item.id === messageId);
+          ui.selectedMessage = '';
+          ui.reactionMoreMessageId = '';
+          ui.feedback = { text: updated?.favorite ? '已加入收藏。' : '已取消收藏。' };
+          onContextChange();
+        });
+        break;
+      }
+      case 'unfavorite-item': {
+        const messageId = button.dataset.messageId;
+        if (!messageId) break;
+        void perform(`fav:${messageId}`, () => store.toggleFavoriteMessage(id, messageId), onContextChange);
+        break;
+      }
+      case 'open-favorites': {
+        ui.chatMenu = false;
+        ui.favoritesOpen = true;
+        render();
+        break;
+      }
+      case 'close-favorites': {
+        ui.favoritesOpen = false;
+        render();
+        break;
+      }
+      case 'withdraw-message': {
+        const messageId = ui.selectedMessage;
+        if (!messageId) break;
+        void perform(`withdraw:${messageId}`, () => store.withdrawMessage(id, messageId), () => {
+          ui.selectedMessage = '';
+          ui.reactionMoreMessageId = '';
+          if (ui.replyToId === messageId) ui.replyToId = '';
+          onContextChange();
+        });
+        break;
+      }
+      case 'reedit-withdrawn': {
+        const messageId = button.dataset.messageId;
+        const msg = (store.read().conversations[id] || []).find(item => item.id === messageId);
+        if (msg?.withdrawnText) {
+          const currentDraft = ui.drafts.get(id) || '';
+          ui.drafts.set(id, currentDraft ? `${currentDraft} ${msg.withdrawnText}` : msg.withdrawnText);
+          render();
+          const draftNode = root.querySelector('#sms-draft');
+          if (draftNode) {
+            draftNode.focus({ preventScroll: true });
+            draftNode.setSelectionRange(draftNode.value.length, draftNode.value.length);
+            resizeDraft();
+          }
+        }
+        break;
+      }
+      case 'delete-system-message': {
+        const messageId = button.dataset.messageId;
+        if (!messageId) break;
+        void perform(`delete:${id}`, () => store.deleteMessage(id, messageId), onContextChange);
+        break;
+      }
+      case 'forward-message': {
+        if (!ui.selectedMessage) break;
+        const state = store.read();
+        const defaultTarget = state.contacts.find(c => c.id !== id)?.id || state.contacts[0]?.id || state.groups?.find(g => g.userIsMember !== false)?.id || '';
+        ui.forwardMessageIds = [ui.selectedMessage];
+        ui.forwardTargetId = defaultTarget;
+        ui.forwardNote = '';
+        ui.selectedMessage = '';
+        ui.reactionMoreMessageId = '';
+        render();
+        break;
+      }
+      case 'batch-forward': {
+        const ids = [...(ui.selectedMessageIds || [])];
+        if (!ids.length) break;
+        const state = store.read();
+        const defaultTarget = state.contacts.find(c => c.id !== id)?.id || state.contacts[0]?.id || state.groups?.find(g => g.userIsMember !== false)?.id || '';
+        ui.forwardMessageIds = ids;
+        ui.forwardTargetId = defaultTarget;
+        ui.forwardNote = '';
+        render();
+        break;
+      }
+      case 'select-forward-target': {
+        ui.forwardTargetId = button.dataset.targetId || '';
+        render();
+        break;
+      }
+      case 'close-forward': {
+        ui.forwardMessageIds = [];
+        ui.forwardTargetId = '';
+        ui.forwardNote = '';
+        render();
+        break;
+      }
+      case 'confirm-forward': {
+        const forwardIds = [...(ui.forwardMessageIds || [])];
+        const targetId = ui.forwardTargetId;
+        const noteInput = root.querySelector('#forward-note-input');
+        const note = noteInput ? noteInput.value : (ui.forwardNote || '');
+        if (!forwardIds.length || !targetId) break;
+        const batch = ui.batch;
+        void perform(`forward:${targetId}`, () => store.forwardMessages(id, forwardIds, targetId, batch, note), () => {
+          ui.forwardMessageIds = [];
+          ui.forwardTargetId = '';
+          ui.forwardNote = '';
+          ui.multiSelectMode = false;
+          ui.selectedMessageIds = new Set();
+          ui.multiSelectAnchorId = '';
+          ui.feedback = { text: `已转发 ${forwardIds.length} 条消息。` };
+          onContextChange();
+        });
+        break;
+      }
+      case 'multi-select-message': {
+        const startId = ui.selectedMessage;
+        ui.multiSelectMode = true;
+        ui.selectedMessageIds = new Set(startId ? [startId] : []);
+        ui.multiSelectAnchorId = startId || '';
+        ui.selectedMessage = '';
+        ui.reactionMoreMessageId = '';
+        ui.chatMenu = false;
+        render();
+        break;
+      }
+      case 'enter-multi-select': {
+        ui.multiSelectMode = true;
+        ui.selectedMessageIds = new Set();
+        ui.multiSelectAnchorId = '';
+        ui.selectedMessage = '';
+        ui.chatMenu = false;
+        render();
+        break;
+      }
+      case 'toggle-select-message': {
+        const msgId = button.dataset.messageId;
+        if (!msgId) break;
+        if (!(ui.selectedMessageIds instanceof Set)) ui.selectedMessageIds = new Set();
+        if (ui.selectedMessageIds.has(msgId)) {
+          ui.selectedMessageIds.delete(msgId);
+          if (ui.multiSelectAnchorId === msgId) {
+            ui.multiSelectAnchorId = [...ui.selectedMessageIds].at(-1) || '';
+          }
+        } else {
+          ui.selectedMessageIds.add(msgId);
+          ui.multiSelectAnchorId = msgId;
+        }
+        render();
+        break;
+      }
+      case 'select-range-to': {
+        const endId = button.dataset.messageId;
+        const anchorId = ui.multiSelectAnchorId;
+        if (!endId || !anchorId) break;
+        const { current: history } = partitionHistory(store.read().conversations[id] || [], ui.batch);
+        const visible = history.slice(-ui.visibleMessages).filter(m => !m.withdrawn && m.type !== 'poke');
+        const startIdx = visible.findIndex(m => m.id === anchorId);
+        const endIdx = visible.findIndex(m => m.id === endId);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const [from, to] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+          for (let i = from; i <= to; i++) {
+            ui.selectedMessageIds.add(visible[i].id);
+          }
+          ui.multiSelectAnchorId = endId;
+          render();
+        }
+        break;
+      }
+      case 'batch-favorite': {
+        const ids = [...(ui.selectedMessageIds || [])];
+        if (!ids.length) break;
+        void perform(`fav-batch:${id}`, () => store.favoriteMessages(id, ids, true), () => {
+          ui.multiSelectMode = false;
+          ui.selectedMessageIds = new Set();
+          ui.multiSelectAnchorId = '';
+          ui.feedback = { text: `已收藏 ${ids.length} 条消息。` };
+          onContextChange();
+        });
+        break;
+      }
+      case 'batch-delete': {
+        const ids = [...(ui.selectedMessageIds || [])];
+        if (!ids.length) break;
+        void perform(`delete:${id}`, () => store.deleteMessages(id, ids), () => {
+          if (ids.includes(ui.replyToId)) ui.replyToId = '';
+          ui.multiSelectMode = false;
+          ui.selectedMessageIds = new Set();
+          ui.multiSelectAnchorId = '';
+          onContextChange();
+        });
+        break;
+      }
+      case 'leave-multi-select': {
+        ui.multiSelectMode = false;
+        ui.selectedMessageIds = new Set();
+        ui.multiSelectAnchorId = '';
+        render();
+        break;
+      }
+      case 'poke-contact': {
+        const msg = (store.read().conversations[id] || []).find(item => item.id === ui.selectedMessage);
+        const state = store.read();
+        const targetPerson = ui.view === 'group-chat'
+          ? state.contacts.find(p => p.id === msg?.speakerId)
+          : state.contacts.find(p => p.id === id);
+        if (targetPerson) {
+          sendPoke(targetPerson.id, displayName(targetPerson));
+        }
+        break;
+      }
+      case 'poke-chat-partner': {
+        const contact = store.read().contacts.find(p => p.id === id);
+        if (contact) sendPoke(contact.id, displayName(contact));
+        break;
+      }
+      case 'toggle-thought': {
+        const msgId = button.dataset.messageId;
+        if (!msgId) break;
+        ui.thoughtMessageId = ui.thoughtMessageId === msgId ? '' : msgId;
+        render();
+        break;
+      }
+      case 'open-message-thought': {
+        const msgId = ui.selectedMessage;
+        if (!msgId) break;
+        ui.thoughtMessageId = msgId;
+        ui.selectedMessage = '';
+        ui.reactionMoreMessageId = '';
+        const msg = (store.read().conversations[id] || []).find(item => item.id === msgId);
+        render();
+        if (msg && !msg.thought && messages.generateThought) {
+          void perform(`thought:${msgId}`, () => messages.generateThought(id, msgId, msg.speakerId || ''));
+        }
+        break;
+      }
+      case 'generate-thought': {
+        const msgId = button.dataset.messageId || ui.thoughtMessageId;
+        const speakerId = button.dataset.speakerId || '';
+        if (!msgId || !messages.generateThought) break;
+        void perform(`thought:${msgId}`, () => messages.generateThought(id, msgId, speakerId));
+        break;
+      }
+      case 'close-thought': {
+        ui.thoughtMessageId = '';
+        render();
+        break;
+      }
       case 'earlier': ui.visibleMessages += 60; render(); break;
       case 'history': ui.historyOpen = !ui.historyOpen; ui.selectedMessage = ''; render(); break;
       case 'earlier-history': ui.visibleHistory += 60; render(); break;
@@ -966,7 +1420,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'close': close(); break;
       case 'send': {
         const text = (ui.drafts.get(id) || '').trim();
-        if (text) void perform(`send:${id}`, () => ui.view === 'group-chat' ? service.send(id, text, { replyToId: ui.replyToId }) : service.send(id, text), () => { if ((ui.drafts.get(id) || '').trim() === text) ui.drafts.set(id, ''); ui.replyToId = ''; onContextChange(); });
+        if (text) void perform(`send:${id}`, () => service.send(id, text, { replyToId: ui.replyToId }), () => { if ((ui.drafts.get(id) || '').trim() === text) ui.drafts.set(id, ''); ui.replyToId = ''; onContextChange(); });
         break;
       }
       case 'continue': void perform(`continue:${id}`, () => service.continueChat(id), onContextChange); break;
@@ -1111,6 +1565,46 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         });
         break;
       }
+      case 'open-exclude-world-modal': {
+        ui.excludeWorldModalOpen = true;
+        ui.excludeWorldSearch = '';
+        render();
+        break;
+      }
+      case 'close-exclude-world-modal': {
+        ui.excludeWorldModalOpen = false;
+        ui.excludeWorldSearch = '';
+        render();
+        break;
+      }
+      case 'remove-exclude-world': {
+        const worldName = button.dataset.worldName;
+        if (worldName) {
+          const current = readBaiBaiExcludeSettings(() => host?.readSettings?.());
+          const nextWorlds = current.excludedWorldNames.filter(w => w !== worldName);
+          void perform('world-excludes', async () => {
+            saveBaiBaiExcludeSettings(host?.readSettings?.(), { excludedWorldNames: nextWorlds });
+            host?.saveSettings?.();
+          });
+        }
+        break;
+      }
+      case 'add-wi-pattern': {
+        addWiPattern();
+        break;
+      }
+      case 'remove-wi-pattern': {
+        const pat = button.dataset.pattern;
+        if (pat) {
+          const current = readBaiBaiExcludeSettings(() => host?.readSettings?.());
+          const nextList = current.excludedWorldInfoPatterns.filter(p => p !== pat);
+          void perform('world-excludes', async () => {
+            saveBaiBaiExcludeSettings(host?.readSettings?.(), { excludedWorldInfoPatterns: nextList });
+            host?.saveSettings?.();
+          });
+        }
+        break;
+      }
       case 'refresh-backflow-preview': {
         if (previewBackflow) {
           void perform('preview-backflow', async () => {
@@ -1220,12 +1714,23 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       render();
       return;
     }
+    if (event.target.matches('[data-action="search-exclude-world"]')) {
+      ui.excludeWorldSearch = event.target.value;
+      render();
+      return;
+    }
+    if (event.target.matches('[data-action="draft-wi-pattern"]')) {
+      ui.wiPatternDraft = event.target.value;
+      return;
+    }
     if (event.target.matches('[data-prompt-textarea]')) {
       const pid = event.target.dataset.promptTextarea;
       if (!ui.promptDrafts) ui.promptDrafts = {};
       ui.promptDrafts[pid] = event.target.value;
       return;
     }
+    if (event.target.id === 'message-edit-textarea') { ui.editingMessageDraft = event.target.value; return; }
+    if (event.target.id === 'forward-note-input') { ui.forwardNote = event.target.value; return; }
     if (event.target.id === 'cal-ai-setting') ui.calendarAiSetting = event.target.value;
     if (event.target.id === 'cal-ai-count') ui.calendarAiCount = Number(event.target.value);
     if (event.target.id === 'cal-ai-days') ui.calendarAiDays = Number(event.target.value);
@@ -1321,6 +1826,26 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       else ui.groupDraft.memberIds = checked ? [...ui.groupDraft.memberIds, value] : ui.groupDraft.memberIds.filter(id => id !== value);
       root.querySelector('.group-members-fold summary span').textContent = `${ui.groupDraft.memberIds.length + Number(ui.groupDraft.userIsMember)} 人`;
     }
+    if (event.target.id === 'render-world-templates') {
+      const enabled = event.target.checked;
+      void perform('world-excludes', async () => {
+        saveBaiBaiExcludeSettings(host?.readSettings?.(), { renderWorldInfoTemplates: enabled });
+        host?.saveSettings?.();
+      });
+    }
+    if (event.target.matches('[data-action="toggle-exclude-world-item"]')) {
+      const worldName = event.target.dataset.worldName;
+      if (worldName) {
+        const current = readBaiBaiExcludeSettings(() => host?.readSettings?.());
+        const nextWorlds = event.target.checked
+          ? [...new Set([...current.excludedWorldNames, worldName])]
+          : current.excludedWorldNames.filter(w => w !== worldName);
+        void perform('world-excludes', async () => {
+          saveBaiBaiExcludeSettings(host?.readSettings?.(), { excludedWorldNames: nextWorlds });
+          host?.saveSettings?.();
+        });
+      }
+    }
     if (event.target.id === 'inject-enabled') {
       const enabled = event.target.checked;
       void perform('injection', async () => { await store.setInjectionEnabled(enabled); onContextChange(); });
@@ -1385,7 +1910,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (event.target.matches('.attachment-form')) {
       const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages, type = ui.attachment;
       const draft = { type, [type]: { ...ui.attachmentDraft } };
-      void perform(`send:${id}`, () => ui.view === 'group-chat' ? service.sendCard(id, draft, { replyToId: ui.replyToId }) : service.sendCard(id, draft), () => { ui.attachment = ''; ui.attachmentDraft = {}; ui.replyToId = ''; onContextChange(); });
+      void perform(`send:${id}`, () => service.sendCard(id, draft, { replyToId: ui.replyToId }), () => { ui.attachment = ''; ui.attachmentDraft = {}; ui.replyToId = ''; onContextChange(); });
     }
     if (event.target.matches('.composer')) {
       const send = root.querySelector('[data-action="send"]');
@@ -1451,6 +1976,36 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       void perform('group-profile', () => store.saveGroup(id, draft), result => { ui.groupId = result.id; ui.view = 'group-chat'; ui.groupDraft = {}; ui.selectedMessage = ''; ui.confirmClear = false; });
     }
   }
+  function dblclick(event) {
+    if (!inChat()) return;
+    const avatarBtn = event.target.closest('[data-poke-target-id]');
+    if (!avatarBtn) return;
+    event.preventDefault();
+    const targetId = avatarBtn.dataset.pokeTargetId;
+    const targetName = avatarBtn.dataset.pokeTargetName || '对方';
+    if (ui.view === 'group-chat') {
+      const draft = root.querySelector('#sms-draft');
+      const mentionPrefix = `@${targetName} `;
+      if (draft && draft.value.endsWith(mentionPrefix)) {
+        draft.value = draft.value.slice(0, -mentionPrefix.length);
+        ui.drafts.set(conversationId(), draft.value);
+        resizeDraft();
+      }
+    } else if (ui.thoughtMessageId) {
+      ui.thoughtMessageId = '';
+    }
+    sendPoke(targetId, targetName);
+  }
+  function contextmenu(event) {
+    if (!inChat() || ui.multiSelectMode) return;
+    const bubble = event.target.closest('.bubble[data-message]');
+    if (!bubble) return;
+    event.preventDefault();
+    ui.chatMenu = false;
+    ui.reactionMoreMessageId = '';
+    ui.selectedMessage = bubble.dataset.message;
+    render();
+  }
   const refreshCalendar = () => {
     if (!element.hidden && ['calendar', 'desktop'].includes(ui.view)) render();
   };
@@ -1464,12 +2019,16 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (ui.view === 'settings' && ui.drawers.logs) render();
   });
   const onSharedChannelsChange = () => { render(); };
+  const onExcludeSettingsChange = () => { if (ui.view === 'settings') render(); };
   doc.defaultView?.addEventListener?.('st-baibai-api-channels:changed', onSharedChannelsChange);
+  doc.defaultView?.addEventListener?.(SHARED_EXCLUDES_EVENT, onExcludeSettingsChange);
   doc.defaultView?.addEventListener?.('st-sevendayscal:calendar-changed', refreshCalendar);
   doc.defaultView.addEventListener('st-baibai-book:changed', refreshCalendar);
   doc.defaultView.addEventListener('st-baibai-book:ready', refreshCalendar);
   root.addEventListener('keydown', keydown);
   root.addEventListener('click', click);
+  root.addEventListener('dblclick', dblclick);
+  root.addEventListener('contextmenu', contextmenu);
   root.addEventListener('input', input);
   root.addEventListener('change', change);
   root.addEventListener('submit', submit);
@@ -1546,6 +2105,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       lockImageNode = null;
       lockImageSrc = '';
       doc.defaultView?.removeEventListener?.('st-baibai-api-channels:changed', onSharedChannelsChange);
+      doc.defaultView?.removeEventListener?.(SHARED_EXCLUDES_EVENT, onExcludeSettingsChange);
       doc.defaultView.removeEventListener('st-sevendayscal:calendar-changed', refreshCalendar);
       doc.defaultView.removeEventListener('st-baibai-book:changed', refreshCalendar);
       doc.defaultView.removeEventListener('st-baibai-book:ready', refreshCalendar);

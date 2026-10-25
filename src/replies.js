@@ -16,6 +16,15 @@ export function replyContext(message, thread) {
   if (!messageId) return undefined;
   const source = Array.isArray(thread) ? thread.find(item => item?.id === messageId) : undefined;
   if (!source) return { messageId, missing: true };
+  if (source.withdrawn) {
+    return {
+      messageId,
+      ...(source.speakerId ? { speakerId: source.speakerId } : {}),
+      ...(source.role ? { role: source.role } : {}),
+      withdrawn: true,
+      messageText: '原消息已撤回',
+    };
+  }
   return {
     messageId,
     ...(source.speakerId ? { speakerId: source.speakerId } : {}),

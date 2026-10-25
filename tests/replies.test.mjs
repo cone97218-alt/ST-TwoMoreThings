@@ -54,3 +54,15 @@ test('reply context distinguishes duplicate text by message id and reports delet
   assert.deepEqual(replyContext({ replyToId: 'b' }, thread), { messageId: 'b', speakerId: 'zhou', role: 'assistant', messageText: '同一句' });
   assert.deepEqual(replyContext({ replyToId: 'b' }, thread.slice(0, 1)), { messageId: 'b', missing: true });
 });
+
+test('reply context reports withdrawn source message cleanly', () => {
+  const thread = [
+    { id: 'w1', role: 'user', text: '[消息已撤回]', withdrawn: true, withdrawnText: '原本的话' },
+  ];
+  assert.deepEqual(replyContext({ replyToId: 'w1' }, thread), {
+    messageId: 'w1',
+    role: 'user',
+    withdrawn: true,
+    messageText: '原消息已撤回',
+  });
+});

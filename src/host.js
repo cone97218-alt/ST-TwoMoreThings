@@ -1,4 +1,10 @@
-import { selectWorldEntries } from './worldbook.js';
+import {
+  selectWorldEntries,
+  sortWorldInfoEntriesLikeST,
+  readBaiBaiExcludeSettings,
+  isWorldInfoEntryExcluded,
+  renderWorldInfoContent,
+} from './worldbook.js';
 import { OPEN_COMMAND } from './quick-reply.js';
 import { readCardPreset } from './authoring.js';
 
@@ -85,27 +91,78 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
       ctx.eventSource.on(name, callback);
       return () => ctx.eventSource.removeListener(name, callback);
     },
-    async readWorldInfo(target, { scanText } = {}) {
+    listWorldInfoNames() {
+      const ctx = context();
+      if (typeof ctx?.getWorldInfoNames === 'function') {
+        try {
+          const names = ctx.getWorldInfoNames();
+          if (Array.isArray(names)) return names.filter(Boolean);
+        } catch {}
+      }
+      if (typeof globalThis.world_info_list === 'function') {
+        try {
+          const names = globalThis.world_info_list();
+          if (Array.isArray(names)) return names.filter(Boolean);
+        } catch {}
+      }
+      if (Array.isArray(globalThis.world_info_list)) {
+        return globalThis.world_info_list.filter(Boolean);
+      }
+      if (typeof document !== 'undefined') {
+        const opts = document.querySelectorAll('#world_editor_select option');
+        const out = [];
+        for (const o of opts) {
+          if (o.value !== '' && o.textContent) out.push(o.textContent.trim());
+        }
+        if (out.length) return [...new Set(out)];
+      }
+      return [];
+    },
+    async readWorldInfo(target, { scanText, excludeSettings } = {}) {
+      const ctx = context();
+      const stSettings = ctx?.extensionSettings || globalThis.extension_settings || {};
+      const excludes = excludeSettings || readBaiBaiExcludeSettings(() => stSettings);
+
       // 核心可从CDN加载，宿主模块仍必须从当前酒馆页面的地址读取。
       const bindings = worldInfoBindings || await import(new URL('/scripts/world-info.js', globalThis.location.href).href).then(world => ({
         getNames: current => [...(world.selected_world_info || []), ...[current.metadata.world_info || []].flat(), ...(world.world_info?.charLore?.find(x => x.name === current.character?.avatar?.replace(/\.[^.]+$/, ''))?.extraBooks || [])],
         load: world.loadWorldInfo,
         defaults: { caseSensitive: world.world_info_case_sensitive, matchWholeWords: world.world_info_match_whole_words },
       }));
-      const names = [...new Set([target.character?.world, target.personaWorld, ...(bindings.getNames?.(target) || [])].filter(Boolean))];
-      const parts = [];
-      let remaining = 24000;
+
+      const allNames = [...new Set([target.character?.world, target.personaWorld, ...(bindings.getNames?.(target) || [])].filter(Boolean))];
+      // 对接柏宝书：整本排除过滤
+      const names = allNames.filter(name => !excludes.excludedWorldNames.includes(name));
+
+      const allMatchingEntries = [];
       for (const name of names) {
         const book = await bindings.load(name);
         if (!book) throw new Error('关联世界书读取失败，请检查世界书是否可用。');
-        const rows = Object.values(book.entries || {});
-        const entries = scanText === undefined ? rows : selectWorldEntries(rows, scanText, { defaults: bindings.defaults, user: target.user, char: target.character?.name });
+        const rows = Object.values(book.entries || {}).map(entry => ({ ...entry, world: entry.world || name }));
+        const entries = scanText === undefined ? rows : selectWorldEntries(rows, scanText, { defaults: bindings.defaults, user: target.user, char: target.character?.name, excludeSettings: excludes });
         for (const entry of entries) {
-          if (entry.disable || typeof entry.content !== 'string') continue;
-          const text = `${entry.comment || ''}\n${entry.content}`.slice(0, remaining);
-          parts.push(text); remaining -= text.length;
-          if (!remaining) return parts.join('\n\n');
+          if (entry.disable || entry.disabled || entry.enabled === false || typeof entry.content !== 'string') continue;
+          if (isWorldInfoEntryExcluded(entry, excludes)) continue;
+          allMatchingEntries.push(entry);
         }
+      }
+
+      // 对齐 SillyTavern 标准主提示词装配顺序（位置桶 + 深度 + order 升序，修复此前颠倒问题）
+      const sortedEntries = sortWorldInfoEntriesLikeST(allMatchingEntries);
+
+      const parts = [];
+      const seen = new Set();
+      let remaining = 24000;
+      for (const entry of sortedEntries) {
+        // 对接柏宝书：支持世界书宏展开与 EJS 模板求值
+        const rendered = await renderWorldInfoContent(entry.content, entry, { renderTemplates: excludes.renderWorldInfoTemplates, ctx });
+        const trimmed = (rendered || '').trim();
+        if (!trimmed || seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        const text = `${entry.comment || ''}\n${trimmed}`.slice(0, remaining);
+        parts.push(text);
+        remaining -= text.length;
+        if (!remaining) return parts.join('\n\n');
       }
       return parts.join('\n\n');
     },

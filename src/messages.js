@@ -1,10 +1,11 @@
 import { parsePayload, parseJsonObject } from './api.js';
-import { getPrompt, CONTACTS_PROMPT, MESSAGES_PROMPT, TODO_SUGGESTIONS_PROMPT } from './prompts.js';
+import { getPrompt, CONTACTS_PROMPT, MESSAGES_PROMPT, TODO_SUGGESTIONS_PROMPT, THOUGHT_PROMPT } from './prompts.js';
 import { readTimeline } from './timeline.js';
-import { normalizeContent, RICH_MESSAGES_PROMPT } from './content.js';
+import { normalizeContent, messageText, RICH_MESSAGES_PROMPT } from './content.js';
 import { CALENDAR_PROMPT } from './calendar.js';
 import { parseTodoCandidates } from './todos.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
+import { replyToMessage } from './replies.js';
 
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
@@ -18,13 +19,15 @@ export function record(role, text, clock, translation, batch) {
 
 export function createMessageService({ target, store, contextReader, modelClient }) {
   return {
-    async sendCard(id, draft) {
+    async sendCard(id, draft, { replyToId } = {}) {
       const content = normalizeContent(draft);
       if (!content?.type) throw new Error('消息卡内容不完整，请检查后发送。');
-      if (!store.read().contacts.some(person => person.id === id)) throw new Error('请先选择一位联系人。');
+      const state = store.read();
+      if (!state.contacts.some(person => person.id === id)) throw new Error('请先选择一位联系人。');
       if (content.type === 'transfer') content.transfer.recipientId = id;
       const batch = readTimeline(target.messages);
-      await store.appendMessage(id, { ...record('user', content.text, batch.clock, '', batch), ...content });
+      const thread = state.conversations[id] || [];
+      await store.appendMessage(id, { ...record('user', content.text, batch.clock, '', batch), ...content, ...replyToMessage(thread, replyToId) });
     },
     async refineOnlineStyle(id) {
       const contact = store.read().contacts.find(person => person.id === id);
@@ -64,12 +67,66 @@ export function createMessageService({ target, store, contextReader, modelClient
       if (!result?.expression) throw new Error('没有生成这位联系人的线上聊天方式，请重新提炼。');
       return result.expression;
     },
-    async send(id, text) {
+    async send(id, text, { replyToId } = {}) {
       const content = String(text || '').trim();
       if (!content) return;
-      if (!store.read().contacts.some(x => x.id === id)) throw new Error('请先选择一位联系人。');
+      const state = store.read();
+      if (!state.contacts.some(x => x.id === id)) throw new Error('请先选择一位联系人。');
       const batch = readTimeline(target.messages);
-      await store.appendMessage(id, record('user', content, batch.clock, '', batch));
+      const thread = state.conversations[id] || [];
+      await store.appendMessage(id, { ...record('user', content, batch.clock, '', batch), ...replyToMessage(thread, replyToId) });
+    },
+    async generateThought(id, messageId, speakerId = '') {
+      const state = store.read();
+      const thread = state.conversations[id] || [];
+      const targetMsg = thread.find(item => item.id === messageId);
+      if (!targetMsg || targetMsg.role !== 'assistant') throw new Error('只能查看对方发出的消息心声。');
+      const isGroup = state.groups?.some(group => group.id === id);
+      const resolvedSpeakerId = speakerId || targetMsg.speakerId || id;
+      const contact = state.contacts.find(person => person.id === resolvedSpeakerId);
+      if (!contact) throw new Error('未找到对应的角色资料。');
+
+      const context = isGroup
+        ? await contextReader.readForGroup(id)
+        : await contextReader.readForContact(id);
+      const msgIndex = thread.findIndex(item => item.id === messageId);
+      const sliceStart = Math.max(0, msgIndex - 7);
+      const recentMessages = thread.slice(sliceStart, msgIndex + 1).map(item => ({
+        role: item.role,
+        ...(item.speakerId ? { speakerId: item.speakerId } : {}),
+        text: messageText(item),
+      }));
+
+      const systemPrompt = getPrompt('thought', state) || THOUGHT_PROMPT;
+      const userPayload = {
+        character: {
+          id: contact.id,
+          name: contact.name,
+          nickname: contact.nickname || '',
+          personality: contact.personality || '',
+          expression: contact.expression || '',
+        },
+        clock: context.clock,
+        story: (context.story || []).slice(-4),
+        recentMessages,
+        targetMessage: {
+          text: messageText(targetMsg),
+          ...(targetMsg.withdrawn && targetMsg.withdrawnText ? { withdrawn: true, withdrawnText: targetMsg.withdrawnText } : {}),
+          ...(targetMsg.translation ? { translation: targetMsg.translation } : {}),
+          timeLabel: targetMsg.timeLabel || '',
+        },
+      };
+
+      const reply = await modelClient.complete({
+        label: '角色隐秘心声生成',
+        system: systemPrompt,
+        messages: [{ role: 'user', content: JSON.stringify(userPayload) }],
+      });
+      const parsed = parseJsonObject(reply);
+      const thought = String(parsed?.thought ?? parsed?.innerThought ?? parsed?.text ?? '').trim();
+      if (!thought) throw new Error('未能解析出有效的心声内容，请重试。');
+      await store.updateMessageThought(id, messageId, thought);
+      return thought;
     },
     async continueChat(id) {
       const context = await contextReader.readForContact(id);
@@ -102,14 +159,54 @@ export function createMessageService({ target, store, contextReader, modelClient
       });
       const answer = parseJsonObject(reply);
       const actions = Array.isArray(answer.transferActions) ? answer.transferActions : [];
-      const indexedMessages = parsePayload(reply, 'messages', { allowEmpty: actions.length > 0, indexed: true }).map(content => {
+      const rawMsgActions = [
+        ...(Array.isArray(answer.messageActions) ? answer.messageActions : []),
+        ...(Array.isArray(answer.reactionActions) ? answer.reactionActions.map(item => ({ ...item, action: 'react' })) : []),
+      ];
+      const existingThread = store.read().conversations[id] || [];
+      const existingIds = new Set(existingThread.map(item => item.id));
+      const resolveReplyId = rawId => {
+        if (!rawId) return '';
+        if (existingIds.has(rawId)) return rawId;
+        const byText = [...existingThread].reverse().find(m => m.text === rawId || messageText(m) === rawId);
+        return byText ? byText.id : '';
+      };
+      const indexedMessages = parsePayload(reply, 'messages', { allowEmpty: actions.length > 0 || rawMsgActions.length > 0, indexed: true }).map(content => {
         if (!content) return null;
         if (content.type === 'transfer') content.transfer.recipientId = '@user';
+        if (content.type === 'poke') {
+          content.poke.actorId = id;
+          if (!content.poke.actorName || content.poke.actorName === '对方') {
+            content.poke.actorName = context.contact?.name || '对方';
+          }
+          content.text = messageText(content);
+        }
+        if (content.replyToId) {
+          const resolved = resolveReplyId(content.replyToId);
+          if (resolved) content.replyToId = resolved;
+          else delete content.replyToId;
+        }
         return { ...record('assistant', content.text, clock, content.translation, context.batch), ...content };
       });
       const messages = indexedMessages.filter(Boolean);
       const todoCandidates = parseTodoCandidates(answer.todoSuggestions ?? answer.todos, { conversationId: id, messages: indexedMessages, participantIds: (context.todoPeople || []).map(person => person.id) });
       for (const item of actions) await store.respondTransfer(id, item.transferId, item.status, id, context.batch);
+      for (const item of rawMsgActions) {
+        if (!item || typeof item !== 'object') continue;
+        const kind = String(item.action ?? item.type ?? '').trim();
+        const targetId = resolveReplyId(String(item.messageId ?? item.id ?? '').trim());
+        if (!targetId) continue;
+        const targetMsg = (store.read().conversations[id] || []).find(m => m.id === targetId);
+        if (!targetMsg) continue;
+        if ((kind === 'react' || kind === 'reaction') && item.emoji) {
+          await store.addMessageReaction(id, targetId, String(item.emoji).trim());
+        } else if ((kind === 'withdraw' || kind === 'recall') && targetMsg.role === 'assistant') {
+          await store.withdrawMessage(id, targetId);
+        } else if (kind === 'edit' && targetMsg.role === 'assistant' && !targetMsg.type && !targetMsg.withdrawn) {
+          const nextText = String(item.text ?? item.newText ?? item.content ?? '').trim();
+          if (nextText) await store.editMessage(id, targetId, nextText);
+        }
+      }
       if (messages.length) await store.appendMessages(id, messages, { todoCandidates });
       return messages;
     },

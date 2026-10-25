@@ -5,6 +5,7 @@ import { createPhoneStore } from '../src/store.js';
 import { createApiSettings, createModelClient } from '../src/api.js';
 import { createContextReader } from '../src/context.js';
 import { createMessageService } from '../src/messages.js';
+import { renderChat } from '../src/ui/messages.js';
 
 export async function serviceHarness(options = {}) {
   const h = createHarness({ settings: { qianqianjie: { apiUrl: 'https://example.invalid/v1', apiKey: 'test-key', apiModel: 'm' } }, ...options });
@@ -65,3 +66,182 @@ test('new SMS use story time while createdAt still records actual save order', a
   assert.equal(h.modelRequests.length, 1, '读取时间不请求模型');
 });
 
+test('private chat supports quote replies, emoji reactions, edit, withdraw, favorite, forward, batch delete, poke, and inner thought', async () => {
+  const { store, reader, service } = await serviceHarness({
+    messages: [{ is_user: false, mes: '雨天在咖啡馆。<!-- SDC-end | date=2026-10-21 | time=15:00 -->' }],
+    completion: { choices: [{ message: { content: '{"thought":"其实很想让他现在就过来陪我，但又不好意思直说。"}' } }] },
+  });
+  await store.saveContact('', { name: '周予', personality: '直率' });
+  const zhouId = store.read().contacts.find(c => c.name === '周予').id;
+  const group = await store.saveGroup('', { name: '周末小分队', memberIds: ['lin', zhouId], userIsMember: true });
+
+  // 1. Send message & quote reply in private chat
+  await service.send('lin', '你在咖啡馆吗？');
+  const firstMsg = store.read().conversations.lin[0];
+  await store.appendMessage('lin', {
+    id: 'reply-from-lin',
+    role: 'assistant',
+    text: '在靠窗的位置。',
+    timeLabel: '15:01',
+    batch: firstMsg.batch,
+  });
+  await service.send('lin', '我马上到！', { replyToId: 'reply-from-lin' });
+  const quotedMsg = store.read().conversations.lin[2];
+  assert.equal(quotedMsg.replyToId, 'reply-from-lin');
+
+  // 2. Emoji reactions & recentReactions
+  await store.toggleMessageReaction('lin', 'reply-from-lin', '❤️');
+  await store.toggleMessageReaction('lin', 'reply-from-lin', '🥰');
+  assert.deepEqual(store.read().conversations.lin[1].reactions, ['❤️', '🥰']);
+  assert.deepEqual(store.read().recentReactions.slice(0, 2), ['🥰', '❤️']);
+  await store.toggleMessageReaction('lin', 'reply-from-lin', '❤️');
+  assert.deepEqual(store.read().conversations.lin[1].reactions, ['🥰']);
+
+  // 3. Edit message
+  await store.editMessage('lin', firstMsg.id, '你在街角那家咖啡馆吗？');
+  const editedMsg = store.read().conversations.lin[0];
+  assert.equal(editedMsg.text, '你在街角那家咖啡馆吗？');
+  assert.ok(editedMsg.editedAt);
+
+  // 4. Favorite & batch favorite
+  await store.toggleFavoriteMessage('lin', 'reply-from-lin');
+  assert.equal(store.read().conversations.lin[1].favorite, true);
+  await store.favoriteMessages('lin', [firstMsg.id, quotedMsg.id], true);
+  assert.equal(store.read().conversations.lin[0].favorite, true);
+  assert.equal(store.read().conversations.lin[2].favorite, true);
+
+  // 5. Generate character inner thought
+  const thought = await service.generateThought('lin', 'reply-from-lin');
+  assert.equal(thought, '其实很想让他现在就过来陪我，但又不好意思直说。');
+  assert.equal(store.read().conversations.lin[1].thought, thought);
+
+  // 6. Forward messages to another contact and group with note
+  await store.forwardMessages('lin', [firstMsg.id, 'reply-from-lin'], zhouId, firstMsg.batch, '给你看看');
+  const zhouThread = store.read().conversations[zhouId];
+  assert.equal(zhouThread.length, 3);
+  assert.equal(zhouThread[0].forwarded, true);
+  assert.equal(zhouThread[0].forwardedFrom.senderName, '我');
+  assert.equal(zhouThread[1].forwarded, true);
+  assert.equal(zhouThread[1].forwardedFrom.senderName, '林舟');
+  assert.equal(zhouThread[2].text, '给你看看');
+  const zhouCtx = await reader.readForContact(zhouId);
+  assert.match(zhouCtx.history[1].text, /\[用户转发的聊天记录｜原发言人：林舟\] 在靠窗的位置。/);
+
+  await store.forwardMessages('lin', ['reply-from-lin'], group.id, firstMsg.batch);
+  assert.equal(store.read().conversations[group.id][0].speakerId, '@user');
+  assert.equal(store.read().conversations[group.id][0].forwarded, true);
+  assert.equal(store.read().conversations[group.id][0].forwardedFrom.senderName, '林舟');
+
+  // 7. Poke card message
+  await service.sendCard('lin', {
+    type: 'poke',
+    poke: { actorId: '@user', actorName: '你', targetId: 'lin', targetName: '林舟', suffix: '的头像' },
+  });
+  const pokeMsg = store.read().conversations.lin.at(-1);
+  assert.equal(pokeMsg.type, 'poke');
+  assert.equal(pokeMsg.text, '[拍一拍：你拍了拍林舟的头像]');
+
+  // 8. Withdraw message & verify context projection
+  await store.withdrawMessage('lin', quotedMsg.id);
+  const withdrawnMsg = store.read().conversations.lin[2];
+  assert.equal(withdrawnMsg.withdrawn, true);
+  assert.equal(withdrawnMsg.withdrawnText, '我马上到！');
+  assert.equal(withdrawnMsg.text, '[消息已撤回]');
+
+  const ctx = await reader.readForContact('lin');
+  assert.equal(ctx.history[0].edited, true);
+  assert.deepEqual(ctx.history[1].reactions, ['🥰']);
+  assert.equal(ctx.history[2].withdrawn, true);
+
+  // 9. Render chat UI with reaction bar, thought card, poke notice, and withdrawn re-edit button
+  const chatHtml = renderChat(store.read(), {
+    ui: {
+      view: 'chat',
+      contactId: 'lin',
+      defaultUser: '我',
+      batch: firstMsg.batch,
+      visibleMessages: 60,
+      visibleHistory: 60,
+      drafts: new Map(),
+      selectedMessage: 'reply-from-lin',
+      thoughtMessageId: 'reply-from-lin',
+    },
+    busy: new Set(),
+  });
+  assert.ok(chatHtml.includes('message-reaction-bar'));
+  assert.ok(chatHtml.includes('chat-avatar-thought'));
+  assert.ok(chatHtml.includes('其实很想让他现在就过来陪我'));
+  assert.ok(chatHtml.includes('withdrawn-reedit-btn'));
+  assert.ok(chatHtml.includes('poke-notice'));
+
+  // 10. Batch delete messages
+  await store.deleteMessages('lin', [firstMsg.id, pokeMsg.id]);
+  assert.equal(store.read().conversations.lin.length, 2);
+});
+
+test('AI can proactively quote, forward, instant-withdraw, poke, and perform messageActions (react, edit, withdraw)', async () => {
+  let prevAssistantId = '';
+  let userMsgId = '';
+  const { store, service } = await serviceHarness({
+    messages: [{ is_user: false, mes: '<!-- SDC-end | date=2026-10-21 | time=16:00 -->' }],
+    completion: () => ({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            messages: [
+              { text: '其实是想约你周末单独出去的', withdrawn: true, thought: '太直接了，先撤回换个说法' },
+              { text: '刚刚手滑发错了，这周末有空吗？', replyToId: userMsgId },
+              { text: '周予刚跟我说今天店里上新了甜品', forwarded: true, forwardedFrom: { senderName: '周予' } },
+              { type: 'poke', poke: { suffix: '的小脑袋' } },
+            ],
+            messageActions: [
+              { action: 'react', messageId: userMsgId, emoji: '❤️' },
+              { action: 'edit', messageId: prevAssistantId, text: '我刚到书店二楼靠窗位了' },
+            ],
+          }),
+        },
+      }],
+    }),
+  });
+
+  await store.appendMessage('lin', {
+    id: 'ai-prev-1',
+    role: 'assistant',
+    text: '我刚到书店一楼了',
+    timeLabel: '15:55',
+    batch: 0,
+  });
+  prevAssistantId = 'ai-prev-1';
+
+  await service.send('lin', '那我忙完手头的事就去找你');
+  userMsgId = store.read().conversations.lin[1].id;
+
+  await service.continueChat('lin');
+  const thread = store.read().conversations.lin;
+  assert.equal(thread.length, 6);
+
+  // Check messageActions applied to existing messages
+  assert.equal(thread[0].text, '我刚到书店二楼靠窗位了');
+  assert.ok(thread[0].editedAt);
+  assert.deepEqual(thread[1].reactions, ['❤️']);
+
+  // Check proactive instant-withdrawn message
+  assert.equal(thread[2].withdrawn, true);
+  assert.equal(thread[2].text, '[消息已撤回]');
+  assert.equal(thread[2].withdrawnText, '其实是想约你周末单独出去的');
+  assert.equal(thread[2].thought, '太直接了，先撤回换个说法');
+
+  // Check proactive quote reply
+  assert.equal(thread[3].replyToId, userMsgId);
+  assert.equal(thread[3].text, '刚刚手滑发错了，这周末有空吗？');
+
+  // Check proactive forward
+  assert.equal(thread[4].forwarded, true);
+  assert.equal(thread[4].forwardedFrom.senderName, '周予');
+
+  // Check proactive poke
+  assert.equal(thread[5].type, 'poke');
+  assert.equal(thread[5].poke.actorName, '林舟');
+  assert.equal(thread[5].poke.suffix, '的小脑袋');
+  assert.equal(thread[5].text, '[拍一拍：林舟拍了拍你的小脑袋]');
+});

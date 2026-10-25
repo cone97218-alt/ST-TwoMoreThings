@@ -19,7 +19,7 @@ for (const hostKind of ['native', 'luker']) test(`${hostKind}: delete and clear 
   await store.appendMessage('zhou', { id: 'z', batch, role: 'assistant', text: '其他会话' });
   await store.deleteMessage('lin', 'a');
   const reader = createContextReader({ target, store });
-  assert.deepEqual((await reader.readForContact('lin')).history, [{ role: 'assistant', text: '仍然存在的内容', translation: '保留的译文' }]);
+  assert.deepEqual((await reader.readForContact('lin')).history, [{ id: 'b', role: 'assistant', text: '仍然存在的内容', translation: '保留的译文' }]);
   const summary = createBackflowService({ target, store, modelClient: createModelClient({ host: h.host, sourceProvider: createApiSettings({ host: h.host }) }) });
   const prompt = await summary.prepare();
   assert.ok(!prompt.includes('已删除的内容'));

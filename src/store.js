@@ -30,7 +30,7 @@ const cleanTodoCandidates = (state, conversations = state.conversations) => {
   const todos = readTodos(state).filter(todo => {
     if (todo.status !== 'candidate') return true;
     const messages = conversations?.[todo.sourceConversationId] || [];
-    const ids = new Set(messages.map(message => message.id));
+    const ids = new Set(messages.filter(message => !message.withdrawn).map(message => message.id));
     const sourceIds = todoSourceMessageIds(todo);
     return sourceIds.length > 0 && sourceIds.every(id => ids.has(id));
   });
@@ -54,7 +54,7 @@ const editableTodo = (state, todo, patch = {}) => {
 };
 const materializeTodoCandidates = (state, conversationId, messages, rows) => {
   const actual = Array.isArray(messages) ? messages : [];
-  const actualIds = new Set(actual.filter(message => message?.role === 'assistant').map(message => message.id));
+  const actualIds = new Set(actual.filter(message => message?.role === 'assistant' && !message.withdrawn && message.type !== 'poke').map(message => message.id));
   const knownToIds = todoPeople(state, conversationId);
   return (Array.isArray(rows) ? rows : []).flatMap(row => {
     const suppliedIds = todoSourceMessageIds(row);
@@ -211,6 +211,237 @@ export function createPhoneStore({ target, assertEnabled = () => {}, isReading =
     },
     deleteMessage(id, messageId) {
       return update(state => cleanTodoCandidates({ ...state, conversations: { ...state.conversations, [id]: (state.conversations[id] || []).filter(message => message.id !== messageId) } }), true);
+    },
+    deleteMessages(id, messageIds) {
+      const targetIds = new Set((Array.isArray(messageIds) ? messageIds : []).map(String).filter(Boolean));
+      if (!targetIds.size) return Promise.resolve(read());
+      return update(state => cleanTodoCandidates({
+        ...state,
+        conversations: {
+          ...state.conversations,
+          [id]: (state.conversations[id] || []).filter(message => !targetIds.has(message.id)),
+        },
+      }), true);
+    },
+    editMessage(id, messageId, newText) {
+      const content = String(newText ?? '').trim();
+      if (!content) throw new Error('消息内容不能为空。');
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [];
+        const current = messages.find(message => message.id === messageId);
+        if (!current) throw new Error('这条消息已不存在。');
+        if (current.withdrawn) throw new Error('已撤回的消息无法直接编辑。');
+        if (current.type) throw new Error('卡片消息暂不支持文本编辑。');
+        const next = { ...current, text: content, editedAt: new Date().toISOString() };
+        return {
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [id]: messages.map(message => message.id === messageId ? next : message),
+          },
+        };
+      });
+    },
+    withdrawMessage(id, messageId) {
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [];
+        const current = messages.find(message => message.id === messageId);
+        if (!current) throw new Error('这条消息已不存在。');
+        if (current.withdrawn) return state;
+        const withdrawnText = !current.type ? String(current.text || '') : '';
+        const next = {
+          id: current.id,
+          role: current.role,
+          ...(current.speakerId ? { speakerId: current.speakerId } : {}),
+          text: '[消息已撤回]',
+          withdrawn: true,
+          ...(withdrawnText ? { withdrawnText } : {}),
+          withdrawnAt: new Date().toISOString(),
+          createdAt: current.createdAt,
+          timeLabel: current.timeLabel,
+          ...(current.batch ? { batch: current.batch } : {}),
+          ...(current.storyDate ? { storyDate: current.storyDate } : {}),
+          ...(current.storyWeekday ? { storyWeekday: current.storyWeekday } : {}),
+          ...(current.read !== undefined ? { read: current.read } : {}),
+        };
+        return cleanTodoCandidates({
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [id]: messages.map(message => message.id === messageId ? next : message),
+          },
+        });
+      }, true);
+    },
+    toggleFavoriteMessage(id, messageId) {
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [];
+        const current = messages.find(message => message.id === messageId);
+        if (!current) throw new Error('这条消息已不存在。');
+        const next = { ...current, favorite: !current.favorite };
+        if (!next.favorite) delete next.favorite;
+        return {
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [id]: messages.map(message => message.id === messageId ? next : message),
+          },
+        };
+      });
+    },
+    favoriteMessages(id, messageIds, favorite = true) {
+      const targetIds = new Set((Array.isArray(messageIds) ? messageIds : []).map(String).filter(Boolean));
+      if (!targetIds.size) return Promise.resolve(read());
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [];
+        return {
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [id]: messages.map(message => {
+              if (!targetIds.has(message.id)) return message;
+              const next = { ...message, favorite: Boolean(favorite) };
+              if (!next.favorite) delete next.favorite;
+              return next;
+            }),
+          },
+        };
+      });
+    },
+    toggleMessageReaction(id, messageId, emoji) {
+      const cleanEmoji = String(emoji || '').trim();
+      if (!cleanEmoji) return Promise.resolve(read());
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [];
+        const current = messages.find(message => message.id === messageId);
+        if (!current || current.withdrawn) return state;
+        const existing = Array.isArray(current.reactions) ? [...current.reactions] : [];
+        const hasEmoji = existing.includes(cleanEmoji);
+        const reactions = hasEmoji
+          ? existing.filter(item => item !== cleanEmoji)
+          : [...existing, cleanEmoji].slice(-6);
+        const next = { ...current, reactions };
+        if (!next.reactions.length) delete next.reactions;
+        const recent = Array.isArray(state.recentReactions) ? state.recentReactions : [];
+        const recentReactions = hasEmoji
+          ? recent
+          : [cleanEmoji, ...recent.filter(item => item !== cleanEmoji)].slice(0, 6);
+        return {
+          ...state,
+          recentReactions,
+          conversations: {
+            ...state.conversations,
+            [id]: messages.map(message => message.id === messageId ? next : message),
+          },
+        };
+      });
+    },
+    addMessageReaction(id, messageId, emoji) {
+      const cleanEmoji = String(emoji || '').trim();
+      if (!cleanEmoji) return Promise.resolve(read());
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [];
+        const current = messages.find(message => message.id === messageId);
+        if (!current || current.withdrawn) return state;
+        const existing = Array.isArray(current.reactions) ? [...current.reactions] : [];
+        if (existing.includes(cleanEmoji)) return state;
+        const reactions = [...existing, cleanEmoji].slice(-6);
+        const next = { ...current, reactions };
+        return {
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [id]: messages.map(message => message.id === messageId ? next : message),
+          },
+        };
+      });
+    },
+    forwardMessages(sourceId, messageIds, targetId, batch, note = '') {
+      const targetIds = new Set((Array.isArray(messageIds) ? messageIds : []).map(String).filter(Boolean));
+      if (!targetIds.size) throw new Error('请先选择要转发的消息。');
+      return update(state => {
+        assertEnabled();
+        const isContact = state.contacts.some(person => person.id === targetId);
+        const targetGroup = state.groups?.find(group => group.id === targetId);
+        if (!isContact && !targetGroup) throw new Error('转发目标会话不存在。');
+        if (targetGroup && !targetGroup.userIsMember) throw new Error('你不在这个群，不能转发消息。');
+        const sourceMessages = (state.conversations[sourceId] || []).filter(msg => targetIds.has(msg.id) && !msg.withdrawn && msg.type !== 'poke');
+        if (!sourceMessages.length) throw new Error('所选消息无法转发。');
+        const sourceContact = state.contacts.find(person => person.id === sourceId);
+        const sourceGroup = state.groups?.find(group => group.id === sourceId);
+        const userName = state.userProfile?.name || '我';
+        const chatName = sourceGroup ? sourceGroup.name : (sourceContact?.name || '');
+        const resolveForwardedFrom = msg => {
+          if (msg.forwarded && msg.forwardedFrom?.senderName) {
+            return structuredClone(msg.forwardedFrom);
+          }
+          let senderName = userName;
+          if (msg.role === 'assistant') {
+            if (sourceGroup) {
+              const member = state.contacts.find(person => person.id === msg.speakerId);
+              senderName = member?.name || '群成员';
+            } else {
+              senderName = sourceContact?.name || '对方';
+            }
+          }
+          return {
+            senderName,
+            ...(chatName ? { chatName } : {}),
+            isGroup: Boolean(sourceGroup),
+          };
+        };
+        const clock = batch?.clock || { time: new Date().toTimeString().slice(0, 5) };
+        const baseMeta = () => ({
+          id: globalThis.crypto.randomUUID(),
+          role: 'user',
+          createdAt: new Date().toISOString(),
+          timeLabel: clock.time || '',
+          ...(batch?.key ? { batch: { key: batch.key, label: batch.label } } : {}),
+          ...(clock.source === 'story' ? { storyDate: clock.date, storyWeekday: clock.weekday } : {}),
+          ...(targetGroup ? { speakerId: '@user' } : {}),
+        });
+        const forwardedList = sourceMessages.map(msg => {
+          let payload = { text: messageText(msg), ...(msg.translation ? { translation: msg.translation } : {}) };
+          if (msg.type === 'sticker') payload = { type: 'sticker', stickerId: msg.stickerId, text: messageText(msg) };
+          else if (msg.type === 'location' && msg.location) payload = { type: 'location', location: structuredClone(msg.location), text: messageText(msg) };
+          else if (msg.type === 'image' && msg.image) payload = { type: 'image', image: structuredClone(msg.image), text: messageText(msg) };
+          return { ...baseMeta(), ...payload, forwarded: true, forwardedFrom: resolveForwardedFrom(msg) };
+        });
+        const cleanNote = String(note || '').trim();
+        if (cleanNote) {
+          forwardedList.push({ ...baseMeta(), text: cleanNote });
+        }
+        return {
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [targetId]: [...(state.conversations[targetId] || []), ...forwardedList],
+          },
+        };
+      });
+    },
+    updateMessageThought(id, messageId, thought) {
+      const cleanThought = String(thought || '').trim();
+      if (!cleanThought) throw new Error('没有生成有效的心声内容。');
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [];
+        const current = messages.find(message => message.id === messageId);
+        if (!current) throw new Error('这条消息已不存在。');
+        return {
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [id]: messages.map(message => message.id === messageId ? { ...message, thought: cleanThought } : message),
+          },
+        };
+      });
     },
     clearConversation(id, anchor) {
       return update(state => cleanTodoCandidates({ ...state, conversations: { ...state.conversations, [id]: (state.conversations[id] || []).filter(message => message.batch?.key !== anchor.key) } }), true);

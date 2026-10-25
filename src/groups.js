@@ -1,7 +1,7 @@
 import { parseJsonObject } from './api.js';
 import { record } from './messages.js';
 import { readTimeline } from './timeline.js';
-import { normalizeContent, RICH_MESSAGES_PROMPT } from './content.js';
+import { normalizeContent, messageText, RICH_MESSAGES_PROMPT } from './content.js';
 import { CALENDAR_PROMPT } from './calendar.js';
 import { getPrompt, GROUP_PROMPT, LANGUAGE_RULE, STORY_MEMORY_RULE, TODO_SUGGESTIONS_PROMPT } from './prompts.js';
 import { parseTodoCandidates } from './todos.js';
@@ -70,10 +70,31 @@ export function createGroupService({ target, store, contextReader, modelClient }
       if (!sameMembers(answer.anchor?.memberIds, roster) || !Array.isArray(speakers) || speakers.some(key => key === '@user' || !roster.includes(key))) throw new Error('回答中的群成员或发言者无法对应，请点继续重试。');
       if (!Array.isArray(answer.messages)) throw new Error('回答中没有可读取的群聊消息，请点继续重试。');
       // 发言归属是保存所需身份，不从姓名或句子内容猜测。
+      const existingThread = store.read().conversations[id] || [];
+      const existingIds = new Set(existingThread.map(item => item.id));
+      const resolveReplyId = rawId => {
+        if (!rawId) return '';
+        if (existingIds.has(rawId)) return rawId;
+        const byText = [...existingThread].reverse().find(m => m.text === rawId || messageText(m) === rawId);
+        return byText ? byText.id : '';
+      };
+      const memberMap = new Map(context.group.members.map(person => [person.id, person]));
       const indexedMessages = answer.messages.map(item => {
         if (!item || !roster.includes(item.speakerId) || item.speakerId === '@user' || !speakers.includes(item.speakerId)) throw new Error('回答中的发言者不在本轮群聊中，请点继续重试。');
         const content = normalizeContent(item);
         if (content?.type === 'transfer' && (!roster.includes(content.transfer.recipientId) || content.transfer.recipientId === item.speakerId)) throw new Error('转账收款人无法对应群成员，请点继续重试。');
+        if (content?.type === 'poke') {
+          content.poke.actorId = item.speakerId;
+          if (!content.poke.actorName || content.poke.actorName === '对方') {
+            content.poke.actorName = memberMap.get(item.speakerId)?.name || '群成员';
+          }
+          content.text = messageText(content);
+        }
+        if (content?.replyToId) {
+          const resolved = resolveReplyId(content.replyToId);
+          if (resolved) content.replyToId = resolved;
+          else delete content.replyToId;
+        }
         return content ? { ...record('assistant', content.text, context.clock, content.translation, context.batch), ...content, speakerId: item.speakerId } : null;
       });
       const messages = indexedMessages.filter(Boolean);
@@ -81,6 +102,27 @@ export function createGroupService({ target, store, contextReader, modelClient }
       for (const item of Array.isArray(answer.transferActions) ? answer.transferActions : []) {
         if (!speakers.includes(item.speakerId)) throw new Error('转账回复无法对应本轮发言者。');
         await store.respondTransfer(id, item.transferId, item.status, item.speakerId, context.batch);
+      }
+      const rawMsgActions = [
+        ...(Array.isArray(answer.messageActions) ? answer.messageActions : []),
+        ...(Array.isArray(answer.reactionActions) ? answer.reactionActions.map(item => ({ ...item, action: 'react' })) : []),
+      ];
+      for (const item of rawMsgActions) {
+        if (!item || typeof item !== 'object') continue;
+        if (item.speakerId && !speakers.includes(item.speakerId)) continue;
+        const kind = String(item.action ?? item.type ?? '').trim();
+        const targetId = resolveReplyId(String(item.messageId ?? item.id ?? '').trim());
+        if (!targetId) continue;
+        const targetMsg = (store.read().conversations[id] || []).find(m => m.id === targetId);
+        if (!targetMsg) continue;
+        if ((kind === 'react' || kind === 'reaction') && item.emoji) {
+          await store.addMessageReaction(id, targetId, String(item.emoji).trim());
+        } else if ((kind === 'withdraw' || kind === 'recall') && targetMsg.role === 'assistant' && (!item.speakerId || targetMsg.speakerId === item.speakerId)) {
+          await store.withdrawMessage(id, targetId);
+        } else if (kind === 'edit' && targetMsg.role === 'assistant' && !targetMsg.type && !targetMsg.withdrawn && (!item.speakerId || targetMsg.speakerId === item.speakerId)) {
+          const nextText = String(item.text ?? item.newText ?? item.content ?? '').trim();
+          if (nextText) await store.editMessage(id, targetId, nextText);
+        }
       }
       if (messages.length) await store.appendMessages(id, messages, { todoCandidates });
       return messages;

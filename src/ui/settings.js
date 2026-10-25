@@ -6,6 +6,7 @@ import { renderBackgroundPicker } from './backgrounds.js';
 import { VERSION } from '../version.js';
 import { getAllPrompts } from '../prompts.js';
 import { DEFAULT_PROMPT_PRESETS, PRESET_SLOTS, normalizePromptPresets } from '../preset-engine.js';
+import { readBaiBaiExcludeSettings } from '../worldbook.js';
 
 export function renderPromptPresetSettings(state, ui) {
   const presets = normalizePromptPresets(state?.promptPresets);
@@ -299,7 +300,107 @@ export function renderLogSettings(state, ui, { logger, backflowPreview } = {}) {
   </div>`;
 }
 
-export function renderSettings(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, updates, logger, backflowPreview }) {
+export function renderWorldbookExcludeSettings(state, ui, busy, { host } = {}) {
+  const excludeSettings = readBaiBaiExcludeSettings(() => host?.readSettings?.());
+  const excludedWorlds = excludeSettings.excludedWorldNames || [];
+  const patterns = excludeSettings.excludedWorldInfoPatterns || [];
+
+  return `<div class="worldbook-exclude-settings">
+    <label class="compact-switch-row">
+      <span>渲染世界书模板</span>
+      <span class="switch">
+        <input id="render-world-templates" type="checkbox" role="switch" aria-label="渲染世界书模板" ${excludeSettings.renderWorldInfoTemplates ? 'checked' : ''} ${busy?.has?.('world-excludes') ? 'disabled' : ''}>
+        <span></span>
+      </span>
+    </label>
+    <small class="field-label">开启后会对两三事读取到的世界书条目进行宏展开与 EJS 模板运算。</small>
+
+    <div class="settings-sub-divider"></div>
+
+    <div class="compact-switch-row exclude-channel-bar">
+      <span>整本排除 · 已选 ${excludedWorlds.length} 本</span>
+      <button type="button" class="exclude-text-btn" data-action="open-exclude-world-modal" ${busy?.has?.('world-excludes') ? 'disabled' : ''}>编辑名单</button>
+    </div>
+
+    ${excludedWorlds.length ? `
+      <ul class="exclude-chips-list">
+        ${excludedWorlds.map(name => `
+          <li class="exclude-chip">
+            <span class="exclude-chip-name" title="${escape(name)}">${escape(name)}</span>
+            <button type="button" class="exclude-chip-del" data-action="remove-exclude-world" data-world-name="${escape(name)}" title="移出名单">×</button>
+          </li>
+        `).join('')}
+      </ul>
+    ` : `<p class="setting-note">未排除任何世界书，全部激活条目都会进上下文参考。</p>`}
+
+    <div class="settings-sub-divider"></div>
+
+    <div class="compact-switch-row">
+      <span class="field-label-bold">按条目名过滤</span>
+    </div>
+    <small class="field-label">填条目备注名（comment）即按包含匹配（不分大小写）。也支持正则，如 <code>\\[mvu[\\s\\S]*?\\]</code> 过滤 MVU 机制条目。</small>
+
+    <div class="exclude-input-bar">
+      <input type="text" class="exclude-pattern-input" placeholder="条目名或正则，如 附加 或 ^规则" value="${escape(ui.wiPatternDraft || '')}" data-action="draft-wi-pattern">
+      <button type="button" class="exclude-text-btn" data-action="add-wi-pattern" ${busy?.has?.('world-excludes') ? 'disabled' : ''}>+ 添加</button>
+    </div>
+
+    ${patterns.length ? `
+      <ul class="exclude-chips-list">
+        ${patterns.map(pat => `
+          <li class="exclude-chip">
+            <span class="exclude-chip-name" title="${escape(pat)}">${escape(pat)}</span>
+            <button type="button" class="exclude-chip-del" data-action="remove-wi-pattern" data-pattern="${escape(pat)}" title="移除">×</button>
+          </li>
+        `).join('')}
+      </ul>
+    ` : `<p class="setting-note">未设置过滤正则。</p>`}
+  </div>`;
+}
+
+export function renderExcludeWorldModal(ui, availableWorldNames = [], excludeSettings = {}) {
+  if (!ui.excludeWorldModalOpen) return '';
+  const search = (ui.excludeWorldSearch || '').trim().toLowerCase();
+  const excludedSet = new Set(excludeSettings.excludedWorldNames || []);
+  const filtered = availableWorldNames.filter(name => !search || name.toLowerCase().includes(search));
+
+  return `<div class="calendar-modal-backdrop exclude-world-backdrop" data-action="close-exclude-world-modal">
+    <div class="calendar-modal-dialog exclude-world-dialog">
+      <div class="calendar-form-head">
+        <h3 class="exclude-modal-title">整本排除世界书</h3>
+        <button type="button" class="icon-button" data-action="close-exclude-world-modal" aria-label="关闭">${icon('close')}</button>
+      </div>
+
+      <div class="exclude-search-wrap">
+        <input type="search" class="exclude-search-input" placeholder="搜索世界书名…" value="${escape(ui.excludeWorldSearch || '')}" data-action="search-exclude-world" spellcheck="false">
+      </div>
+
+      <div class="exclude-world-list">
+        ${!availableWorldNames.length ? `
+          <p class="setting-note">未读取到世界书。请先在酒馆中加载或挂载世界书。</p>
+        ` : !filtered.length ? `
+          <p class="setting-note">没有匹配「${escape(ui.excludeWorldSearch)}」的世界书。</p>
+        ` : filtered.map(name => {
+          const isExcluded = excludedSet.has(name);
+          return `<label class="compact-switch-row exclude-world-row">
+            <span class="exclude-world-row-label" title="${escape(name)}">${escape(name)}</span>
+            <span class="switch">
+              <input type="checkbox" role="switch" data-action="toggle-exclude-world-item" data-world-name="${escape(name)}" ${isExcluded ? 'checked' : ''}>
+              <span></span>
+            </span>
+          </label>`;
+        }).join('')}
+      </div>
+
+      <div class="exclude-modal-foot">
+        <span class="exclude-modal-count">共 ${availableWorldNames.length} 本 · 已排除 ${excludedSet.size}</span>
+        <button type="button" class="save-button" data-action="close-exclude-world-modal">完成</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+export function renderSettings(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, updates, logger, backflowPreview, host }) {
   const sources = apiSettings.listSources(), selected = apiSettings.getSelected();
   const current = sources.find(source => refKey(source.ref) === refKey(selected));
   const manual = ui.manual || !sources.length, preferences = entries.read();
@@ -430,7 +531,9 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
     ${drawer('connection', '连接设置', connection)}
     ${drawer('appearance', '外观设置', appearanceContent)}
     ${drawer('content', '内容设置', content)}
+    ${drawer('worldbook_excludes', '排除世界书内容', renderWorldbookExcludeSettings(state, ui, busy, { host }))}
     ${drawer('prompts', '提示词可视化', renderPromptSettings(state, ui))}
     ${drawer('logs', '提示词与生成日志', renderLogSettings(state, ui, { logger, backflowPreview }))}
-    <small class="app-version"><span class="app-version-label"><span>两三事 ${VERSION}</span> · <span>${instanceLabel}</span></span>${updates ? '<span data-update-notice></span>' : ''}</small>`;
+    <small class="app-version"><span class="app-version-label"><span>两三事 ${VERSION}</span> · <span>${instanceLabel}</span></span>${updates ? '<span data-update-notice></span>' : ''}</small>
+    ${renderExcludeWorldModal(ui, host?.listWorldInfoNames?.() || [], readBaiBaiExcludeSettings(() => host?.readSettings?.()))}`;
 }

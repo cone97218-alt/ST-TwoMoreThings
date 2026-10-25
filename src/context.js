@@ -317,6 +317,7 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
               speaker: message.role === 'user' ? state.userProfile?.name || target.user : person.memberIds ? state.contacts.find(contact => contact.id === message.speakerId)?.name || '群成员' : person.name,
               text: messageText(message), ...(message.translation ? { translation: message.translation } : {}),
               ...(message.type === 'transfer' ? { recipient: message.transfer.recipientId === '@user' ? state.userProfile?.name || target.user : state.contacts.find(contact => contact.id === message.transfer.recipientId)?.name || '已移出的联系人' } : {}),
+              ...(message.forwarded ? { forwarded: true, ...(message.forwardedFrom ? { forwardedFrom: message.forwardedFrom } : {}) } : {}),
               ...(replyTo ? { replyTo } : {}),
             };
           }) });
@@ -332,7 +333,8 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
             const quote = message.replyTo;
             const quotedName = quote && (quote.role === 'user' ? state.userProfile?.name || target.user : state.contacts.find(person => person.id === quote.speakerId)?.name || conversation.name);
             const quoted = !quote ? '' : quote.missing ? '[引用：原消息已删除]\n' : `[引用${quotedName}：${quote.messageText}${quote.translation ? `；译文：${quote.translation}` : ''}]\n`;
-            return `${quoted}${message.speaker}${message.recipient ? ` → ${message.recipient}` : ''}：${message.text}${message.translation ? `\n译文：${message.translation}` : ''}`;
+            const forwardPrefix = message.forwarded ? `[转发自${message.forwardedFrom?.senderName || '他人'}] ` : '';
+            return `${quoted}${message.speaker}${message.recipient ? ` → ${message.recipient}` : ''}：${forwardPrefix}${message.text}${message.translation ? `\n译文：${message.translation}` : ''}`;
           });
           return `[${conversation.kind === 'group' ? '群聊' : '私聊'}：${conversation.name}]\n${lines.join('\n')}`;
         }).join('\n'));

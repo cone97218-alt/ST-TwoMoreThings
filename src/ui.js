@@ -29,7 +29,7 @@ import { displayName } from './profiles.js';
 import { renderTodos } from './ui/todos.js';
 import { renderPhoneNotice } from './ui/notifications.js';
 import { readSocialPosts } from './social.js';
-import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
+import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload } from './preset-engine.js';
 import { createPluginUpdatesView } from './ui/plugin-updates-view.js';
 import { createPhoneDialog } from './ui/dialog.js';
 import { MEMORY_CONFLICT_CODE } from './memory-sources.js';
@@ -1468,6 +1468,43 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         render();
         break;
       }
+      case 'export-prompt-preset': {
+        const presets = normalizePromptPresets(store.read()?.promptPresets);
+        const presetId = button.dataset.presetId || store.read()?.activePresetId || 'default_preset';
+        const targetPreset = presets.find(p => p.id === presetId) || presets[0];
+        if (!targetPreset) {
+          ui.feedback = { text: '未找到可导出的预设。' };
+          render();
+          break;
+        }
+        try {
+          const exportPayload = exportPresetToPayload(targetPreset);
+          const safeName = (targetPreset.name || 'preset').replace(/[/\\?%*:|"<>]/g, '_');
+          const filename = `TMT-Preset-${safeName}.json`;
+          const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const link = doc.createElement('a');
+          link.href = url;
+          link.download = filename;
+          doc.body.append(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+          ui.feedback = { text: `已导出预设「${targetPreset.name}」。` };
+        } catch (err) {
+          ui.feedback = { text: `导出失败：${err?.message || err}` };
+        }
+        render();
+        break;
+      }
+      case 'import-prompt-preset-btn': {
+        const fileInput = root.querySelector('.preset-import-file-input');
+        if (fileInput) {
+          fileInput.value = '';
+          fileInput.click();
+        }
+        break;
+      }
       case 'open-new-preset-dialog': {
         const name = prompt('请输入新预设的名称：', '我的自定义预设');
         if (!name || !name.trim()) break;
@@ -1767,6 +1804,27 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
   }
   function change(event) {
+    if (event.target.matches('[data-action="import-prompt-preset-file"]')) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const text = e.target?.result;
+          const parsed = JSON.parse(text);
+          const fallbackName = file.name.replace(/\.[^/.]+$/, '').replace(/^TMT-Preset-/, '') || '导入预设';
+          const newPreset = createPresetFromPayload(parsed, fallbackName);
+          await store.savePromptPreset(newPreset);
+          ui.feedback = { text: `已成功导入预设「${newPreset.name}」。` };
+          render();
+        } catch (err) {
+          ui.feedback = { text: `导入预设失败：${err?.message || err}` };
+          render();
+        }
+      };
+      reader.readAsText(file);
+      return;
+    }
     if (event.target.matches('[data-action="switch-prompt-preset"]')) {
       void store.setActivePromptPreset(event.target.value).then(() => render());
       return;

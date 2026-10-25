@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compilePromptPreset, collapseMessages, PRESET_SLOTS, DEFAULT_PROMPT_PRESETS, DEFAULT_PRESET_ENTRIES, normalizePromptPresets } from '../src/preset-engine.js';
+import { compilePromptPreset, collapseMessages, PRESET_SLOTS, DEFAULT_PROMPT_PRESETS, DEFAULT_PRESET_ENTRIES, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload } from '../src/preset-engine.js';
 import { createPhoneStore } from '../src/store.js';
 
 test('preset engine: compiles entries and replaces macros with slots', () => {
@@ -509,3 +509,72 @@ test('all features inject {{story_memory}} and {{story_history}} end-to-end', as
     );
   }
 });
+
+test('preset engine: exportPresetToPayload and createPresetFromPayload roundtrip', async () => {
+  const original = {
+    id: 'my_custom_preset',
+    name: '我的超级预设',
+    storyLayers: 8,
+    isBuiltin: false,
+    entries: [
+      { id: 'old_1', name: '系统人设', role: 'system', scope: '通用', category: '基础', enabled: true, content: '【世界观】' },
+      { id: 'old_2', name: '短信规则', role: 'system', scope: '短信', category: '规则', enabled: false, content: '短信专用' },
+    ],
+  };
+
+  // 1. 导出验证
+  const payload = exportPresetToPayload(original);
+  assert.equal(payload.type, 'tmt_prompt_preset');
+  assert.equal(payload.schemaVersion, 1);
+  assert.ok(payload.exportedAt);
+  assert.equal(payload.preset.name, '我的超级预设');
+  assert.equal(payload.preset.storyLayers, 8);
+  assert.equal(payload.preset.entries.length, 2);
+  assert.equal(payload.preset.entries[0].name, '系统人设');
+  assert.equal(payload.preset.entries[0].id, undefined, '导出的条目不应泄露旧系统内部 ID');
+  assert.equal(payload.preset.entries[1].enabled, false);
+
+  // 2. 导入验证
+  const imported = createPresetFromPayload(payload);
+  assert.notEqual(imported.id, original.id, '导入时应分配全新的唯一预设 ID');
+  assert.equal(imported.name, '我的超级预设 (导入)');
+  assert.equal(imported.storyLayers, 8);
+  assert.equal(imported.isBuiltin, false);
+  assert.equal(imported.entries.length, 2);
+  assert.ok(imported.entries[0].id && imported.entries[0].id !== 'old_1');
+  assert.equal(imported.entries[0].name, '系统人设');
+  assert.equal(imported.entries[0].role, 'system');
+  assert.equal(imported.entries[0].content, '【世界观】');
+  assert.equal(imported.entries[1].enabled, false);
+
+  // 3. 容错导入：直接传入 entries 数组
+  const rawArrayPayload = [
+    { name: '单条规则', role: 'user', content: '测试内容' },
+  ];
+  const fromArray = createPresetFromPayload(rawArrayPayload, '文件导入预设');
+  assert.equal(fromArray.name, '文件导入预设 (导入)');
+  assert.equal(fromArray.entries.length, 1);
+  assert.equal(fromArray.entries[0].name, '单条规则');
+  assert.equal(fromArray.entries[0].role, 'user');
+  assert.equal(fromArray.entries[0].content, '测试内容');
+
+  // 4. 异常防御
+  assert.throws(() => createPresetFromPayload(null), /有效 JSON/);
+  assert.throws(() => createPresetFromPayload({ invalid: true }), /未找到有效的预设条目列表/);
+
+  // 5. 与 store 结合保存与编译
+  const target = { metadata: { pocketPhone: { schemaVersion: 1 } }, saveMetadata: async () => {} };
+  const store = createPhoneStore({ target });
+  await store.savePromptPreset(imported);
+
+  const state = store.read();
+  assert.equal(state.activePresetId, imported.id);
+  const active = state.promptPresets.find(p => p.id === imported.id);
+  assert.ok(active);
+  assert.equal(active.name, '我的超级预设 (导入)');
+
+  const compiled = compilePromptPreset(active, {}, 'chat');
+  assert.equal(compiled.length, 1);
+  assert.equal(compiled[0].content, '【世界观】');
+});
+

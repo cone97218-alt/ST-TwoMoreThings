@@ -28,6 +28,9 @@ export function renderPromptPresetSettings(state, ui) {
           </select>
         </div>
         <div class="preset-header-actions">
+          <button type="button" class="preset-ghost-btn" data-action="export-prompt-preset" data-preset-id="${escape(activePreset.id)}" title="导出当前预设配置为 JSON 文件">导出</button>
+          <button type="button" class="preset-ghost-btn" data-action="import-prompt-preset-btn" title="从 JSON 文件导入预设">导入</button>
+          <input type="file" class="preset-import-file-input" style="display:none;" accept=".json" data-action="import-prompt-preset-file">
           <button type="button" class="preset-ghost-btn" data-action="open-new-preset-dialog">另存为</button>
           ${activePreset?.isBuiltin || activePreset?.id === 'default_preset' ? `<button type="button" class="preset-ghost-btn" data-action="reset-prompt-preset" data-preset-id="${escape(activePreset.id)}" title="重置当前预设为最新默认配置">重置</button>` : ''}
           ${!activePreset?.isBuiltin && activePreset?.id !== 'default_preset' ? `<button type="button" class="preset-ghost-btn danger" data-action="delete-prompt-preset" data-preset-id="${escape(activePreset.id)}">删除</button>` : ''}

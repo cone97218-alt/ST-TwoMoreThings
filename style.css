@@ -835,12 +835,12 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 
 /* 预设顶部轻量卡片 */
 .preset-header-card { background: var(--pp-surface); border: 1px solid var(--pp-divider-soft); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgb(0 0 0 / 4%); }
-.preset-selector-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.preset-selector-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .preset-label-col { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .preset-card-label { font-size: 11px; font-weight: 600; color: var(--pp-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .preset-select-clean { width: 100%; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--pp-rule); background: var(--pp-surface-soft); color: var(--pp-ink); font-size: 12px; font-weight: 500; outline: none; }
 .preset-select-clean:focus { border-color: var(--pp-active); }
-.preset-header-actions { display: flex; align-items: center; gap: 6px; }
+.preset-header-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .preset-ghost-btn { font-size: 11px; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--pp-rule); background: transparent; color: var(--pp-ink); cursor: pointer; transition: all .15s ease; white-space: nowrap; }
 .preset-ghost-btn:hover { background: var(--pp-pale); border-color: var(--pp-active); color: var(--pp-active); }
 .preset-ghost-btn.danger { color: var(--pp-error); }

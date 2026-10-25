@@ -518,3 +518,72 @@ export function collapseMessages(entries) {
   }
   return result;
 }
+
+/**
+ * 将提示词预设导出为标准化 JSON 负载
+ */
+export function exportPresetToPayload(preset) {
+  if (!preset || typeof preset !== 'object') {
+    throw new Error('无效的预设对象');
+  }
+  return {
+    type: 'tmt_prompt_preset',
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    preset: {
+      name: preset.name || '默认预设',
+      storyLayers: Math.max(1, Math.min(30, Number(preset.storyLayers) || 3)),
+      entries: Array.isArray(preset.entries)
+        ? preset.entries.map(entry => ({
+            name: entry.name || '',
+            role: entry.role || 'system',
+            scope: entry.scope || '通用',
+            category: entry.category || '自定义',
+            enabled: entry.enabled !== false,
+            content: String(entry.content ?? ''),
+          }))
+        : [],
+    },
+  };
+}
+
+/**
+ * 从 JSON 负载创建新提示词预设对象（包含新唯一 ID）
+ */
+export function createPresetFromPayload(payload, fallbackName = '导入预设') {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('导入数据必须是有效 JSON 对象');
+  }
+  const rawPreset = payload.preset && typeof payload.preset === 'object' ? payload.preset : payload;
+  const entriesList = Array.isArray(rawPreset.entries)
+    ? rawPreset.entries
+    : Array.isArray(rawPreset)
+      ? rawPreset
+      : null;
+
+  if (!entriesList) {
+    throw new Error('未找到有效的预设条目列表 (entries)');
+  }
+
+  const baseName = (typeof rawPreset.name === 'string' && rawPreset.name.trim())
+    ? rawPreset.name.trim()
+    : fallbackName;
+  const newId = `preset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
+  return {
+    id: newId,
+    name: baseName.endsWith('(导入)') ? baseName : `${baseName} (导入)`,
+    isBuiltin: false,
+    storyLayers: Math.max(1, Math.min(30, Number(rawPreset.storyLayers) || 3)),
+    entries: entriesList.map((entry, idx) => ({
+      id: `entry_${Date.now().toString(36)}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+      name: typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : `条目 ${idx + 1}`,
+      role: ['system', 'user', 'assistant'].includes(entry.role) ? entry.role : 'system',
+      scope: typeof entry.scope === 'string' ? entry.scope : '通用',
+      category: typeof entry.category === 'string' ? entry.category : '自定义',
+      enabled: entry.enabled !== false,
+      content: String(entry.content ?? ''),
+    })),
+  };
+}
+

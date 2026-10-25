@@ -59,6 +59,10 @@ function forumNotice(state) {
   return noticeButton('forum', undefined, '论坛有新内容', preview(post.title || post.content), icon('forum'));
 }
 
+function calendarAiNotice(notice) {
+  return noticeButton('calendar-ai', undefined, notice.title || '日历生成完毕', preview(notice.content || '点击回到日历界面'), icon('sparkles'));
+}
+
 export function renderPhoneNotice(state, notice) {
   if (!notice || !state) return '';
   switch (notice.kind) {
@@ -67,6 +71,7 @@ export function renderPhoneNotice(state, notice) {
     case 'social-feed': return socialFeedNotice(state);
     case 'social-author': return notice.id ? socialAuthorNotice(state, notice.id) : '';
     case 'forum': return forumNotice(state);
+    case 'calendar-ai': return calendarAiNotice(notice);
     default: return '';
   }
 }

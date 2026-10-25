@@ -54,15 +54,15 @@ export function renderTodos(state, { ui, busy }) {
 }
 
 export function renderTodoCandidate(todo, state, ui, busy) {
-  if (!todo || !['candidate', 'open'].includes(todo.status)) return '';
-  if (todo.status === 'open') {
+  if (!todo || !['candidate', 'open', 'done'].includes(todo.status)) return '';
+  if (todo.status === 'open' || todo.status === 'done') {
     const range = `${value(todo, 'startAt') || '未定'} — ${value(todo, 'endAt') || '未定'}`;
-    return `<aside class="todo-candidate is-added" data-todo-candidate="${escape(todo.id)}"><strong>已加入</strong><p>${escape(todo.title)}</p><small>${escape(range)} · ${escape(participantNames(todo, state) || '未指定相关人')}</small></aside>`;
+    return `<aside class="todo-candidate is-added" data-todo-candidate="${escape(todo.id)}" data-action="open-todo-calendar" data-todo-id="${escape(todo.id)}" role="button" tabindex="0" aria-label="查看日历待办：${escape(todo.title)}"><strong>已加入</strong><p>${escape(todo.title)}</p><small>${escape(range)} · ${escape(participantNames(todo, state) || '未指定相关人')}</small></aside>`;
   }
   const editing = ui.todoEditing.has(todo.id), pending = busy.has(`todo:${todo.id}`), draft = ui.todoDrafts.get(todo.id) || todo;
   const range = `${value(todo, 'startAt') || '未定'} — ${value(todo, 'endAt') || '未定'}`;
-  return `<aside class="todo-candidate" data-todo-candidate="${escape(todo.id)}"><strong>建议加入待办</strong><p>${escape(todo.title)}</p><small>${escape(range)} · ${escape(participantNames(todo, state) || '未指定相关人')}</small>
-    <div class="todo-candidate-actions">${action('todo-accept', pending ? '保存中…' : '加入待办', '', 'quiet-button', pending)}${action('todo-edit', editing ? '收起编辑' : '修改', '', 'quiet-button', pending)}</div>
+  return `<aside class="todo-candidate" data-todo-candidate="${escape(todo.id)}"><div class="todo-candidate-head" data-action="open-todo-calendar" data-todo-id="${escape(todo.id)}" role="button" tabindex="0"><strong>建议加入待办</strong><p>${escape(todo.title)}</p><small>${escape(range)} · ${escape(participantNames(todo, state) || '未指定相关人')}</small></div>
+    <div class="todo-candidate-actions">${action('todo-accept', pending ? '保存中…' : '加入待办', '', 'quiet-button', pending)}${action('todo-edit', editing ? '收起编辑' : '修改', '', 'quiet-button', pending)}${action('open-todo-calendar', '查看日历', '', 'quiet-button', pending)}</div>
     ${editing ? `<form class="todo-form" data-todo-form="${escape(todo.id)}">${todoFields(todo, state, draft)}<div class="form-actions"><button class="save-button" type="submit" ${pending ? 'disabled' : ''}>保存并加入</button></div></form>` : ''}
   </aside>`;
 }

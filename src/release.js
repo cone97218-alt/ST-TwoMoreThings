@@ -1,9 +1,9 @@
-export const RELEASE_URL = 'https://raw.githubusercontent.com/atonal519/ST-TwoMoreThings/main/release.json';
-export const STABLE_CORE_URL = 'https://cdn.jsdelivr.net/gh/atonal519/ST-TwoMoreThings@56a6614198bd177f967a9406f7b6f425f9a810af/embed.js';
+export const RELEASE_URL = 'https://raw.githubusercontent.com/cone97218-alt/ST-TwoMoreThings/main/release.json';
+export const STABLE_CORE_URL = 'https://cdn.jsdelivr.net/gh/cone97218-alt/ST-TwoMoreThings@56a6614198bd177f967a9406f7b6f425f9a810af/embed.js';
 export const UPDATE_NOTICE_PATH = 'docs/updates-0.3.9.md';
 
 // 导出启动器会嵌入此函数；保持自包含，公共请求不携带酒馆请求头或凭证。
-export async function readRelease({ url = 'https://raw.githubusercontent.com/atonal519/ST-TwoMoreThings/main/release.json', fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
+export async function readRelease({ url = 'https://raw.githubusercontent.com/cone97218-alt/ST-TwoMoreThings/main/release.json', fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetchImpl(url, { cache: 'no-store', credentials: 'omit', signal: controller.signal });
@@ -22,7 +22,7 @@ export function releaseUrlForCore(coreUrl) {
   return match ? `https://raw.githubusercontent.com/${match[1]}/${match[2]}/main/release.json` : new URL('./release.json', url).href;
 }
 
-export function releaseCoreUrl(release, coreUrl = 'https://cdn.jsdelivr.net/gh/atonal519/ST-TwoMoreThings@main/embed.js') {
+export function releaseCoreUrl(release, coreUrl = 'https://cdn.jsdelivr.net/gh/cone97218-alt/ST-TwoMoreThings@main/embed.js') {
   const url = new URL(coreUrl);
   if (!url.hostname.endsWith('.jsdelivr.net') || !/^\/gh\/[^/]+\/[^/@]+@[^/]+\//.test(url.pathname)) throw new Error('当前随卡核心来源不支持在线更新，请重新导出随卡脚本。');
   url.pathname = url.pathname.replace(/@[^/]+\//, `@${release.sha}/`);

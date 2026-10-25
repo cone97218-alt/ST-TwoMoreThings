@@ -21,16 +21,34 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
     captureChat() {
       const ctx = context();
       const character = ctx.characters?.[ctx.characterId];
+      let currentMessages = ctx.chat || [];
       const target = {
         id: ctx.chatId ?? ctx.getCurrentChatId?.(),
         groupId: ctx.groupId,
         embeddedPhone: readCardPreset(character),
-        metadata: ctx.chatMetadata || {}, messages: ctx.chat || [],
+        metadata: ctx.chatMetadata || {},
+        get messages() {
+          try {
+            const live = context();
+            const liveId = live.chatId ?? live.getCurrentChatId?.();
+            if (Array.isArray(live.chat) && (!target.id || liveId === target.id) && (currentMessages === live.chat || (!currentMessages.length && live.chat.length))) {
+              currentMessages = live.chat;
+            }
+          } catch {}
+          return currentMessages;
+        },
+        set messages(value) {
+          currentMessages = Array.isArray(value) ? value : [];
+        },
         character: character ? { name: character.name, avatar: character.avatar, description: character.description || character.data?.description || '', personality: character.personality || character.data?.personality || '', scenario: character.scenario || character.data?.scenario || '', world: character.data?.extensions?.world || '' } : null,
         user: ctx.name1 || '我', personaWorld: ctx.powerUserSettings?.persona_description_lorebook || '',
         async saveMetadata() {
           if (!target.id) throw new Error('请先打开一个角色聊天，再保存手机内容。');
           try {
+            const live = context();
+            if (live.chatMetadata && target.metadata?.pocketPhone && live.chatMetadata !== target.metadata) {
+              live.chatMetadata.pocketPhone = target.metadata.pocketPhone;
+            }
             if (typeof ctx.saveChatMetadata === 'function') {
               if (await ctx.saveChatMetadata() !== true) throw new Error('未能保存');
             } else if (typeof ctx.saveMetadata === 'function') await ctx.saveMetadata();

@@ -17,6 +17,8 @@ import { createPhoneImageService } from './phone-images.js';
 import { readLockWeather } from './weather.js';
 import { createAuthoringService, stateFromPreset } from './authoring.js';
 import { createCalendarReader } from './calendar.js';
+import { createCalendarAiService } from './calendar-ai.js';
+import { logger, detectRequestTitle } from './logger.js';
 import { createSocialService } from './social.js';
 import { createImageFiles } from './image-files.js';
 import { createImageProviders } from './image-providers.js';
@@ -26,6 +28,7 @@ import { createEmbeddedUpdates } from './embedded-updates.js';
 import { UPDATE_NOTICE_PATH } from './release.js';
 import { VERSION } from './version.js';
 import { createMemorySources } from './memory-sources.js';
+import { collapseMessages } from './preset-engine.js';
 export { createPhoneControl, createPhoneImageService };
 
 export function initialize({ mode = 'standalone', host = createHostAdapter({ mode }), documentRef = document, qqjBridgeProvider, preset, coreUrl, release, updateError, replaceCore } = {}) {
@@ -42,17 +45,26 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
   const entries = createPhoneEntries({ host, documentRef, open, defaults: preset?.entries,
     isEnabled: () => createPhoneControl({ host, target: host.captureChat() }).isEnabled(),
     toggle: () => phone?.isOpen && phone.isFrontmost ? phone.close() : open() });
-  const unsubscribeEntries = host.onChatChanged?.(entries.refreshVisibility);
+  const unsubscribeEntries = host.onChatChanged?.(() => {
+    entries.refreshVisibility();
+    if (phone?.isOpen) open();
+  });
   const onBusyChange = value => { activeRequests += value ? 1 : -1; entries.fab.setBusy(activeRequests > 0); };
   const unsubscribe = host.onBeforeMainGeneration(async (type, _params, dryRun) => {
     if (dryRun || ['quiet', 'impersonate'].includes(type)) return;
     const target = host.captureChat();
     host.setPrompt('');
+    logger.setLastBackflowPrompt('');
     const control = createPhoneControl({ host, target });
     if (!control.isEnabled()) return;
     const store = makeStore(target);
+    const calendar = createCalendarReader({ store, target });
     const modelClient = createModelClient({ host, sourceProvider: createApiSettings({ host }), onBusyChange });
-    try { host.setPrompt(await createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider }).prepare(type)); }
+    try {
+      const prompt = await createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar }).prepare(type);
+      host.setPrompt(prompt);
+      logger.setLastBackflowPrompt(prompt);
+    }
     catch (error) { host.reportError(`手机参考准备失败，本次正文未带入手机消息。${error.message || '请检查手机生成连接后重试。'}`); }
   });
   const unsubscribeTime = host.onStoryChanged(() => phone?.refreshTime());
@@ -67,15 +79,51 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
     const store = makeStore(target, { assertEnabled: control.assertEnabled, isReading: id => currentPhone?.isReading(id), onIncomingMessage: id => currentPhone?.notifyMessage(id) });
     const apiSettings = createApiSettings({ host, onBusyChange });
     const client = createModelClient({ host, sourceProvider: apiSettings, onBusyChange });
-    const modelClient = { async complete(request) { control.assertEnabled(); const answer = await client.complete(request); control.assertEnabled(); return answer; } };
-    const calendar = createCalendarReader();
+    const modelClient = {
+      async complete(request) {
+        control.assertEnabled();
+        try {
+          const answer = await client.complete(request);
+          control.assertEnabled();
+          const sys = request.system || (request.messages || []).filter(m => m.role === 'system').map(m => m.content).join('\n\n---\n\n') || '';
+          const collapsed = request.collapsedMessages || (Array.isArray(request.entries) && request.entries.length ? collapseMessages(request.entries) : request.messages || []);
+          logger.addLog({
+            title: detectRequestTitle(request),
+            systemPrompt: sys,
+            messages: collapsed,
+            entries: request.entries || (request.messages || []),
+            reply: answer,
+            error: null,
+          });
+          return answer;
+        } catch (err) {
+          const sys = request.system || (request.messages || []).filter(m => m.role === 'system').map(m => m.content).join('\n\n---\n\n') || '';
+          const collapsed = request.collapsedMessages || (Array.isArray(request.entries) && request.entries.length ? collapseMessages(request.entries) : request.messages || []);
+          logger.addLog({
+            title: detectRequestTitle(request),
+            systemPrompt: sys,
+            messages: collapsed,
+            entries: request.entries || (request.messages || []),
+            reply: '',
+            error: err.message || String(err),
+          });
+          throw err;
+        }
+      }
+    };
+    const calendar = createCalendarReader({ store, target });
     const memorySources = createMemorySources({ target, qqjBridgeProvider, settingsProvider: host.readSettings });
     const contextReader = createContextReader({ target, store, qqjBridgeProvider, calendar, wrapperSettingsProvider, memorySources });
+    const calendarAi = createCalendarAiService({ contextReader, modelClient, target, store });
     currentPhone = mountPhone({ mount: documentRef.documentElement, store, qqjBridgeProvider, defaultUser: target.user, readTime: () => readPhoneTime(target.messages), readTimeline: () => readTimeline(target.messages),
       messages: createMessageService({ target, store, contextReader, modelClient }),
       groups: createGroupService({ target, store, contextReader, modelClient }),
       directory: createDirectoryService({ store, contextReader, modelClient }),
-      forum: createForumService({ store, contextReader, modelClient }), apiSettings, calendar,
+      forum: createForumService({ store, contextReader, modelClient }), apiSettings, calendar, calendarAi, logger,
+      previewBackflow: async () => {
+        const backflowService = createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar });
+        return await backflowService.prepare('normal');
+      },
       social: createSocialService({ store, contextReader, modelClient, defaultUser: target.user, isReadingPost: id => currentPhone?.isReadingSocial(id) }),
       wallpaper: createWallpaperService({ host, store }), entries, appearance, authoring: createAuthoringService({ host, store, readEntries: entries.read }), mode: host.mode,
       updates, renderUpdateMarkdown, notifyUpdate: notification => {
@@ -84,7 +132,7 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
         else globalThis.alert?.(notification.text);
       },
       control, imageProviders, images: createPhoneImageService({ store, modelClient, files, providers: imageProviders, assertEnabled: control.assertEnabled, onBusyChange, defaultUser: target.user }), readWeather: readLockWeather,
-      onContextChange: () => host.setPrompt(''),
+      onContextChange: () => { host.setPrompt(''); logger.setLastBackflowPrompt(''); },
       onClose: () => entries.focus(),
     });
     phone = currentPhone;

@@ -34,7 +34,7 @@ try {
   assert.equal(await page.evaluate(() => previewHarness.requests.length), 1, '双语在同次请求内生成');
   const input = await page.evaluate(() => JSON.parse(previewHarness.requests[0].body.messages[1].content));
   assert.equal('user' in input || 'userProfile' in input, false, '论坛没有用户资料');
-  assert.equal(input.storyBackground.length, 1);
+  assert.equal(input.storyBackground, undefined);
   assert.equal(typeof input.setting, 'string');
   assert.equal(input.clock.time, '23:58');
   assert.equal(await page.locator('.post-title .message-original').textContent(), 'A new riverside path');

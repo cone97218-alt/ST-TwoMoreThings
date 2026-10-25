@@ -24,8 +24,9 @@ test('one directory request adds contacts and groups together without resetting 
   assert.equal(store.read().conversations.lin[0].id, 'keep');
   assert.deepEqual(store.read().groups[0].memberIds, ['lin', 'qqj:q2']);
   const input = JSON.parse(h.modelRequests[0].body.messages[1].content);
-  assert.ok(input.worldbook.includes('周予性格爽快'));
+  assert.equal(input.worldbook, undefined); assert.ok(h.modelRequests[0].body.messages[0].content.includes('周予性格爽快'));
   assert.equal(input.contacts[0].id, 'lin');
+  assert.ok(h.modelRequests[0].body.messages[0].content.includes('根据people、角色卡、世界书和最新剧情'));
   await service.organize();
   assert.equal(store.read().contacts.length, 2);
   assert.equal(store.read().groups.length, 1);
@@ -38,7 +39,7 @@ test('without QQJ, directory reads card/worldbook and permits an empty result wi
   const service = createDirectoryService({ store, contextReader: createContextReader({ target, store, qqjBridgeProvider: () => null }), modelClient: createModelClient({ host: h.host, sourceProvider: createApiSettings({ host: h.host }) }) });
   await service.organize();
   assert.equal(store.read().contacts[0].id, 'card-world:周予');
-  assert.ok(JSON.parse(h.modelRequests[0].body.messages[1].content).worldbook.includes('周予性格爽快'));
+  assert.equal(JSON.parse(h.modelRequests[0].body.messages[1].content).worldbook, undefined); assert.ok(h.modelRequests[0].body.messages[0].content.includes('周予性格爽快'));
   h.completion = { choices: [{ message: { content: '{"contacts":[],"groups":[]}' } }] };
   const before = h.metadataSaves;
   assert.deepEqual(await service.organize(), { contacts: [], groups: [] });
@@ -62,4 +63,40 @@ test('card/worldbook source IDs preserve a new contact and its group without gue
   assert.deepEqual(added.contacts.map(person => person.id), ['card-world:周予']);
   assert.equal(added.groups.length, 1);
   assert.deepEqual(store.read().groups[0].memberIds, ['lin', 'card-world:周予']);
+});
+
+test('directory organize reads and injects storyMemory into active preset', async () => {
+  const h = createHarness();
+  const target = h.host.captureChat(), store = createPhoneStore({ target });
+  const { createDirectoryService } = await import('../src/directory.js');
+  let receivedEntries = null;
+  const memorySources = {
+    select: () => ({ kind: 'bbs' }),
+    readStoryMemory: () => '柏宝书剧情长线摘要测试内容',
+  };
+  const service = createDirectoryService({
+    store,
+    contextReader: createContextReader({ target, store, qqjBridgeProvider: () => null, memorySources }),
+    modelClient: {
+      complete: async (req) => {
+        receivedEntries = req.entries;
+        return JSON.stringify({ contacts: [], groups: [] });
+      },
+    },
+  });
+  await service.organize();
+  assert.ok(receivedEntries, 'modelClient.complete should be called with entries');
+  const memoryEntry = receivedEntries.find(e => e.id === 'entry_story_memory');
+  assert.ok(memoryEntry, 'entry_story_memory should be present');
+  assert.ok(memoryEntry.content.includes('柏宝书剧情长线摘要测试内容'), 'entry content should include story memory');
+
+  const phoneContextEntry = receivedEntries.find(e => e.id === 'entry_phone_context' || e.id === 'entry_phone_data');
+  assert.ok(phoneContextEntry, 'entry_phone_context should be present');
+  const parsedPhoneContext = JSON.parse(phoneContextEntry.content);
+  assert.equal(parsedPhoneContext.story, undefined, 'phoneContext should omit redundant story');
+  assert.equal(parsedPhoneContext.storyMemory, undefined, 'phoneContext should omit redundant storyMemory');
+  assert.equal(parsedPhoneContext.character, undefined, 'phoneContext should omit redundant character');
+  assert.ok(Array.isArray(parsedPhoneContext.contacts));
+  assert.ok(Array.isArray(parsedPhoneContext.groups));
+  assert.ok(parsedPhoneContext.clock);
 });

@@ -34,7 +34,11 @@ export function readTodos(state) {
 }
 
 export function pendingTodoCount(state) {
-  return readTodos(state).filter(todo => todo?.status === 'open').length;
+  const fromTodos = readTodos(state).filter(todo => todo?.status === 'open').length;
+  const fromCalendar = Array.isArray(state?.calendar?.items)
+    ? state.calendar.items.filter(item => item?.type === 'todo' && !item?.done && !readTodos(state).some(t => t?.id === item?.id || t?.id === item?.todoId)).length
+    : 0;
+  return fromTodos + fromCalendar;
 }
 
 export function todoSourceMessageIds(todo) {

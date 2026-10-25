@@ -1,46 +1,148 @@
 import { normalizeContent } from './content.js';
+import { collapseMessages } from './preset-engine.js';
+
+export const BAIBAI_SHARED_CHANNELS_KEY = 'baibai_api_channels';
+export const BAIBAI_SHARED_CHANNELS_EVENT = 'st-baibai-api-channels:changed';
+export const BAIBAI_BOOK_SETTINGS_KEY = 'baibai_book';
 
 const pool = settings => settings['schedule-planner']?.apiPresets || [];
-const refKey = ref => ref ? `${ref.kind}:${ref.presetId || ''}` : '';
-const flat = value => value && ({ url: value.apiUrl, key: value.apiKey, model: value.apiModel, excludeParams: value.apiExcludeParams, timeoutSec: value.apiTimeoutSec });
+const refKey = ref => ref ? `${ref.kind}:${ref.channelId || ref.presetId || ''}` : '';
+const flat = value => value && ({ url: value.apiUrl, key: value.apiKey, model: value.apiModel, maxTokens: value.apiMaxTokens ?? value.maxTokens ?? value.max_tokens, excludeParams: value.apiExcludeParams, timeoutSec: value.apiTimeoutSec });
 const normalizeUrl = value => {
   const url = String(value || '').trim().replace(/\/+$/, '').replace(/\/chat\/completions$/i, '');
   return /^https?:\/\/[^/?#]+$/i.test(url) ? `${url}/v1` : url;
 };
 
+export function getBaiBaiChannels(settings) {
+  if (!settings || typeof settings !== 'object') return [];
+  const shared = settings[BAIBAI_SHARED_CHANNELS_KEY];
+  const list = Array.isArray(shared?.channels)
+    ? shared.channels
+    : Array.isArray(settings[BAIBAI_BOOK_SETTINGS_KEY]?.channels)
+      ? settings[BAIBAI_BOOK_SETTINGS_KEY].channels
+      : [];
+  return list.filter(item => item && typeof item === 'object' && item.id);
+}
+
 export function listApiSources(settings) {
   const sources = [];
+  const baibaiChannels = getBaiBaiChannels(settings);
+  const baibaiBook = settings?.[BAIBAI_BOOK_SETTINGS_KEY];
+  const summaryId = baibaiBook?.assignments?.summary;
+  const resummaryId = baibaiBook?.assignments?.resummary;
+
+  // 1. 跟随柏宝书当前指派的渠道
+  if (summaryId) {
+    const ch = baibaiChannels.find(x => x.id === summaryId);
+    if (ch) sources.push({ ref: { kind: 'baibai-book-summary' }, label: `跟随柏宝书 · 摘要 (${ch.name || ch.model})`, model: ch.model });
+  }
+  if (resummaryId) {
+    const ch = baibaiChannels.find(x => x.id === resummaryId);
+    if (ch) sources.push({ ref: { kind: 'baibai-book-resummary' }, label: `跟随柏宝书 · 总结 (${ch.name || ch.model})`, model: ch.model });
+  }
+
+  // 2. 柏宝书 / 柏宝绘共享渠道池中的所有独立渠道
+  for (const ch of baibaiChannels) {
+    sources.push({
+      ref: { kind: 'baibai-channel', channelId: ch.id },
+      label: `柏宝渠道 · ${ch.name || ch.model || '未命名'}`,
+      model: ch.model,
+    });
+  }
+
+  // 3. 历史兼容源 (千千结、schedule-planner共享预设)
   const qqj = settings.qianqianjie;
-  const gouhua = settings['schedule-planner'];
-  if (qqj?.apiUrl || qqj?.apiKey || qqj?.apiMode === 'seven-preset' && qqj.selectedSevenDaysPresetId) {
+  if (qqj?.apiUrl || qqj?.apiKey || (qqj?.apiMode === 'seven-preset' && qqj.selectedSevenDaysPresetId)) {
     const value = qqj.apiMode === 'seven-preset' ? pool(settings).find(x => x.id === qqj.selectedSevenDaysPresetId) : flat(qqj);
     sources.push({ ref: { kind: 'qqj-current' }, label: '跟随千千结', model: value?.model });
   }
-  if (gouhua?.apiUrl || gouhua?.apiKey) sources.push({ ref: { kind: 'gouhua-current' }, label: '跟随构画', model: gouhua.apiModel });
-  for (const item of pool(settings)) if (item.id) sources.push({ ref: { kind: 'shared-preset', presetId: item.id }, label: `共享预设 · ${item.name || item.model || '未命名'}`, model: item.model });
+  for (const item of pool(settings)) {
+    if (item.id) sources.push({ ref: { kind: 'shared-preset', presetId: item.id }, label: `共享预设 · ${item.name || item.model || '未命名'}`, model: item.model });
+  }
   return sources;
 }
 
 export function resolveApiConfig(settings, ref) {
   let config;
-  if (ref?.kind === 'qqj-current') {
+  const baibaiChannels = getBaiBaiChannels(settings);
+  const baibaiBook = settings?.[BAIBAI_BOOK_SETTINGS_KEY];
+
+  if (ref?.kind === 'baibai-book-summary') {
+    const id = baibaiBook?.assignments?.summary;
+    config = baibaiChannels.find(x => x.id === id);
+  } else if (ref?.kind === 'baibai-book-resummary') {
+    const id = baibaiBook?.assignments?.resummary;
+    config = baibaiChannels.find(x => x.id === id);
+  } else if (ref?.kind === 'baibai-channel') {
+    config = baibaiChannels.find(x => x.id === ref.channelId);
+  } else if (ref?.kind === 'qqj-current') {
     const q = settings.qianqianjie;
     config = q?.apiMode === 'seven-preset' ? pool(settings).find(x => x.id === q.selectedSevenDaysPresetId) : flat(q);
-  } else if (ref?.kind === 'gouhua-current') config = flat(settings['schedule-planner']);
-  else if (ref?.kind === 'shared-preset') config = pool(settings).find(x => x.id === ref.presetId);
+  } else if (ref?.kind === 'shared-preset') {
+    config = pool(settings).find(x => x.id === ref.presetId);
+  }
+
   const url = normalizeUrl(config?.url);
   if (!/^https?:\/\//i.test(url) || !config?.key || !config?.model) throw new Error('请在手机设置中选择可用连接，或在原配置中补全地址、密钥和模型。');
-  return { url, key: config.key, model: config.model, excludeParams: config.excludeParams || [], timeoutSec: config.timeoutSec };
+  const rawMaxTokens = Number(config.maxTokens ?? config.max_tokens ?? config.apiMaxTokens);
+  return {
+    url,
+    key: config.key,
+    model: config.model,
+    temperature: typeof config.temperature === 'number' ? config.temperature : 0.8,
+    maxTokens: Number.isFinite(rawMaxTokens) && rawMaxTokens > 0 ? Math.floor(rawMaxTokens) : 65535,
+    excludeParams: config.excludeParams || [],
+    timeoutSec: config.timeoutSec || 180,
+    reasoningEffort: typeof config.reasoningEffort === 'string' ? config.reasoningEffort.trim() : '',
+  };
 }
 
 export async function saveManualPreset(settings, draft, saveSettings) {
-  const preset = { id: globalThis.crypto.randomUUID(), name: draft.name?.trim() || draft.model?.trim(), url: normalizeUrl(draft.url), key: draft.key?.trim(), model: draft.model?.trim(), excludeParams: [], timeoutSec: 180, stream: false };
-  resolveApiConfig({ 'schedule-planner': { apiPresets: [preset] } }, { kind: 'shared-preset', presetId: preset.id });
+  const id = globalThis.crypto.randomUUID();
+  const name = draft.name?.trim() || draft.model?.trim() || '新渠道';
+  const url = normalizeUrl(draft.url);
+  const key = draft.key?.trim();
+  const model = draft.model?.trim();
+  const reasoningEffort = draft.reasoningEffort?.trim() || '';
+
+  // 柏宝书 / 柏宝绘 标准渠道结构
+  const baibaiChannel = {
+    id,
+    name,
+    url,
+    key,
+    model,
+    temperature: 0.8,
+    maxTokens: 65535,
+    timeoutSec: 180,
+    stream: false,
+    excludeParams: [],
+    reasoningEffort,
+  };
+
+  // 1. 同步存入 baibai_api_channels 共享存储 (实时广播与跨插件共享)
+  const shared = settings[BAIBAI_SHARED_CHANNELS_KEY] ||= { schemaVersion: 1, revision: 0, channels: [] };
+  const prevShared = Array.isArray(shared.channels) ? [...shared.channels] : [];
+  shared.schemaVersion = 1;
+  shared.revision = (Number(shared.revision) || 0) + 1;
+  shared.channels = [...prevShared, baibaiChannel];
+
+  // 2. 同时存入 schedule-planner 保证老逻辑和单测完全兼容
+  const preset = { id, name, url, key, model, excludeParams: [], timeoutSec: 180, stream: false };
   const container = settings['schedule-planner'] ||= {};
   const previous = container.apiPresets;
   container.apiPresets = [...(previous || []), preset];
-  try { await saveSettings(); }
-  catch { container.apiPresets = previous; throw new Error('连接保存失败，请重试。'); }
+
+  try {
+    await saveSettings();
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent(BAIBAI_SHARED_CHANNELS_EVENT, { detail: { revision: shared.revision, source: 'ST-TwoMoreThings' } }));
+    }
+  } catch {
+    shared.channels = prevShared;
+    container.apiPresets = previous;
+    throw new Error('连接保存失败，请重试。');
+  }
   return { kind: 'shared-preset', presetId: preset.id };
 }
 
@@ -71,7 +173,10 @@ export function createApiSettings({ host, onBusyChange = () => {} }) {
       const selected = settings[settingsKey]?.apiSourceRef || settings.pocketPhone?.apiSourceRef;
       if (selected) return selected;
       const sources = api.listSources();
-      return sources.find(x => x.ref.kind === 'qqj-current')?.ref || sources.find(x => x.ref.kind === 'gouhua-current')?.ref || (sources.length === 1 ? sources[0].ref : null);
+      return sources.find(x => x.ref.kind === 'baibai-book-summary')?.ref
+        || sources.find(x => x.ref.kind === 'baibai-channel')?.ref
+        || sources.find(x => x.ref.kind === 'qqj-current')?.ref
+        || (sources.length === 1 ? sources[0].ref : null);
     },
     async select(ref) {
       if (!api.listSources().some(x => refKey(x.ref) === refKey(ref))) throw new Error('这条连接已不存在，请重新选择。');
@@ -93,12 +198,32 @@ export function createApiSettings({ host, onBusyChange = () => {} }) {
 
 export function createModelClient({ host, sourceProvider, onBusyChange = () => {} }) {
   return {
-    async complete({ system, messages, maxTokens = 1800 }) {
+    async complete({ system, messages = [], entries, collapsedMessages, maxTokens }) {
       onBusyChange(true);
       try {
         const config = sourceProvider.resolve();
-        const body = { chat_completion_source: 'openai', reverse_proxy: config.url, proxy_password: config.key, model: config.model, messages: [{ role: 'system', content: system }, ...messages], stream: false, temperature: 0.8, max_tokens: maxTokens };
-        for (const key of config.excludeParams) if (['temperature', 'max_tokens'].includes(key)) delete body[key];
+        const payloadMessages = [];
+        const ordered = collapsedMessages || (Array.isArray(entries) && entries.length ? collapseMessages(entries) : null);
+        if (ordered && ordered.length) {
+          for (const m of ordered) {
+            payloadMessages.push({ role: m.role, content: m.content });
+          }
+        } else {
+          if (system && String(system).trim()) {
+            payloadMessages.push({ role: 'system', content: String(system) });
+          }
+          if (Array.isArray(messages)) {
+            payloadMessages.push(...messages);
+          }
+        }
+        const resolvedMaxTokens = Number.isFinite(Number(config.maxTokens)) && Number(config.maxTokens) > 0
+          ? Math.floor(Number(config.maxTokens))
+          : (Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0 ? Math.floor(Number(maxTokens)) : 65535);
+        const body = { chat_completion_source: 'openai', reverse_proxy: config.url, proxy_password: config.key, model: config.model, messages: payloadMessages, stream: false, temperature: typeof config.temperature === 'number' ? config.temperature : 0.8, max_tokens: resolvedMaxTokens };
+        if (config.reasoningEffort) {
+          body.reasoning_effort = config.reasoningEffort;
+        }
+        for (const key of config.excludeParams) if (['temperature', 'max_tokens', 'reasoning_effort'].includes(key)) delete body[key];
         let response;
         try { response = await host.request('/api/backends/chat-completions/generate', { method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(Math.max(1, Number(config.timeoutSec) || 180) * 1000) }); }
         catch (error) { throw new Error(error.name === 'TimeoutError' ? '生成等待超时，请稍后重试。' : '生成请求未能连接，请检查酒馆和接口连接后重试。'); }
@@ -106,9 +231,22 @@ export function createModelClient({ host, sourceProvider, onBusyChange = () => {
         let data;
         try { data = await response.json(); }
         catch { throw new Error('接口没有返回可读取的回答，请检查所选模型后重试。'); }
-        const content = data.choices?.[0]?.message?.content;
-        const text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter(x => x.type === 'text').map(x => x.text).join('\n') : '';
-        if (!text.trim()) throw new Error('模型没有返回正文，请检查连接或稍后重试。');
+        if (data?.error) {
+          const msg = typeof data.error === 'string' ? data.error : data.error?.message || JSON.stringify(data.error);
+          throw new Error(`接口报错：${msg}`);
+        }
+        const choice = data.choices?.[0];
+        const content = choice?.message?.content ?? choice?.text ?? choice?.message?.text ?? data.text ?? data.response;
+        let text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter(x => x.type === 'text').map(x => x.text).join('\n') : '';
+        if (!text.trim() && choice?.message?.reasoning_content) {
+          text = choice.message.reasoning_content;
+        }
+        if (!text.trim()) {
+          if (choice?.finish_reason === 'length') {
+            throw new Error('模型生成中断（Token 已耗尽，可能被思考过程消耗），请稍后重试或检查模型设置。');
+          }
+          throw new Error('模型没有返回正文，请检查连接或稍后重试。');
+        }
         return text;
       } finally { onBusyChange(false); }
     },
@@ -127,7 +265,8 @@ function extract(value, kind) {
 }
 
 export function parsePayload(text, kind, { allowEmpty = false, indexed = false } = {}) {
-  const source = String(text).trim();
+  const cleanText = String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const source = cleanText;
   const candidates = [source, ...[...source.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(x => x[1])];
   const first = source.indexOf('{');
   const last = source.lastIndexOf('}');
@@ -170,7 +309,8 @@ export function parsePayload(text, kind, { allowEmpty = false, indexed = false }
 }
 
 export function parseJsonObject(text) {
-  const source = String(text).trim(), first = source.indexOf('{'), last = source.lastIndexOf('}');
+  const cleanText = String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const source = cleanText, first = source.indexOf('{'), last = source.lastIndexOf('}');
   const fenced = [...source.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(match => match[1]);
   for (const candidate of [source, ...fenced, source.slice(first, last + 1)]) {
     try {

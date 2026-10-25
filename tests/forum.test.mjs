@@ -31,9 +31,9 @@ for (const hostKind of ['native', 'luker']) test(`${hostKind}: one forum refresh
   await service.refresh();
   assert.equal(h.modelRequests.length, 1);
   const sent = JSON.parse(h.modelRequests[0].body.messages.find(message => message.role === 'user').content);
-  assert.deepEqual(Object.keys(sent).sort(), ['clock', 'setting', 'storyBackground', 'worldbook']);
+  assert.deepEqual(Object.keys(sent).sort(), ['clock', 'setting']);
   assert.equal(sent.clock.time, '18:00');
-  assert.equal(sent.storyBackground[0].text, '广场开放周末集市。');
+  assert.ok(h.modelRequests[0].body.messages.find(message => message.role === 'system').content.includes('广场开放周末集市。'));
   for (const privateText of ['私有用户姓名', '私有用户网名', '不应发给论坛的私聊']) assert.equal(JSON.stringify(sent).includes(privateText), false);
   const posts = store.read().forum.posts;
   assert.equal(posts.length, 2);

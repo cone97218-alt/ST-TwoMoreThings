@@ -49,3 +49,33 @@ for (const style of ['stacked', 'rounded']) test(`${style} is included in author
   await imported.setLockStyle('classic');
   assert.equal(createPhoneStore({ target, initialState: preset }).read().lockStyle, 'classic');
 });
+
+
+for (const hostKind of ['native', 'luker']) test(`${hostKind}: toggling lockScreenEnabled updates state and preserves other settings`, async () => {
+  const h = createHarness({ hostKind, metadata: { foreign: 'keep' } }), target = h.host.captureChat();
+  const store = createPhoneStore({ target });
+  assert.equal(store.read().lockScreenEnabled !== false, true);
+  await store.setLockScreenEnabled(false);
+  assert.equal(store.read().lockScreenEnabled, false);
+  assert.equal(createPhoneStore({ target }).read().lockScreenEnabled, false);
+  assert.equal(h.persistedMetadata.foreign, 'keep');
+  await store.setLockScreenEnabled(true);
+  assert.equal(store.read().lockScreenEnabled, true);
+  h.saveFailure = new Error('offline');
+  await assert.rejects(store.setLockScreenEnabled(false), /保存/);
+  assert.equal(store.read().lockScreenEnabled, true);
+});
+
+test('lockScreenEnabled false is included in author exports and initializes new archives', async () => {
+  const h = createHarness(), store = createPhoneStore({ target: h.host.captureChat() });
+  await store.setLockScreenEnabled(false);
+  const { script } = await createAuthoringService({ store, host: h.host }).exportScript();
+  assert.equal(script.data.twoMoreThings.lockScreenEnabled, false);
+  const preset = stateFromPreset(script.data.twoMoreThings);
+  assert.equal(preset.lockScreenEnabled, false);
+  const reader = createHarness(), target = reader.host.captureChat();
+  const imported = createPhoneStore({ target, initialState: preset });
+  assert.equal(imported.read().lockScreenEnabled, false);
+  await imported.setLockScreenEnabled(true);
+  assert.equal(createPhoneStore({ target, initialState: preset }).read().lockScreenEnabled, true);
+});

@@ -28,6 +28,7 @@ import { displayName } from './profiles.js';
 import { renderTodos } from './ui/todos.js';
 import { renderPhoneNotice } from './ui/notifications.js';
 import { readSocialPosts } from './social.js';
+import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 import { createPluginUpdatesView } from './ui/plugin-updates-view.js';
 import { createPhoneDialog } from './ui/dialog.js';
 import { MEMORY_CONFLICT_CODE } from './memory-sources.js';
@@ -37,7 +38,6 @@ const apps = [
   { id: 'messages', label: '短信', view: 'inbox' },
   { id: 'forum', label: '论坛', view: 'forum' },
   { id: 'calendar', label: '日历', view: 'calendar' },
-  { id: 'todos', label: '待办', view: 'todos' },
   { id: 'settings', label: '设置', view: 'settings' },
   { id: 'social', label: 'ainstgram', view: 'social' },
 ];
@@ -56,12 +56,12 @@ const pages = {
   'user-profile': renderProfile,
   authoring: renderAuthoring,
   calendar: renderCalendar,
-  todos: renderTodos,
+  todos: renderCalendar,
   social: renderSocial,
   'social-profile': renderSocialProfile,
 };
 
-export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {} }) {
+export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, logger = null, previewBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {} }) {
   const doc = mount.ownerDocument;
   const element = doc.createElement('div');
   element.id = mode === 'embedded' ? 'pocket-phone-card-host' : 'pocket-phone-host';
@@ -75,7 +75,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   doc.head.append(fontStyle);
   const stylesheet = doc.createElement('link');
   stylesheet.rel = 'stylesheet';
-  stylesheet.href = new URL('../style.css', import.meta.url).href;
+  stylesheet.href = `${new URL('../style.css', import.meta.url).href}?v=${Date.now()}`;
   const surface = doc.createElement('div');
   surface.className = 'phone-shell';
   surface.setAttribute('role', 'region');
@@ -99,10 +99,16 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     groupMembersOpen: false,
     socialAuthorId: '', socialPastOpen: false, socialLimit: 30, socialScroll: 0,
     socialCommentOpen: new Set(), socialDrafts: new Map(), notice: null,
-    drawers: { connection: true, appearance: false, content: false },
+    drawers: { connection: true, appearance: false, content: false, prompts: false, logs: false },
+    expandedLogs: null, backflowPreview: undefined, expandedPresetEntries: new Set(),
+    promptCategory: '全部', promptSearch: '', promptDrafts: {},
     manual: false, apiDraft: {}, models: [], modelSearch: '', modelsOpen: false,
     attachment: '', attachmentDraft: {}, stickerPack: 'emoji', photo: null,
-    calendarOffset: 0, calendarDay: null,
+    calendarOffset: 0, calendarDay: null, calendarScroll: 0, hasOpenedOnce: false, lastOpenView: '',
+    calendarFormOpen: false, calendarDraft: null,
+    calendarSettingsOpen: false, calendarAiOpen: false, calendarAiTab: 'festivals',
+    calendarAiSetting: '', calendarAiCount: 3, calendarAiDays: 3, calendarAiFocus: '全部',
+    calendarAiFestivals: [], calendarAiSchedules: [], calendarAiBusy: false,
     todoEditing: new Set(), todoDrafts: new Map(),
     replyToId: '',
   };
@@ -185,13 +191,21 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       start: activeSocialComment.selectionStart,
       end: activeSocialComment.selectionEnd,
     };
+    const previousPromptSearch = root.querySelector('[data-action="search-prompts"]');
+    const promptSearchSelection = previousPromptSearch && (root.activeElement === previousPromptSearch) && {
+      text: previousPromptSearch.value,
+      start: previousPromptSearch.selectionStart,
+      end: previousPromptSearch.selectionEnd,
+    };
     const scrollTop = inChat() ? root.querySelector('.message-feed')?.scrollTop : undefined;
     const settingsScroll = root.querySelector('.view-settings')?.scrollTop;
     const socialScroll = ['social', 'social-profile'].includes(ui.view) ? root.querySelector(`.view-${ui.view}`)?.scrollTop : undefined;
+    const calendarScroll = ['calendar', 'todos'].includes(ui.view) ? root.querySelector(`.view-${ui.view}`)?.scrollTop : undefined;
     let state = store.read();
     const enabled = control.isEnabled();
     element.dataset.enabled = String(enabled);
     if (!enabled) { ui.view = 'settings'; ui.photo = null; ui.attachment = ''; }
+    if (ui.view === 'home' && state.lockScreenEnabled === false) ui.view = 'desktop';
     if (['inbox', 'chat', 'group-chat', 'group-profile', 'social', 'social-profile'].includes(ui.view)) {
       state = { ...state, contacts: readContactAvatars(state.contacts, qqjBridgeProvider?.()) };
     }
@@ -207,7 +221,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       ? calendar.month(ui.calendarOffset)
       : ui.view === 'desktop' ? calendar.month(0) : null;
     surface.innerHTML = renderShell({
-      content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, weather, todos: store, updates }),
+      content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview }),
       view: ui.view, enabled, weather,
       feedback: ui.feedback, photo: ui.photo,
       conflict: ui.conflict, mode, conflictBusy: busy.has('conflict'),
@@ -244,9 +258,20 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         textarea.focus({ preventScroll: true });
       }
     }
+    if (promptSearchSelection) {
+      const searchInput = root.querySelector('[data-action="search-prompts"]');
+      if (searchInput && searchInput.value === promptSearchSelection.text) {
+        searchInput.focus({ preventScroll: true });
+        searchInput.setSelectionRange(promptSearchSelection.start, promptSearchSelection.end);
+      }
+    }
     chatScroll.attach();
     if (settingsScroll !== undefined && ui.view === 'settings') root.querySelector('.view-settings').scrollTop = settingsScroll;
     if (socialScroll !== undefined && ['social', 'social-profile'].includes(ui.view)) root.querySelector('.phone-main').scrollTop = socialScroll;
+    if (calendarScroll !== undefined && ['calendar', 'todos'].includes(ui.view)) {
+      ui.calendarScroll = calendarScroll;
+      root.querySelector('.phone-main').scrollTop = calendarScroll;
+    }
     if (bottom) {
       const feed = root.querySelector('.message-feed');
       if (feed) feed.scrollTop = feed.scrollHeight;
@@ -318,6 +343,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (current?.path) { ui.photo = current; render(); }
   }
   function close() {
+    if (!['home', 'delete-confirm'].includes(ui.view)) ui.lastOpenView = ui.view;
+    if (['calendar', 'todos'].includes(ui.view)) ui.calendarScroll = root.querySelector('.phone-main')?.scrollTop || 0;
     avatarCropper?.close();
     dismissMenus();
     dismissPhoneNotice();
@@ -338,6 +365,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   }
   function showPage(view, { bottom = false } = {}) {
     if (ui.view === 'social' && view !== 'social') ui.socialScroll = root.querySelector('.view-social')?.scrollTop || 0;
+    if (['calendar', 'todos'].includes(ui.view) && !['calendar', 'todos'].includes(view)) ui.calendarScroll = root.querySelector('.phone-main')?.scrollTop || 0;
     dismissMenus();
     if (view !== 'group-chat') ui.replyToId = '';
     ui.view = view;
@@ -348,6 +376,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     render({ bottom });
     recoverVisibleImages();
     if (view === 'social') root.querySelector('.view-social').scrollTop = ui.socialScroll;
+    if (['calendar', 'todos'].includes(view) && ui.calendarScroll) root.querySelector('.phone-main').scrollTop = ui.calendarScroll;
     readVisibleSocialReplies();
   }
   function openConversation(id, isGroup = false) {
@@ -487,6 +516,20 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       return;
     }
     if (event.target.matches('.photo-viewer')) { ui.photo = null; render(); return; }
+    if (event.target.matches('.calendar-modal-backdrop')) { ui.calendarAiOpen = false; render(); return; }
+    const todoOpenNode = event.target.closest('[data-action="open-todo-calendar"]');
+    if (todoOpenNode && !event.target.closest('button:not([data-action="open-todo-calendar"]), .todo-form')) {
+      const todoId = todoOpenNode.dataset.todoId || todoOpenNode.closest('[data-todo-candidate]')?.dataset.todoCandidate || '';
+      ui.calendarOffset = 0;
+      ui.calendarDay = null;
+      if (todoId) {
+        const calMonth = calendar.month(0);
+        const matchDay = calMonth?.days?.find(d => d.items?.some(it => it.id === todoId || it.todoId === todoId));
+        if (matchDay) ui.calendarDay = matchDay.day;
+      }
+      showPage('calendar');
+      return;
+    }
     const button = event.target.closest('button');
     if (!button || button.disabled) return;
     if (button.dataset.wallpaper !== undefined) { const theme = store.read().theme; void perform('wallpaper', () => store.setWallpaper(theme, button.dataset.wallpaper)); return; }
@@ -565,6 +608,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         else if (notice?.kind === 'social-author') { ui.socialAuthorId = notice.id; showPage('social-profile'); }
         else if (notice?.kind === 'social-feed') showPage('social');
         else if (notice?.kind === 'forum') showPage('forum');
+        else if (notice?.kind === 'calendar-ai') {
+          ui.calendarAiOpen = true;
+          ui.calendarAiTab = notice.tab || ui.calendarAiTab || 'festivals';
+          showPage('calendar');
+        }
         break;
       }
       case 'open-social-reply': dismissPhoneNotice(); openSocialReply(button.dataset.socialPost); break;
@@ -629,6 +677,216 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'calendar-next': ui.calendarOffset++; ui.calendarDay = null; render(); break;
       case 'calendar-today': ui.calendarOffset = 0; ui.calendarDay = null; render(); break;
       case 'calendar-month': ui.calendarDay = null; render(); break;
+      case 'open-calendar-form': {
+        const calMonth = calendar.month(ui.calendarOffset);
+        ui.calendarFormOpen = true;
+        ui.calendarDraft = { month: calMonth?.month || 1, day: ui.calendarDay || 1, days: 1, type: 'anniversary' };
+        render(); break;
+      }
+      case 'close-calendar-form':
+        ui.calendarFormOpen = false; ui.calendarDraft = null; render(); break;
+      case 'open-calendar-settings':
+        ui.calendarSettingsOpen = true; ui.calendarFormOpen = false; ui.calendarAiOpen = false; render(); break;
+      case 'close-calendar-settings':
+        ui.calendarSettingsOpen = false; render(); break;
+      case 'switch-calendar-settings-tab':
+        ui.calendarSettingsTab = button.dataset.calendarSettingsTab || 'presets'; render(); break;
+      case 'apply-calendar-preset': {
+        const countrySelect = root.querySelector('#cal-s-country');
+        const modeSelect = root.querySelector('#cal-s-mode');
+        const selected = countrySelect?.value || 'CN';
+        const keepCustom = modeSelect?.value !== 'replace';
+        if (selected.startsWith('custom_preset:') || selected.startsWith('custom:')) {
+          void perform('calendar-preset', () => store.applyCustomCalendarPreset(selected, { keepCustom }), () => {
+            ui.calendarSettingsOpen = false;
+            ui.feedback = { text: '已切换历法预设。' };
+          });
+        } else {
+          void perform('calendar-preset', () => store.applyCalendarPreset({ countryId: selected, keepCustom }), () => {
+            ui.calendarSettingsOpen = false;
+            ui.feedback = { text: '已切换历法预设。' };
+          });
+        }
+        break;
+      }
+      case 'delete-custom-calendar-preset': {
+        const presetId = button.dataset.presetId || root.querySelector('#cal-s-country')?.value;
+        if (!presetId) break;
+        void perform('calendar-preset', () => store.deleteCustomCalendarPreset(presetId), () => {
+          ui.feedback = { text: '已删除该自定义预设。' };
+        });
+        break;
+      }
+      case 'save-current-as-preset': {
+        const nameInput = root.querySelector('#cal-s-save-name')?.value?.trim();
+        if (!nameInput) {
+          ui.feedback = { text: '请填写预设名称' };
+          render();
+          break;
+        }
+        void perform('calendar-preset', () => store.saveCustomCalendarPreset({ name: nameInput }), () => {
+          ui.feedback = { text: `已保存预设「${nameInput}」。` };
+        });
+        break;
+      }
+      case 'create-custom-calendar': {
+        const title = root.querySelector('#cal-c-title')?.value?.trim() || '自定义历法';
+        const era = root.querySelector('#cal-c-era')?.value?.trim() || '';
+        const currentYear = Number(root.querySelector('#cal-c-year')?.value) || 1;
+        const monthCount = Math.max(1, Math.min(24, Number(root.querySelector('#cal-c-month-count')?.value) || 4));
+        const daysPerMonth = Math.max(1, Math.min(100, Number(root.querySelector('#cal-c-days-per-month')?.value) || 28));
+        const weekdayCycle = Math.max(1, Math.min(14, Number(root.querySelector('#cal-c-weekday-cycle')?.value) || 7));
+        const rawWeekdays = root.querySelector('#cal-c-weekdays')?.value?.trim() || '';
+        const weekdays = rawWeekdays ? rawWeekdays.split(/[,，、\s]+/).filter(Boolean) : [];
+        const rawMonthNames = root.querySelector('#cal-c-month-names')?.value?.trim() || '';
+        const monthNamesList = rawMonthNames ? rawMonthNames.split(/[,，、\s]+/).filter(Boolean) : [];
+        const presetName = root.querySelector('#cal-c-preset-name')?.value?.trim() || '';
+
+        const months = Array.from({ length: monthCount }, (_, i) => ({
+          name: monthNamesList[i] || `${i + 1}月`,
+          days: daysPerMonth,
+        }));
+
+        void perform('calendar-preset', () => store.createCustomCalendar({
+          title,
+          era,
+          currentYear,
+          months,
+          weekdayCycle,
+          weekdays: weekdays.length === weekdayCycle ? weekdays : undefined,
+          presetName,
+        }), () => {
+          ui.calendarSettingsOpen = false;
+          ui.feedback = { text: `已应用新历法「${title}」${presetName ? '并保存为预设' : ''}。` };
+        });
+        break;
+      }
+      case 'open-calendar-ai':
+        ui.calendarAiOpen = true; ui.calendarFormOpen = false; ui.calendarSettingsOpen = false; render(); break;
+      case 'close-calendar-ai':
+        ui.calendarAiOpen = false; render(); break;
+      case 'switch-calendar-ai-tab':
+        ui.calendarAiTab = button.dataset.calendarTab || 'festivals'; render(); break;
+      case 'run-calendar-ai-festivals': {
+        const settingInput = root.querySelector('#cal-ai-setting')?.value || ui.calendarAiSetting || '';
+        const countInput = Number(root.querySelector('#cal-ai-count')?.value || ui.calendarAiCount || 3);
+        ui.calendarAiSetting = settingInput;
+        ui.calendarAiCount = countInput;
+        ui.calendarAiBusy = true; render();
+        void (async () => {
+          try {
+            const list = await calendarAi.conceiveFestivals({ setting: settingInput, count: countInput });
+            ui.calendarAiFestivals = list;
+            if (ui.view !== 'calendar') {
+              pushPhoneNotice({
+                kind: 'calendar-ai',
+                tab: 'festivals',
+                title: '节日构想完成',
+                content: `已构想 ${list.length} 个节日，点击回到日历`,
+              });
+            }
+          } catch (err) {
+            if (ui.view !== 'calendar') {
+              pushPhoneNotice({
+                kind: 'calendar-ai',
+                tab: 'festivals',
+                title: '节日构想失败',
+                content: err.message || '请检查模型连接',
+              });
+            } else {
+              ui.feedback = { text: `构想失败：${err.message || '请检查模型连接'}` };
+            }
+          } finally {
+            ui.calendarAiBusy = false;
+            render();
+          }
+        })();
+        break;
+      }
+      case 'apply-calendar-ai-festivals': {
+        const selected = (ui.calendarAiFestivals || []).filter(item => item.selected);
+        if (!selected.length) { ui.feedback = { text: '请至少勾选一个节日' }; render(); break; }
+        void perform('calendar-event', () => store.saveCalendarEvents(selected), () => {
+          ui.calendarAiFestivals = [];
+          ui.calendarAiOpen = false;
+          ui.feedback = { text: `已加入 ${selected.length} 个节日到日历。` };
+        });
+        break;
+      }
+      case 'run-calendar-ai-schedules': {
+        const daysInput = Number(root.querySelector('#cal-ai-days')?.value || ui.calendarAiDays || 3);
+        const focusInput = root.querySelector('#cal-ai-focus')?.value || ui.calendarAiFocus || '全部';
+        ui.calendarAiDays = daysInput;
+        ui.calendarAiFocus = focusInput;
+        ui.calendarAiBusy = true; render();
+        void (async () => {
+          try {
+            const list = await calendarAi.deduceSchedules({ days: daysInput, focus: focusInput });
+            ui.calendarAiSchedules = list;
+            if (ui.view !== 'calendar') {
+              pushPhoneNotice({
+                kind: 'calendar-ai',
+                tab: 'schedules',
+                title: '日程推演完成',
+                content: `已推演 ${list.length} 条日程，点击回到日历`,
+              });
+            }
+          } catch (err) {
+            if (ui.view !== 'calendar') {
+              pushPhoneNotice({
+                kind: 'calendar-ai',
+                tab: 'schedules',
+                title: '日程推演失败',
+                content: err.message || '请检查模型连接',
+              });
+            } else {
+              ui.feedback = { text: `推演失败：${err.message || '请检查模型连接'}` };
+            }
+          } finally {
+            ui.calendarAiBusy = false;
+            render();
+          }
+        })();
+        break;
+      }
+      case 'apply-calendar-ai-schedules-calendar': {
+        const selected = (ui.calendarAiSchedules || []).filter(item => item.selected);
+        if (!selected.length) { ui.feedback = { text: '请至少勾选一条日程' }; render(); break; }
+        void perform('calendar-event', () => store.saveCalendarEvents(selected.map(it => ({
+          name: it.title,
+          month: it.month,
+          day: it.day,
+          days: it.days,
+          type: 'todo',
+          note: [it.time, it.location, it.note].filter(Boolean).join(' · '),
+        }))), () => {
+          ui.calendarAiSchedules = [];
+          ui.calendarAiOpen = false;
+          ui.feedback = { text: `已加入 ${selected.length} 条待办事项到日历。` };
+        });
+        break;
+      }
+      case 'apply-calendar-ai-schedules-todo': {
+        const selected = (ui.calendarAiSchedules || []).filter(item => item.selected);
+        if (!selected.length) { ui.feedback = { text: '请至少勾选一条日程' }; render(); break; }
+        void perform('todos', () => store.saveTodosFromSchedule(selected), () => {
+          ui.calendarAiSchedules = [];
+          ui.calendarAiOpen = false;
+          ui.feedback = { text: `已加入 ${selected.length} 条待办事项到日历。` };
+        });
+        break;
+      }
+      case 'toggle-calendar-todo': {
+        const eventId = button.dataset.calendarEventId;
+        if (!eventId) break;
+        void perform('calendar-event', () => store.toggleCalendarEventDone(eventId), onContextChange);
+        break;
+      }
+      case 'delete-calendar-event': {
+        const eventId = button.dataset.calendarEventId;
+        void perform('calendar-event', () => store.deleteCalendarEvent(eventId), onContextChange);
+        break;
+      }
       case 'authoring': ui.view = 'authoring'; ui.feedback = null; render(); break;
       case 'back-authoring': goBack(); break;
       case 'export-card':
@@ -724,6 +982,198 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         });
         break;
       }
+      case 'switch-prompt-settings-tab': {
+        ui.promptSettingsTab = button.dataset.promptTab || 'presets';
+        render();
+        break;
+      }
+      case 'cycle-entry-role': {
+        const entryId = button.dataset.entryId;
+        const currentActiveId = store.read()?.activePresetId || 'default_preset';
+        if (!entryId) break;
+        const presets = normalizePromptPresets(store.read()?.promptPresets);
+        const preset = presets.find(p => p.id === currentActiveId) || presets[0];
+        const entry = preset?.entries?.find(e => e.id === entryId);
+        if (entry) {
+          const roles = ['system', 'user', 'assistant'];
+          const currentIdx = roles.indexOf(entry.role || 'system');
+          const nextRole = roles[(currentIdx + 1) % roles.length];
+          void store.updatePresetEntry(currentActiveId, entryId, { role: nextRole }).then(() => render());
+        }
+        break;
+      }
+      case 'toggle-preset-entry-fold': {
+        const entryId = button.dataset.entryId;
+        if (!entryId) break;
+        if (!(ui.expandedPresetEntries instanceof Set)) ui.expandedPresetEntries = new Set();
+        if (ui.expandedPresetEntries.has(entryId)) {
+          ui.expandedPresetEntries.delete(entryId);
+        } else {
+          ui.expandedPresetEntries.add(entryId);
+        }
+        render();
+        break;
+      }
+      case 'open-new-preset-dialog': {
+        const name = prompt('请输入新预设的名称：', '我的自定义预设');
+        if (!name || !name.trim()) break;
+        const currentActiveId = store.read()?.activePresetId || 'default_preset';
+        void perform('prompt-preset', () => store.createPromptPreset({ name: name.trim(), copyFromId: currentActiveId }), () => {
+          ui.feedback = { text: `已创建预设「${name.trim()}」。` };
+        });
+        break;
+      }
+      case 'reset-prompt-preset': {
+        const presetId = button.dataset.presetId;
+        if (!presetId) break;
+        if (!confirm('确定要将该预设重置为最新默认条目配置吗？')) break;
+        void perform('prompt-preset', () => store.resetPromptPreset(presetId), () => {
+          ui.feedback = { text: '已将预设重置为最新默认条目配置。' };
+        });
+        break;
+      }
+      case 'delete-prompt-preset': {
+        const presetId = button.dataset.presetId;
+        if (!presetId) break;
+        if (!confirm('确定要删除此预设吗？')) break;
+        void perform('prompt-preset', () => store.deletePromptPreset(presetId), () => {
+          ui.feedback = { text: '已删除预设。' };
+        });
+        break;
+      }
+      case 'add-preset-entry': {
+        const currentActiveId = store.read()?.activePresetId || 'default_preset';
+        void perform('prompt-preset', () => store.addPresetEntry(currentActiveId, { name: '新条目', role: 'system', content: '' }), () => {
+          ui.feedback = { text: '已添加新条目。' };
+        });
+        break;
+      }
+      case 'move-preset-entry': {
+        const currentActiveId = store.read()?.activePresetId || 'default_preset';
+        const entryId = button.dataset.entryId;
+        const direction = button.dataset.direction;
+        if (!entryId || !direction) break;
+        void store.movePresetEntry(currentActiveId, entryId, direction).then(() => render());
+        break;
+      }
+      case 'delete-preset-entry': {
+        const currentActiveId = store.read()?.activePresetId || 'default_preset';
+        const entryId = button.dataset.entryId;
+        if (!entryId) break;
+        void store.deletePresetEntry(currentActiveId, entryId).then(() => render());
+        break;
+      }
+      case 'insert-slot-macro': {
+        const macro = button.dataset.macro;
+        const entryId = button.dataset.entryId;
+        if (!macro) break;
+        const textarea = entryId ? root.querySelector(`textarea[data-action="edit-entry-content"][data-entry-id="${entryId}"]`) : null;
+        if (textarea) {
+          const start = textarea.selectionStart ?? textarea.value.length;
+          const end = textarea.selectionEnd ?? start;
+          textarea.setRangeText(macro, start, end, 'end');
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          textarea.focus();
+        } else {
+          ui.feedback = { text: `插槽 ${macro} 已复制。` };
+          if (navigator.clipboard?.writeText) navigator.clipboard.writeText(macro);
+          render();
+        }
+        break;
+      }
+      case 'filter-prompt-category': {
+        ui.promptCategory = button.dataset.category || '全部';
+        render();
+        break;
+      }
+      case 'save-prompt': {
+        const promptId = button.dataset.promptId;
+        const textarea = root.querySelector(`textarea[data-prompt-textarea="${promptId}"]`);
+        const text = textarea ? textarea.value : (ui.promptDrafts?.[promptId] ?? '');
+        void perform('prompt-save', () => store.savePrompt(promptId, text), () => {
+          if (ui.promptDrafts) delete ui.promptDrafts[promptId];
+          ui.feedback = { text: '提示词已保存。' };
+        });
+        break;
+      }
+      case 'reset-prompt': {
+        const promptId = button.dataset.promptId;
+        void perform('prompt-reset', () => store.resetPrompt(promptId), () => {
+          if (ui.promptDrafts) delete ui.promptDrafts[promptId];
+          ui.feedback = { text: '已恢复默认提示词。' };
+        });
+        break;
+      }
+      case 'reset-all-prompts': {
+        void perform('prompt-reset-all', () => store.resetAllPrompts(), () => {
+          ui.promptDrafts = {};
+          ui.feedback = { text: '已恢复所有提示词为默认。' };
+        });
+        break;
+      }
+      case 'refresh-backflow-preview': {
+        if (previewBackflow) {
+          void perform('preview-backflow', async () => {
+            ui.backflowPreview = await previewBackflow();
+          }, () => {
+            ui.feedback = { text: '已刷新待注入内容预览。' };
+          });
+        } else {
+          ui.backflowPreview = logger?.getLastBackflowPrompt?.() || '';
+          ui.feedback = { text: '已获取最近准备的注入内容。' };
+          render();
+        }
+        break;
+      }
+      case 'copy-backflow-prompt': {
+        const text = ui.backflowPreview !== undefined ? ui.backflowPreview : (logger?.getLastBackflowPrompt?.() || '');
+        if (text && globalThis.navigator?.clipboard?.writeText) {
+          void globalThis.navigator.clipboard.writeText(text);
+        }
+        ui.feedback = { text: '待注入内容已复制到剪贴板。' };
+        render();
+        break;
+      }
+      case 'clear-logs': {
+        logger?.clearLogs?.();
+        ui.feedback = { text: '已清空请求日志。' };
+        render();
+        break;
+      }
+      case 'toggle-log-card': {
+        const logId = button.dataset.logId;
+        if (!(ui.expandedLogs instanceof Set)) {
+          const firstId = logger?.getLogs?.()?.[0]?.id;
+          ui.expandedLogs = new Set(firstId ? [firstId] : []);
+        }
+        if (ui.expandedLogs.has(logId)) {
+          ui.expandedLogs.delete(logId);
+        } else {
+          ui.expandedLogs.add(logId);
+        }
+        render();
+        break;
+      }
+      case 'copy-log-text': {
+        const logId = button.dataset.logId;
+        const copyType = button.dataset.copyType;
+        const targetLog = logger?.getLogs?.()?.find(item => item.id === logId);
+        if (targetLog) {
+          let toCopy = '';
+          if (copyType === 'entry') {
+            const idx = Number(button.dataset.entryIndex);
+            toCopy = targetLog.entries?.[idx]?.content || '';
+          } else if (copyType === 'system') toCopy = targetLog.systemPrompt;
+          else if (copyType === 'messages') toCopy = JSON.stringify(targetLog.messages, null, 2);
+          else if (copyType === 'reply') toCopy = targetLog.reply || targetLog.error || '';
+          if (toCopy && globalThis.navigator?.clipboard?.writeText) {
+            void globalThis.navigator.clipboard.writeText(toCopy);
+          }
+        }
+        ui.feedback = { text: '已复制到剪贴板。' };
+        render();
+        break;
+      }
     }
   }
   function resizeDraft() {
@@ -733,6 +1183,53 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     draft.style.height = `${Math.min(draft.scrollHeight + 2, 120)}px`;
   }
   function input(event) {
+    if (event.target.matches('[data-action="edit-entry-name"]')) {
+      const entryId = event.target.dataset.entryId;
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      if (entryId && currentActiveId) {
+        void store.updatePresetEntry(currentActiveId, entryId, { name: event.target.value });
+      }
+      return;
+    }
+    if (event.target.matches('[data-action="edit-entry-content"]')) {
+      const entryId = event.target.dataset.entryId;
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      if (entryId && currentActiveId) {
+        void store.updatePresetEntry(currentActiveId, entryId, { content: event.target.value });
+      }
+      return;
+    }
+    if (event.target.matches('[data-action="change-story-layers-input"]')) {
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      if (currentActiveId) {
+        void store.updatePresetStoryLayers(currentActiveId, event.target.value);
+      }
+      return;
+    }
+    if (event.target.matches('[data-action="change-story-layers"]')) {
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      if (currentActiveId) {
+        void store.updatePresetStoryLayers(currentActiveId, event.target.value);
+        const label = event.target.closest('.preset-layers-config')?.querySelector('.preset-layers-label strong');
+        if (label) label.textContent = `${event.target.value} 楼`;
+      }
+      return;
+    }
+    if (event.target.matches('[data-action="search-prompts"]')) {
+      ui.promptSearch = event.target.value;
+      render();
+      return;
+    }
+    if (event.target.matches('[data-prompt-textarea]')) {
+      const pid = event.target.dataset.promptTextarea;
+      if (!ui.promptDrafts) ui.promptDrafts = {};
+      ui.promptDrafts[pid] = event.target.value;
+      return;
+    }
+    if (event.target.id === 'cal-ai-setting') ui.calendarAiSetting = event.target.value;
+    if (event.target.id === 'cal-ai-count') ui.calendarAiCount = Number(event.target.value);
+    if (event.target.id === 'cal-ai-days') ui.calendarAiDays = Number(event.target.value);
+    if (event.target.id === 'cal-ai-focus') ui.calendarAiFocus = event.target.value;
     if (event.target.closest('.attachment-form') && event.target.name) ui.attachmentDraft[event.target.name] = event.target.value;
     if (event.target.id === 'sms-draft') {
       ui.drafts.set(conversationId(), event.target.value);
@@ -765,6 +1262,45 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
   }
   function change(event) {
+    if (event.target.matches('[data-action="switch-prompt-preset"]')) {
+      void store.setActivePromptPreset(event.target.value).then(() => render());
+      return;
+    }
+    if (event.target.matches('[data-action="change-entry-role"]')) {
+      const entryId = event.target.dataset.entryId;
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      if (entryId && currentActiveId) {
+        void store.updatePresetEntry(currentActiveId, entryId, { role: event.target.value }).then(() => render());
+      }
+      return;
+    }
+    if (event.target.matches('[data-action="toggle-preset-entry"]')) {
+      const entryId = event.target.dataset.entryId;
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      if (entryId && currentActiveId) {
+        void store.togglePresetEntry(currentActiveId, entryId, event.target.checked).then(() => render());
+      }
+      return;
+    }
+    if (event.target.matches('[data-action="edit-entry-scope"]')) {
+      const entryId = event.target.dataset.entryId;
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      if (entryId && currentActiveId) {
+        void store.updatePresetEntry(currentActiveId, entryId, { scope: event.target.value }).then(() => render());
+      }
+      return;
+    }
+    if (event.target.id === 'cal-ai-focus') ui.calendarAiFocus = event.target.value;
+    if (event.target.id === 'cal-ai-count') ui.calendarAiCount = Number(event.target.value);
+    if (event.target.id === 'cal-ai-days') ui.calendarAiDays = Number(event.target.value);
+    if (event.target.matches('[data-ai-item-index]')) {
+      const idx = Number(event.target.dataset.aiItemIndex);
+      if (ui.calendarAiTab === 'festivals' && ui.calendarAiFestivals?.[idx]) {
+        ui.calendarAiFestivals[idx].selected = event.target.checked;
+      } else if (ui.calendarAiTab === 'schedules' && ui.calendarAiSchedules?.[idx]) {
+        ui.calendarAiSchedules[idx].selected = event.target.checked;
+      }
+    }
     const todoForm = event.target.closest('.todo-form');
     if (todoForm && event.target.name) {
       const id = todoForm.dataset.todoForm, source = store.read().todos?.find(item => item.id === id) || {};
@@ -789,6 +1325,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const enabled = event.target.checked;
       void perform('injection', async () => { await store.setInjectionEnabled(enabled); onContextChange(); });
     }
+    if (event.target.id === 'inject-calendar-enabled') {
+      const enabled = event.target.checked;
+      void perform('injection-calendar', async () => { await store.setInjectCalendarEnabled(enabled); onContextChange(); });
+    }
     if (event.target.dataset.entryPreference) {
       const key = event.target.dataset.entryPreference, value = event.target.checked;
       void perform('entry', () => entries.set(key, value), result => { if (result?.notice) ui.feedback = { text: result.notice }; });
@@ -798,6 +1338,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       void perform('particles', () => appearance.setParticlesEnabled(enabled));
     }
     if (event.target.id === 'phone-theme') void perform('theme', () => store.setTheme(event.target.value));
+    if (event.target.id === 'lock-screen-enabled') {
+      const enabled = event.target.checked;
+      void perform('lock-screen', () => store.setLockScreenEnabled(enabled));
+    }
+    if (event.target.id === 'remember-last-view-enabled') {
+      const enabled = event.target.checked;
+      void perform('remember-last-view', () => store.setRememberLastView(enabled));
+    }
     if (event.target.id === 'phone-lock-style') void perform('lock-style', () => store.setLockStyle(event.target.value));
     if (event.target.id === 'wallpaper-file' && event.target.files[0]) {
       const file = event.target.files[0], theme = store.read().theme;
@@ -858,6 +1406,38 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       });
     }
     if (event.target.matches('.api-form')) void perform('api', () => apiSettings.saveManual({ ...ui.apiDraft }), () => { ui.apiDraft = {}; ui.manual = false; ui.feedback = { text: '连接已保存。' }; });
+    if (event.target.matches('[data-calendar-form]')) {
+      const form = event.target;
+      const draft = {
+        name: form.elements.name.value,
+        type: form.elements.type.value,
+        month: Number(form.elements.month.value),
+        day: Number(form.elements.day.value),
+        days: Number(form.elements.days.value) || 1,
+        note: form.elements.note.value,
+      };
+      if (ui.calendarDraft?.id) draft.id = ui.calendarDraft.id;
+      void perform('calendar-event', () => store.saveCalendarEvent(draft), () => {
+        ui.calendarFormOpen = false;
+        ui.calendarDraft = null;
+      });
+    }
+    if (event.target.matches('[data-calendar-settings-form]')) {
+      const form = event.target;
+      const country = form.elements.country?.value || 'china';
+      const era = form.elements.era?.value || '';
+      const title = form.elements.title?.value || '';
+      const mode = form.elements.mode?.value || 'merge';
+      void perform('calendar-event', () => {
+        store.applyCalendarPreset({ countryId: country, keepCustom: mode === 'merge' });
+        if (era || title) {
+          store.setCalendarDescriptor({ ...(era ? { era } : {}), ...(title ? { title } : {}) });
+        }
+      }, () => {
+        ui.calendarSettingsOpen = false;
+        ui.feedback = { text: '已更新历法与地区。' };
+      });
+    }
     if (event.target.matches('.profile-form')) {
       const draft = { ...ui.profileDraft }, kind = ui.editor, editId = ui.editId;
       void perform('profile', () => kind === 'user' ? store.saveUserProfile(draft) : store.saveContact(editId, draft), result => {
@@ -880,7 +1460,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (toggle) toggle.checked = appearance.particlesEnabled();
     syncParticles();
   });
-  doc.defaultView.addEventListener('st-sevendayscal:calendar-changed', refreshCalendar);
+  const unsubscribeLogger = logger?.subscribe?.(() => {
+    if (ui.view === 'settings' && ui.drawers.logs) render();
+  });
+  const onSharedChannelsChange = () => { render(); };
+  doc.defaultView?.addEventListener?.('st-baibai-api-channels:changed', onSharedChannelsChange);
+  doc.defaultView?.addEventListener?.('st-sevendayscal:calendar-changed', refreshCalendar);
+  doc.defaultView.addEventListener('st-baibai-book:changed', refreshCalendar);
+  doc.defaultView.addEventListener('st-baibai-book:ready', refreshCalendar);
   root.addEventListener('keydown', keydown);
   root.addEventListener('click', click);
   root.addEventListener('input', input);
@@ -902,9 +1489,22 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     close,
     open() {
       ui.conflict = control.hasConflict?.(doc) === true;
-      // 关闭后重开统一进入锁屏；已显示时调用 open 只刷新当前页。
+      // 关闭后重开：若启用「记忆上次打开位置」则恢复关闭前所在页面；否则按锁屏设置进入锁屏或桌面。
       if (element.hidden) {
-        ui.view = 'home';
+        const currentState = store.read();
+        const defaultEntry = currentState.lockScreenEnabled === false ? 'desktop' : 'home';
+        const remembered = ui.lastOpenView;
+        if (currentState.rememberLastView === true && remembered && !['home', 'delete-confirm'].includes(remembered)) {
+          if (remembered === 'chat' && !currentState.contacts?.some(c => c.id === ui.contactId)) {
+            ui.view = 'inbox';
+          } else if (remembered === 'group-chat' && !currentState.groups?.some(g => g.id === ui.groupId)) {
+            ui.view = 'inbox';
+          } else {
+            ui.view = remembered;
+          }
+        } else {
+          ui.view = defaultEntry;
+        }
         ui.photo = null;
         ui.attachment = '';
       }
@@ -912,6 +1512,13 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       // 两份手机共享层级；打开已有窗口时按同层 DOM 顺序置前，不改另一份状态。
       if (!isFrontmost()) mount.append(element);
       render();
+      if (['calendar', 'todos'].includes(ui.view) && ui.calendarScroll) {
+        const main = root.querySelector('.phone-main');
+        if (main) main.scrollTop = ui.calendarScroll;
+      }
+      if (inChat() && control.isEnabled()) {
+        void store.markRead(conversationId()).catch(() => {});
+      }
       fillDefaultAvatars();
       recoverVisibleImages();
       windowControls.refresh();
@@ -931,13 +1538,17 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       dismissPhoneNotice();
       avatarCropper?.close();
       unsubscribeAppearance();
+      unsubscribeLogger?.();
       clock.stop();
       particles?.dispose();
       chatScroll.dispose();
       windowControls.dispose();
       lockImageNode = null;
       lockImageSrc = '';
+      doc.defaultView?.removeEventListener?.('st-baibai-api-channels:changed', onSharedChannelsChange);
       doc.defaultView.removeEventListener('st-sevendayscal:calendar-changed', refreshCalendar);
+      doc.defaultView.removeEventListener('st-baibai-book:changed', refreshCalendar);
+      doc.defaultView.removeEventListener('st-baibai-book:ready', refreshCalendar);
       doc.removeEventListener('pointerdown', dismissMenus, true);
       root.removeEventListener('keydown', keydown);
       root.removeEventListener('click', click);

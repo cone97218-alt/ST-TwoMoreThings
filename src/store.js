@@ -4,8 +4,11 @@ import { messageText } from './content.js';
 import { cleanBackground } from './backgrounds.js';
 import { contentImagePaths, imagePath } from './image-files.js';
 import { readTodos, todoSourceMessageIds } from './todos.js';
+import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
+import { defaultGregorianCalendar } from './calendar-engine.js';
+import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 
-const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false });
+const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false, injectCalendarEnabled: false, lockScreenEnabled: true, prompts: {} });
 const fillDefaultAvatars = people => {
   let filled = people;
   for (let index = 0; index < people.length; index++) {
@@ -77,7 +80,14 @@ const appendTodoCandidates = (state, conversationId, messages, rows) => {
 
 export function createPhoneStore({ target, assertEnabled = () => {}, isReading = () => false, onIncomingMessage = () => {}, initialState, removeImages = async () => {} }) {
   const empty = initialState || emptyState();
-  const read = () => target.metadata.pocketPhone || empty;
+  const read = () => {
+    const raw = target.metadata.pocketPhone || empty;
+    if (raw?.promptPresets) {
+      const normalized = normalizePromptPresets(raw.promptPresets);
+      return { ...raw, promptPresets: normalized };
+    }
+    return raw;
+  };
   // Serialize normal phone saves so sending while a reply arrives keeps both changes.
   let saving = Promise.resolve();
   function update(change, cleanImages = false) {
@@ -289,6 +299,317 @@ export function createPhoneStore({ target, assertEnabled = () => {}, isReading =
     },
     setTheme(theme) { return update(state => ({ ...state, theme: theme === 'night' ? 'night' : 'day' })); },
     setLockStyle(lockStyle) { return update(state => ({ ...state, lockStyle: ['stacked', 'rounded'].includes(lockStyle) ? lockStyle : 'classic' })); },
+    setLockScreenEnabled(enabled) { return update(state => ({ ...state, lockScreenEnabled: enabled === true })); },
+    setRememberLastView(enabled) { return update(state => ({ ...state, rememberLastView: enabled === true })); },
+    saveCalendarEvent(event) {
+      const name = String(event?.name || '').trim();
+      if (!name) throw new Error('事件名称不能为空。');
+      const month = Number(event?.month);
+      const day = Number(event?.day);
+      const desc = read().calendar?.descriptor;
+      const maxMonths = desc?.months?.length || 12;
+      const maxDays = desc?.months?.[month - 1]?.days || 31;
+      if (!Number.isInteger(month) || month < 1 || month > maxMonths) throw new Error(`月份必须在1到${maxMonths}之间。`);
+      if (!Number.isInteger(day) || day < 1 || day > maxDays) throw new Error(`日期必须在1到${maxDays}之间。`);
+      const days = Math.max(1, Number(event?.days) || 1);
+      const type = event?.type === 'festival'
+        ? 'festival'
+        : (event?.type === 'todo' || event?.type === 'schedule')
+          ? 'todo'
+          : 'anniversary';
+      const note = String(event?.note || '').trim();
+      const id = String(event?.id || `event:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`);
+      const done = type === 'todo' ? Boolean(event?.done) : undefined;
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const items = Array.isArray(calendar.items) ? calendar.items : [];
+        const index = items.findIndex(item => item.id === id);
+        const nextItem = { id, name, type, month, day, days, note, ...(done !== undefined ? { done } : {}) };
+        const nextItems = index >= 0
+          ? items.map((it, idx) => idx === index ? nextItem : it)
+          : [...items, nextItem];
+        return { ...state, calendar: { ...calendar, items: nextItems } };
+      });
+    },
+    toggleCalendarEventDone(id) {
+      const key = String(id || '');
+      return update(state => {
+        assertEnabled();
+        let nextState = state;
+        const todos = readTodos(state);
+        const todoTarget = todos.find(todo => todo.id === key);
+        if (todoTarget && todoTarget.status !== 'candidate') {
+          const nextStatus = todoTarget.status === 'done' ? 'open' : 'done';
+          nextState = {
+            ...nextState,
+            todos: todos.map(todo => todo.id === key ? { ...todo, status: nextStatus } : todo),
+          };
+        }
+        const calendar = nextState.calendar;
+        if (calendar && Array.isArray(calendar.items) && calendar.items.some(item => item.id === key)) {
+          nextState = {
+            ...nextState,
+            calendar: {
+              ...calendar,
+              items: calendar.items.map(item => item.id === key ? { ...item, done: !item.done } : item),
+            },
+          };
+        }
+        return nextState;
+      });
+    },
+    deleteCalendarEvent(id) {
+      const key = String(id || '');
+      if (key.startsWith('builtin:')) throw new Error('内置节日不可删除。');
+      return update(state => {
+        let nextState = state;
+        if (readTodos(state).some(todo => todo.id === key)) {
+          nextState = { ...nextState, todos: readTodos(state).filter(todo => todo.id !== key) };
+        }
+        if (nextState.calendar || Array.isArray(nextState.calendar?.items)) {
+          const calendar = nextState.calendar || { items: [] };
+          const items = (Array.isArray(calendar.items) ? calendar.items : []).filter(item => item.id !== key);
+          nextState = { ...nextState, calendar: { ...calendar, items } };
+        }
+        return nextState;
+      });
+    },
+    setCalendarDescriptor(descriptor) {
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            descriptor: { ...(calendar.descriptor || {}), ...descriptor },
+          },
+        };
+      });
+    },
+    async applyCalendarPreset({ countryId, keepCustom = true }) {
+      const code = String(countryId || 'CN').toUpperCase();
+      const info = findCountryInfo(code);
+      const holidays = await fetchNagerHolidays(code);
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const currentItems = Array.isArray(calendar.items) ? calendar.items : [];
+        const customItems = keepCustom
+          ? currentItems.filter(item => !item.id?.startsWith('preset:') && !item.id?.startsWith('builtin:') && !item.id?.startsWith('nager:'))
+          : [];
+        const presetItems = (holidays || []).map(item => ({
+          ...item,
+          id: item.id?.startsWith('nager:') ? item.id : `preset:${item.id}`,
+        }));
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            descriptor: {
+              ...(calendar.descriptor || {}),
+              kind: info.kind || (info.months ? 'custom' : 'gregorian'),
+              title: info.name,
+              era: info.era || '',
+              weekdays: info.weekdays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+              months: info.months || defaultGregorianCalendar().months,
+              disableBuiltinFestivals: true,
+              country: info.code,
+            },
+            items: [...presetItems, ...customItems],
+          },
+        };
+      });
+    },
+    saveCustomCalendarPreset({ id, name, descriptor, items } = {}) {
+      const presetName = String(name || '').trim();
+      if (!presetName) throw new Error('请填写预设名称。');
+      const presetId = id || `custom_preset:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`;
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const desc = descriptor || calendar.descriptor || defaultGregorianCalendar();
+        const evs = Array.isArray(items) ? items : (calendar.items || []);
+        const customPresets = Array.isArray(calendar.customPresets) ? calendar.customPresets : [];
+        const newPreset = {
+          id: presetId,
+          name: presetName,
+          descriptor: { ...desc, kind: 'custom', country: presetId, title: desc.title || presetName },
+          items: evs.map(it => ({ ...it })),
+        };
+        const index = customPresets.findIndex(p => p.id === presetId);
+        const nextPresets = index >= 0
+          ? customPresets.map((p, i) => i === index ? newPreset : p)
+          : [...customPresets, newPreset];
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            customPresets: nextPresets,
+          },
+        };
+      });
+    },
+    deleteCustomCalendarPreset(id) {
+      const key = String(id || '');
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const customPresets = (Array.isArray(calendar.customPresets) ? calendar.customPresets : []).filter(p => p.id !== key);
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            customPresets,
+          },
+        };
+      });
+    },
+    applyCustomCalendarPreset(id, { keepCustom = false } = {}) {
+      const key = String(id || '');
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const customPresets = Array.isArray(calendar.customPresets) ? calendar.customPresets : [];
+        const preset = customPresets.find(p => p.id === key);
+        if (!preset) throw new Error('未找到该自定义历法预设。');
+        const currentItems = Array.isArray(calendar.items) ? calendar.items : [];
+        const userItems = keepCustom
+          ? currentItems.filter(item => !item.id?.startsWith('preset:') && !item.id?.startsWith('builtin:') && !item.id?.startsWith('nager:'))
+          : [];
+        const presetItems = (preset.items || []).map(item => ({ ...item }));
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            descriptor: {
+              ...(preset.descriptor || {}),
+              kind: 'custom',
+              country: preset.id,
+              title: preset.descriptor?.title || preset.name,
+              disableBuiltinFestivals: true,
+            },
+            items: keepCustom ? [...presetItems, ...userItems] : presetItems,
+          },
+        };
+      });
+    },
+    createCustomCalendar({ title, era, currentYear, months, weekdayCycle, weekdays, presetName = '' } = {}) {
+      const name = String(title || '自定义历法').trim() || '自定义历法';
+      const cleanMonths = Array.isArray(months) && months.length
+        ? months.map((m, i) => ({
+            name: String(m.name || `${i + 1}月`).trim() || `${i + 1}月`,
+            days: Math.max(1, Number(m.days) || 30),
+          }))
+        : [{ name: '1月', days: 30 }];
+      const cycle = Math.max(1, Math.min(14, Number(weekdayCycle) || 7));
+      const cleanWeekdays = Array.isArray(weekdays) && weekdays.length === cycle
+        ? weekdays
+        : cycle === 7 ? ['一', '二', '三', '四', '五', '六', '日'] : Array.from({ length: cycle }, (_, i) => String(i + 1));
+      const descriptor = {
+        kind: 'custom',
+        id: `custom:${Date.now().toString(36)}`,
+        title: name,
+        era: String(era || '').trim(),
+        currentYear: Number(currentYear) || 1,
+        months: cleanMonths,
+        weekdayCycle: cycle,
+        weekdays: cleanWeekdays,
+        disableBuiltinFestivals: true,
+      };
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        let customPresets = Array.isArray(calendar.customPresets) ? calendar.customPresets : [];
+        if (presetName && String(presetName).trim()) {
+          const pName = String(presetName).trim();
+          const pId = `custom_preset:${Date.now().toString(36)}`;
+          customPresets = [...customPresets, {
+            id: pId,
+            name: pName,
+            descriptor: { ...descriptor, country: pId },
+            items: (calendar.items || []).map(it => ({ ...it })),
+          }];
+          descriptor.country = pId;
+        }
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            descriptor,
+            customPresets,
+          },
+        };
+      });
+    },
+    saveCalendarEvents(events) {
+      if (!Array.isArray(events) || !events.length) return update(s => s);
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const items = Array.isArray(calendar.items) ? calendar.items : [];
+        const desc = state.calendar?.descriptor;
+        const maxMonths = desc?.months?.length || 12;
+        const newItems = events.map(event => {
+          const name = String(event?.name || event?.title || '').trim();
+          if (!name) return null;
+          const month = Math.min(maxMonths, Math.max(1, Number(event?.month) || 1));
+          const maxDays = desc?.months?.[month - 1]?.days || 31;
+          const day = Math.min(maxDays, Math.max(1, Number(event?.day) || 1));
+          const days = Math.max(1, Number(event?.days) || 1);
+          const type = event?.type === 'festival'
+            ? 'festival'
+            : (event?.type === 'todo' || event?.type === 'schedule')
+              ? 'todo'
+              : 'anniversary';
+          const note = String(event?.note || '').trim();
+          const id = String(event?.id || `event:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`);
+          const done = type === 'todo' ? Boolean(event?.done) : undefined;
+          return { id, name, type, month, day, days, note, ...(done !== undefined ? { done } : {}) };
+        }).filter(Boolean);
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            items: [...items, ...newItems],
+          },
+        };
+      });
+    },
+    saveTodosFromSchedule(scheduleItems) {
+      if (!Array.isArray(scheduleItems) || !scheduleItems.length) return update(s => s);
+      const newTodos = scheduleItems.map(it => ({
+        id: `todo:${globalThis.crypto.randomUUID()}`,
+        status: 'open',
+        title: String(it.title || it.name || '').trim(),
+        month: Math.max(1, Number(it.month) || 1),
+        day: Math.max(1, Number(it.day) || 1),
+        startAt: it.time ? `${it.month}月${it.day}日 ${it.time}` : `${it.month}月${it.day}日`,
+        endAt: '',
+        participantIds: [],
+        sourceConversationId: '',
+        sourceMessageIds: [],
+      })).filter(t => t.title);
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const items = Array.isArray(calendar.items) ? calendar.items : [];
+        const calEvents = scheduleItems.map((it, idx) => {
+          const name = String(it.title || it.name || '').trim();
+          if (!name) return null;
+          return {
+            id: newTodos[idx]?.id || `event:${Date.now().toString(36)}:${idx}`,
+            name,
+            type: 'todo',
+            month: Math.max(1, Number(it.month) || 1),
+            day: Math.max(1, Number(it.day) || 1),
+            days: Math.max(1, Number(it.days) || 1),
+            note: [it.time, it.location, it.note].filter(Boolean).join(' · '),
+            done: false,
+          };
+        }).filter(Boolean);
+        return {
+          ...state,
+          todos: [...readTodos(state), ...newTodos],
+          calendar: {
+            ...calendar,
+            items: [...items, ...calEvents],
+          },
+        };
+      });
+    },
     setWallpaper(theme, path) { const value = cleanBackground(path); return update(state => ({ ...state, wallpapers: { ...state.wallpapers, [theme === 'night' ? 'night' : 'day']: value } })); },
     setChatBackground(id, value) {
       const background = cleanBackground(value, true);
@@ -315,6 +636,7 @@ export function createPhoneStore({ target, assertEnabled = () => {}, isReading =
       });
     },
     setInjectionEnabled(enabled) { return update(state => ({ ...state, injectEnabled: Boolean(enabled) })); },
+    setInjectCalendarEnabled(enabled) { return update(state => ({ ...state, injectCalendarEnabled: Boolean(enabled) })); },
     confirmTodo(id, patch = {}) {
       return update(state => {
         assertEnabled();
@@ -350,6 +672,175 @@ export function createPhoneStore({ target, assertEnabled = () => {}, isReading =
         assertEnabled();
         if (!readTodos(state).some(todo => todo.id === id)) throw new Error('这个待办已不存在，请返回待办列表。');
         return { ...state, todos: readTodos(state).filter(todo => todo.id !== id) };
+      });
+    },
+    savePrompt(id, text) {
+      const key = String(id || '').trim();
+      if (!key) throw new Error('提示词编号不能为空。');
+      const content = String(text ?? '').trim();
+      return update(state => {
+        const prompts = { ...(state.prompts || {}) };
+        if (content) {
+          prompts[key] = content;
+        } else {
+          delete prompts[key];
+        }
+        return { ...state, prompts };
+      });
+    },
+    resetPrompt(id) {
+      const key = String(id || '').trim();
+      return update(state => {
+        const prompts = { ...(state.prompts || {}) };
+        delete prompts[key];
+        return { ...state, prompts };
+      });
+    },
+    resetAllPrompts() {
+      return update(state => ({ ...state, prompts: {} }));
+    },
+    setActivePromptPreset(presetId) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const exists = presets.some(p => p.id === presetId);
+        return exists ? { ...state, promptPresets: presets, activePresetId: presetId } : state;
+      });
+    },
+    resetPromptPreset(presetId) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const idx = presets.findIndex(p => p.id === presetId);
+        if (idx >= 0 && (presets[idx].isBuiltin || presets[idx].id === 'default_preset')) {
+          presets[idx] = structuredClone(DEFAULT_PROMPT_PRESETS[0]);
+        }
+        return { ...state, promptPresets: presets };
+      });
+    },
+    savePromptPreset(preset) {
+      if (!preset || !preset.id) throw new Error('预设格式无效');
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const idx = presets.findIndex(p => p.id === preset.id);
+        if (idx >= 0) {
+          presets[idx] = { ...preset, isBuiltin: presets[idx].isBuiltin };
+        } else {
+          presets.push(preset);
+        }
+        return { ...state, promptPresets: presets, activePresetId: preset.id };
+      });
+    },
+    createPromptPreset({ name = '新预设', copyFromId = null, storyLayers = 3 }) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const source = (copyFromId && presets.find(p => p.id === copyFromId)) || presets[0] || DEFAULT_PROMPT_PRESETS[0];
+        const newId = `preset_${Date.now().toString(36)}`;
+        const newPreset = {
+          id: newId,
+          name: name.trim() || '未命名预设',
+          isBuiltin: false,
+          storyLayers: Number(storyLayers) || source.storyLayers || 3,
+          entries: (source.entries || []).map((e, i) => ({
+            ...e,
+            id: `entry_${Date.now().toString(36)}_${i}`,
+          })),
+        };
+        presets.push(newPreset);
+        return { ...state, promptPresets: presets, activePresetId: newId };
+      });
+    },
+    deletePromptPreset(presetId) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets)).filter(p => p.id !== presetId);
+        if (!presets.length) return state; // 不允许全部删除
+        const activePresetId = state.activePresetId === presetId ? presets[0].id : state.activePresetId;
+        return { ...state, promptPresets: presets, activePresetId };
+      });
+    },
+    updatePresetStoryLayers(presetId, layers) {
+      const num = Math.max(1, Math.min(30, Number(layers) || 1));
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const target = presets.find(p => p.id === presetId);
+        if (target) target.storyLayers = num;
+        return { ...state, promptPresets: presets };
+      });
+    },
+    togglePresetEntry(presetId, entryId, forceEnabled = undefined) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const target = presets.find(p => p.id === presetId);
+        if (target && Array.isArray(target.entries)) {
+          const entry = target.entries.find(e => e.id === entryId);
+          if (entry) {
+            entry.enabled = forceEnabled !== undefined ? Boolean(forceEnabled) : !entry.enabled;
+          }
+        }
+        return { ...state, promptPresets: presets };
+      });
+    },
+    movePresetEntry(presetId, entryId, direction) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const target = presets.find(p => p.id === presetId);
+        if (target && Array.isArray(target.entries)) {
+          const idx = target.entries.findIndex(e => e.id === entryId);
+          if (idx >= 0) {
+            const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+            if (newIdx >= 0 && newIdx < target.entries.length) {
+              const [moved] = target.entries.splice(idx, 1);
+              target.entries.splice(newIdx, 0, moved);
+            }
+          }
+        }
+        return { ...state, promptPresets: presets };
+      });
+    },
+    deletePresetEntry(presetId, entryId) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const target = presets.find(p => p.id === presetId);
+        if (target && Array.isArray(target.entries)) {
+          target.entries = target.entries.filter(e => e.id !== entryId);
+          if (target.isBuiltin || target.id === 'default_preset') {
+            target.deletedEntryIds = [...new Set([...(target.deletedEntryIds || []), entryId])];
+          }
+        }
+        return { ...state, promptPresets: presets };
+      });
+    },
+    addPresetEntry(presetId, { name = '新条目', role = 'system', content = '', scope = '通用' } = {}) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const target = presets.find(p => p.id === presetId);
+        if (target) {
+          if (!Array.isArray(target.entries)) target.entries = [];
+          target.entries.push({
+            id: `entry_${Date.now().toString(36)}_${target.entries.length}`,
+            name: name.trim() || '新条目',
+            scope: scope.trim() || '通用',
+            role: ['system', 'user', 'assistant'].includes(role) ? role : 'system',
+            enabled: true,
+            content: content || '',
+          });
+        }
+        return { ...state, promptPresets: presets };
+      });
+    },
+    updatePresetEntry(presetId, entryId, patch = {}) {
+      return update(state => {
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const target = presets.find(p => p.id === presetId);
+        if (target && Array.isArray(target.entries)) {
+          const entry = target.entries.find(e => e.id === entryId);
+          if (entry) {
+            if (patch.name !== undefined) entry.name = String(patch.name).trim();
+            if (patch.scope !== undefined) entry.scope = String(patch.scope).trim() || '通用';
+            if (patch.role !== undefined) entry.role = patch.role;
+            if (patch.content !== undefined) entry.content = String(patch.content);
+            if (patch.enabled !== undefined) entry.enabled = Boolean(patch.enabled);
+          }
+        }
+        return { ...state, promptPresets: presets };
       });
     },
   };

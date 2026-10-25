@@ -50,7 +50,7 @@ test('plugin check failure remains a readable update error without repeating the
 
 test('embedded uses the already fetched release, public requests and one immutable core without extension pull', async () => {
   const requests = [], replacements = [];
-  const updates = createEmbeddedUpdates({ coreUrl: `https://cdn.jsdelivr.net/gh/atonal519/ST-TwoMoreThings@${oldSha}/embed.js`, version: '0.3.6', release: { version: '0.3.6', sha: oldSha }, fetchImpl: async (url, init) => {
+  const updates = createEmbeddedUpdates({ coreUrl: `https://cdn.jsdelivr.net/gh/cone97218-alt/ST-TwoMoreThings@${oldSha}/embed.js`, version: '0.3.6', release: { version: '0.3.6', sha: oldSha }, fetchImpl: async (url, init) => {
     requests.push({ url, init });
     return Response.json(released);
   }, replaceCore: async (...args) => replacements.push(args) });
@@ -64,7 +64,7 @@ test('embedded uses the already fetched release, public requests and one immutab
   assert.equal(requests[0].url, RELEASE_URL);
   assert.equal(requests[0].init.credentials, 'omit');
   assert.equal(requests[0].init.headers, undefined);
-  assert.deepEqual(replacements, [[`https://cdn.jsdelivr.net/gh/atonal519/ST-TwoMoreThings@${newSha}/embed.js`, released]]);
+  assert.deepEqual(replacements, [[`https://cdn.jsdelivr.net/gh/cone97218-alt/ST-TwoMoreThings@${newSha}/embed.js`, released]]);
 });
 
 test('embedded import failure keeps the update available and does not issue another request', async () => {

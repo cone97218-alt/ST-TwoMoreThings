@@ -242,6 +242,43 @@ test('empty or unowned author replies preserve saved posts', async () => {
   assert.equal(h.modelRequests.length, requests);
 });
 
+test('feed safely resolves NPC posts when model omits npcs array', async () => {
+  const { h, store, service } = await setup(0); // 0 contacts -> 5 NPC slots
+  h.completion = (_path, init) => {
+    const input = JSON.parse(JSON.parse(init.body).messages[1].content);
+    const npc1 = input.authors[0].id;
+    const npc2 = input.authors[1].id;
+    // Omit npcs array completely, returning only posts for these npc authorIds
+    return {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            posts: [
+              {
+                authorId: npc1,
+                text: '阴雨一整天，窗外的水汽把玻璃糊得看不清路。',
+                publishedAt: '',
+                image: { description: 'Rain-blurred windows' }
+              },
+              {
+                authorId: npc2,
+                text: '巷子里的青苔被雨泡得发亮。',
+                publishedAt: ''
+              }
+            ]
+          })
+        }
+      }]
+    };
+  };
+
+  const saved = await service.refresh();
+  assert.equal(saved.length, 2);
+  assert.equal(store.read().social.posts.length, 2);
+  assert.equal(store.read().social.npcs.length, 2);
+  assert.ok(store.read().social.npcs.every(npc => npc.name && npc.avatar));
+});
+
 test('read-only post queries filter author and batch without generation, writes, or exposing mutable save objects', async () => {
   const { h, store, service } = await setup();
   await service.refresh();

@@ -6,7 +6,7 @@ const isNewer = (next, current) => {
   return index >= 0 && values[index] > previous[index];
 };
 
-export function createEmbeddedUpdates({ coreUrl = 'https://cdn.jsdelivr.net/gh/atonal519/ST-TwoMoreThings@main/embed.js', releaseUrl = releaseUrlForCore(coreUrl), version, release, updateError = '', replaceCore, fetchImpl = globalThis.fetch } = {}) {
+export function createEmbeddedUpdates({ coreUrl = 'https://cdn.jsdelivr.net/gh/cone97218-alt/ST-TwoMoreThings@main/embed.js', releaseUrl = releaseUrlForCore(coreUrl), version, release, updateError = '', replaceCore, fetchImpl = globalThis.fetch } = {}) {
   let installedNotice = release?.version === version ? release.update_notice || '' : UPDATE_NOTICE_PATH;
   let state = Object.freeze({ status: release ? isNewer(release.version, version) ? 'available' : 'stable' : updateError ? 'error' : 'unchecked', versionInfo: release ?? null, error: updateError }), checkedOnce = Boolean(release || updateError), pending = null;
   const listeners = new Set();

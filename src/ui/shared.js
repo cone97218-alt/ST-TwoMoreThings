@@ -33,14 +33,19 @@ const icons = {
   plus: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M4 12L12 12"/><path d="M16 12L20 12"/><path d="M12.0204 4L12.0205 20.0003"/></g>',
   close: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M19.0071 5L15.5071 8.5"/><path d="M12.0071 12L5.00708 19"/><path d="M19 19L5 5"/></g>',
   'phone-close': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M14.5 9.50002L9.5 14.5M9.49998 9.5L14.5 14.5"/><path d="M7 3.33782C8.47087 2.48697 10.1786 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 10.1786 2.48697 8.47087 3.33782 7"/></g>',
+  sparkles: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M12 2l1.624 5.376L19 9l-5.376 1.624L12 16l-1.624-5.376L5 9l5.376-1.624L12 2z"/><path d="M19 16l.812 2.688L22.5 19.5l-2.688.812L19 23l-.812-2.688L15.5 19.5l2.688-.812L19 16z"/></g>',
+  tuning: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M9.5 14C11.1569 14 12.5 15.3431 12.5 17C12.5 18.6568 11.1569 20 9.5 20C7.84315 20 6.5 18.6568 6.5 17C6.5 15.3431 7.84315 14 9.5 14Z"/><path d="M14.5 3.99998C12.8431 3.99998 11.5 5.34312 11.5 6.99998C11.5 8.65683 12.8431 9.99998 14.5 9.99998C16.1569 9.99998 17.5 8.65683 17.5 6.99998C17.5 5.34312 16.1569 3.99998 14.5 3.99998Z"/><path d="M11.0001 7.00001L6.0001 7M3.00002 7.00001L2 7.00001"/><path d="M13 17L18 17M21.0001 17L22.0001 17"/><path d="M2 17L6 17"/><path d="M22 7L18 7"/></g>',
   home: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M22 12.2039V13.725C22 17.6258 22 19.5763 20.8284 20.7881C19.6569 22 17.7712 22 14 22H10C6.22876 22 4.34315 22 3.17157 20.7881C2 19.5763 2 17.6258 2 13.725V12.2039C2 9.91549 2 8.77128 2.5192 7.82274C3.0384 6.87421 3.98695 6.28551 5.88403 5.10813L7.88403 3.86687C9.88939 2.62229 10.8921 2 12 2C13.1079 2 14.1106 2.62229 16.116 3.86687L18.116 5.10812C20.0131 6.28551 20.9616 6.87421 21.4808 7.82274"/><path d="M15 18H9"/></g>',
+  'role-system': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/></g>',
+  'role-user': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></g>',
+  'role-assistant': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><rect x="4" y="6" width="16" height="12" rx="3"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><path d="M12 2v4m-4 16v-2m8 2v-2"/></g>',
 };
 export const asset = name => new URL(`../../assets/${name}`, import.meta.url).href;
 export const icon = name => ['messages', 'forum'].includes(name)
   ? `<span class="app-icon" style="--pp-app-icon:url('${asset(`${name}.svg`)}')" aria-hidden="true"></span>`
   : `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" aria-hidden="true">${icons[name] || ''}</svg>`;
 export const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-export const refKey = ref => ref ? `${ref.kind}:${ref.presetId || ''}` : '';
+export const refKey = ref => ref ? `${ref.kind}:${ref.channelId || ref.presetId || ''}` : '';
 
 export function renderEmojiText(text) {
   return splitEmojiText(text).map(part => part.emoji

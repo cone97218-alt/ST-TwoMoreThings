@@ -36,8 +36,8 @@ export function renderDesktop(state, { apps, calendar }) {
     <div class="desktop-content">
       ${renderCalendarWidget(calendar)}
       <nav class="desktop-apps" aria-label="桌面应用">
-        ${apps.map(({ id, label }) => `<button type="button" class="desktop-app" data-tab="${id}" aria-label="${id === 'todos' && pending ? `${label}，${pending} 项未完成` : label}">
-          <span class="desktop-app-icon desktop-app-${id}">${icon(id)}${id === 'todos' && pending ? `<b class="desktop-app-badge" aria-hidden="true">${pending > 99 ? '99+' : pending}</b>` : ''}</span>
+        ${apps.map(({ id, label }) => `<button type="button" class="desktop-app" data-tab="${id}" aria-label="${id === 'calendar' && pending ? `${label}，${pending} 项未完成` : label}">
+          <span class="desktop-app-icon desktop-app-${id}">${icon(id)}${id === 'calendar' && pending ? `<b class="desktop-app-badge" aria-hidden="true">${pending > 99 ? '99+' : pending}</b>` : ''}</span>
           <span>${label}</span>
         </button>`).join('')}
       </nav>

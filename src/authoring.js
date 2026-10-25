@@ -1,7 +1,7 @@
 import { cleanBackground } from './backgrounds.js';
 import { readRelease, releaseUrlForCore, STABLE_CORE_URL } from './release.js';
 
-export const REMOTE_CORE_URL = 'https://cdn.jsdelivr.net/gh/atonal519/ST-TwoMoreThings@main/embed.js';
+export const REMOTE_CORE_URL = 'https://cdn.jsdelivr.net/gh/cone97218-alt/ST-TwoMoreThings@main/embed.js';
 export const LOCAL_CORE_URL = new URL('../embed.js', import.meta.url).href;
 
 const string = value => typeof value === 'string' ? value : '';
@@ -28,7 +28,17 @@ export function stateFromPreset(preset) {
   if (new Set(groups.map(group => group.id)).size !== groups.length || groups.some(group => !group.id || !group.name.trim() || ids.has(group.id) || group.memberIds.some(id => !ids.has(id)))) throw new Error('卡内手机的群聊资料或成员无法对应，请让作者重新导出。');
   return { schemaVersion: 1, contacts, groups, conversations: {}, forum: { posts: [] }, injectEnabled: preset.injectEnabled === true, theme: preset.theme === 'night' ? 'night' : 'day',
     wallpapers: { day: cleanBackground(preset.wallpapers?.day), night: cleanBackground(preset.wallpapers?.night) },
+    ...(preset.lockScreenEnabled === false ? { lockScreenEnabled: false } : {}),
+    ...(preset.rememberLastView === true ? { rememberLastView: true } : {}),
+    ...(preset.calendar ? {
+      calendar: {
+        items: Array.isArray(preset.calendar.items) ? preset.calendar.items : [],
+        ...(preset.calendar.descriptor ? { descriptor: preset.calendar.descriptor } : {}),
+        ...(preset.calendar.disableBuiltin ? { disableBuiltin: true } : {}),
+      }
+    } : {}),
     ...(['stacked', 'rounded'].includes(preset.lockStyle) ? { lockStyle: preset.lockStyle } : {}),
+    ...(preset.prompts && typeof preset.prompts === 'object' ? { prompts: preset.prompts } : {}),
     ...(preset.userProfile ? { userProfile: profile(preset.userProfile) } : {}),
   };
 }
@@ -97,7 +107,17 @@ export function createAuthoringService({ store, host, readEntries = () => host.r
       const userProfile = state.userProfile ? { ...profile(state.userProfile), avatar: await portable(state.userProfile.avatar) } : undefined;
       const preferences = readEntries();
       const preset = { schemaVersion: 1, theme: state.theme === 'night' ? 'night' : 'day', injectEnabled: state.injectEnabled === true, contacts, groups, entries: { fabShow: preferences.fabShow !== false, qrShow: preferences.qrShow === true },
+        ...(state.lockScreenEnabled === false ? { lockScreenEnabled: false } : {}),
+        ...(state.rememberLastView === true ? { rememberLastView: true } : {}),
+        ...(state.calendar ? {
+          calendar: {
+            items: state.calendar.items || [],
+            ...(state.calendar.descriptor ? { descriptor: state.calendar.descriptor } : {}),
+            ...(state.calendar.disableBuiltin ? { disableBuiltin: true } : {}),
+          }
+        } : {}),
         ...(['stacked', 'rounded'].includes(state.lockStyle) ? { lockStyle: state.lockStyle } : {}),
+        ...(state.prompts && Object.keys(state.prompts).length ? { prompts: state.prompts } : {}),
         wallpapers: { day: await portable(state.wallpapers?.day), night: await portable(state.wallpapers?.night) }, ...(userProfile ? { userProfile } : {}),
       };
       stateFromPreset(preset);

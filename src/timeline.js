@@ -1,7 +1,7 @@
 import { latestAiFloor, readPhoneTime } from './time.js';
 
 export function readTimeline(messages, beforeIndex = messages.length) {
-  const floor = latestAiFloor(messages, beforeIndex), clock = readPhoneTime(floor ? [floor.message] : []);
+  const floor = latestAiFloor(messages, beforeIndex), clock = readPhoneTime(floor ? messages.slice(0, floor.index + 1) : []);
   // 没有剧情戳时仍以楼为卡口；现实分钟变化不会把同一楼拆成多批。
   const key = JSON.stringify([floor?.index ?? -1, ...(clock.source === 'story' ? [clock.date, clock.time] : [])]);
   const label = [clock.date, clock.time, floor ? `主楼 #${floor.index + 1}` : '正文开始前'].filter(Boolean).join(' · ');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApiSettings, createModelClient, parsePayload } from '../src/api.js';
+import { createApiSettings, createModelClient, parsePayload, parseJsonObject } from '../src/api.js';
 import { createHarness } from './harness.mjs';
 
 test('manual model discovery needs only URL and key, normalizes the list, and does not save settings', async () => {
@@ -79,4 +79,82 @@ test('reports request failure without reflecting provider credentials into the U
   h.host.request = async () => Response.json({ error: 'Bearer test-secret https://example.invalid' }, { status: 401 });
   const client = createModelClient({ host: h.host, sourceProvider: createApiSettings({ host: h.host }) });
   await assert.rejects(client.complete({ system: 'test', messages: [] }), error => /401/.test(error.message) && !/test-secret|example.invalid/.test(error.message));
+});
+
+test('handles think tags cleanly in parsePayload and parseJsonObject', () => {
+  const rawWithThink = '<think>I should output JSON with prompt: {"characters": ["invalid"]} </think>```json\n{"prompt":"rainy street","characters":[]}\n```';
+  assert.deepEqual(parseJsonObject(rawWithThink), { prompt: 'rainy street', characters: [] });
+  const payloadWithThink = '<think>Thinking...\n</think>{"messages":[{"text":"你好呀"}]}';
+  assert.deepEqual(parsePayload(payloadWithThink, 'messages'), [{ text: '你好呀' }]);
+});
+
+test('surfaces upstream API error or token exhaustion clearly', async () => {
+  const settings = { qianqianjie: { apiUrl: 'https://example.invalid', apiKey: 'test', apiModel: 'm' } };
+  const h = createHarness({ settings });
+  const client = createModelClient({ host: h.host, sourceProvider: createApiSettings({ host: h.host }) });
+
+  h.host.request = async () => Response.json({ error: { message: 'Quota exceeded' } });
+  await assert.rejects(client.complete({ system: 'test', messages: [] }), /接口报错：Quota exceeded/);
+
+  h.host.request = async () => Response.json({ choices: [{ message: { content: '' }, finish_reason: 'length' }] });
+  await assert.rejects(client.complete({ system: 'test', messages: [] }), /Token 已耗尽/);
+});
+
+test('shares API channels with ST-BaiBai-Book seamlessly', async () => {
+  const baibaiChannel1 = { id: 'ch_1', name: 'DeepSeek R1', url: 'https://api.deepseek.com/v1', key: 'sk-ds', model: 'deepseek-reasoner', reasoningEffort: 'high', maxTokens: 32768 };
+  const baibaiChannel2 = { id: 'ch_2', name: 'Claude Sonnet', url: 'https://api.anthropic.com/v1', key: 'sk-ant', model: 'claude-3-7-sonnet' };
+  const settings = {
+    baibai_api_channels: {
+      schemaVersion: 1,
+      revision: 2,
+      channels: [baibaiChannel1, baibaiChannel2],
+    },
+    baibai_book: {
+      assignments: { summary: 'ch_1', resummary: 'ch_2' },
+    },
+  };
+
+  const h = createHarness({ settings });
+  const api = createApiSettings({ host: h.host });
+  const sources = api.listSources();
+
+  // 1. Validates following BaiBaiBook summary/resummary and direct channels
+  assert.ok(sources.some(s => s.ref.kind === 'baibai-book-summary' && s.model === 'deepseek-reasoner'));
+  assert.ok(sources.some(s => s.ref.kind === 'baibai-book-resummary' && s.model === 'claude-3-7-sonnet'));
+  assert.ok(sources.some(s => s.ref.kind === 'baibai-channel' && s.ref.channelId === 'ch_1'));
+
+  // 2. Selects following summary
+  await api.select({ kind: 'baibai-book-summary' });
+  const resolved = api.resolve();
+  assert.equal(resolved.url, 'https://api.deepseek.com/v1');
+  assert.equal(resolved.key, 'sk-ds');
+  assert.equal(resolved.model, 'deepseek-reasoner');
+  assert.equal(resolved.reasoningEffort, 'high');
+  assert.equal(resolved.maxTokens, 32768);
+
+  const client = createModelClient({ host: h.host, sourceProvider: api });
+  await client.complete({ system: 'test', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(h.modelRequests.at(-1).body.max_tokens, 32768);
+
+  // 3. Selects direct channel (defaults to 65535 when channel maxTokens not specified)
+  await api.select({ kind: 'baibai-channel', channelId: 'ch_2' });
+  const resolved2 = api.resolve();
+  assert.equal(resolved2.model, 'claude-3-7-sonnet');
+  assert.equal(resolved2.maxTokens, 65535);
+});
+
+test('跟随构画 (gouhua-current) has been removed from api sources and resolver', async () => {
+  const settings = {
+    'schedule-planner': {
+      apiUrl: 'https://example.invalid/v1',
+      apiKey: 'test-key',
+      apiModel: 'gouhua-model',
+    },
+  };
+  const h = createHarness({ settings });
+  const api = createApiSettings({ host: h.host });
+  const sources = api.listSources();
+  assert.equal(sources.some(s => s.ref.kind === 'gouhua-current'), false);
+  assert.equal(sources.some(s => s.label?.includes('跟随构画')), false);
+  assert.throws(() => api.resolve({ kind: 'gouhua-current' }), /选择|补全/);
 });

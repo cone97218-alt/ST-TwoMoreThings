@@ -496,11 +496,14 @@ test('buckshot: card text formatting and extractLatestUserInput turn precision',
   ];
 
   const promptAiTurn = extractLatestUserInput(msgsAiTurn, { contactName: 'Seraphina', userName: '旅行者' });
-  assert(promptAiTurn.includes('[恶魔轮盘战局实况与对弈推进]'));
-  assert(promptAiTurn.includes('【回合方判定】：当前明确轮到【角色】行动！'));
+  assert(promptAiTurn.includes('[恶魔轮盘战局实况]'));
+  assert(promptAiTurn.includes('当前是恶魔轮盘第 1 轮'));
+  assert(promptAiTurn.includes('弹仓剩余 1 实弹、1 空弹'));
+  assert(promptAiTurn.includes('【<user>】3/3 HP | 【角色】2/3 HP'));
+  assert(promptAiTurn.includes('【行动指令】：当前明确轮到【角色】行动！'));
   assert(promptAiTurn.includes('角色必须在 JSON 顶层返回结构化动作指令'));
-  assert(promptAiTurn.includes('【<user>】(旅行者)'));
-  assert(promptAiTurn.includes('【角色】(Seraphina)'));
+  assert(!promptAiTurn.includes('(旅行者)'));
+  assert(!promptAiTurn.includes('(Seraphina)'));
   assert(!promptAiTurn.includes('当前轮到你行动'));
 
   // 当处于 <user> 回合时
@@ -516,8 +519,8 @@ test('buckshot: card text formatting and extractLatestUserInput turn precision',
     { id: 'a_react', role: 'assistant', text: '我看你敢不敢开枪。' },
   ];
   const promptUserTurn = extractLatestUserInput(msgsUserTurn, { contactName: 'Seraphina', userName: '旅行者' });
-  assert(promptUserTurn.includes('【回合方判定】：当前处于【<user>】的回合，等待【<user>】开枪或使用道具！'));
-  assert(promptUserTurn.includes('当前不是角色的回合，角色严禁在顶层返回 gameAction 动作指令'));
+  assert(promptUserTurn.includes('【行动指令】：当前处于【<user>】的回合，等待【<user>】开火或使用道具！'));
+  assert(promptUserTurn.includes('当前不是角色回合，角色严禁在顶层返回 gameAction 动作指令'));
 
   // 3. 对局完结后停止注入测试
   const finishedGame = {

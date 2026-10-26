@@ -849,8 +849,6 @@ export function formatBuckshotChronicle(game, { userName = '<user>', contactName
   if (!game) return '';
   ensureBuckshotRounds(game);
 
-  const uName = cleanParticipantName(userName, '<user>');
-  const cName = cleanParticipantName(contactName, '角色');
   const currentRoundNum = game.round || 1;
   const currentRound = game.rounds?.find(r => r.roundNumber === currentRoundNum) || game.rounds?.at(-1) || {
     roundNumber: currentRoundNum,
@@ -870,23 +868,23 @@ export function formatBuckshotChronicle(game, { userName = '<user>', contactName
   };
 
   const isAiTurn = game.turn === 'ai';
-  const turnDesc = isAiTurn ? `【角色】(${cName})` : `【<user>】(${uName})`;
+  const turnDesc = isAiTurn ? '【角色】' : '【<user>】';
 
   const lines = [
     `【恶魔轮盘 · 战局客观档案（请严格依据实时数据推进，不同轮次严禁混淆）】`,
     `● 战况概览：`,
     `  - 双方赌注：【${game.wager || '纯娱乐'}】`,
-    `  - 实时血量：【<user>】(${uName}) ${game.userHp}/${game.maxHp} HP | 【角色】(${cName}) ${game.aiHp}/${game.maxHp} HP`,
+    `  - 实时血量：【<user>】${game.userHp}/${game.maxHp} HP | 【角色】${game.aiHp}/${game.maxHp} HP`,
     `  - 当前回合行动方：${turnDesc}（仅该方拥有开火或使用道具的行动权）`,
     `  - 枪管状态：${game.sawedOff ? '手锯已锯短（下次实弹造成 2 点致命伤害！）' : '枪管正常（1点伤害）'}`,
-    `  - 手铐限制：${game.handcuffed ? (game.handcuffed === 'user' ? `【<user>】(${uName}) 被手铐锁住，将跳过行动` : `【角色】(${cName}) 被手铐锁住，将跳过行动`) : '无人被锁'}`,
+    `  - 手铐限制：${game.handcuffed ? (game.handcuffed === 'user' ? '【<user>】被手铐锁住，将跳过行动' : '【角色】被手铐锁住，将跳过行动') : '无人被锁'}`,
     `● 当前第 ${currentRound.roundNumber} 轮实时态势（仅当前轮次生效）：`,
     `  - 本轮初始装填：${currentRound.initialLive} 实弹，${currentRound.initialBlank} 空弹（共 ${currentRound.initialLive + currentRound.initialBlank} 发）`,
     `  - 本轮已射出/退出：${currentRound.firedLive || 0} 实弹，${currentRound.firedBlank || 0} 空弹`,
     `  - 弹仓当前绝对剩余：${chamber.length} 发（内含 ${chamberLive} 实弹、${chamberBlank} 空弹，未知入膛顺序）`,
     `  - 双方当前剩余可用道具：`,
-    `    * 【<user>】(${uName})：${formatItemList(game.userItems)}`,
-    `    * 【角色】(${cName})：${formatItemList(game.aiItems)}`,
+    `    * 【<user>】：${formatItemList(game.userItems)}`,
+    `    * 【角色】：${formatItemList(game.aiItems)}`,
   ];
 
   if (game.rounds && game.rounds.length > 0) {
@@ -900,6 +898,46 @@ export function formatBuckshotChronicle(game, { userName = '<user>', contactName
         lines.push(recentActions);
       }
     }
+  }
+
+  return lines.join('\n');
+}
+
+// 精简高效的战局推进提示词（专用于大模型提示词注入，杜绝冗长信息）
+export function formatBuckshotActionPrompt(game) {
+  if (!game) return '';
+  const currentRoundNum = game.round || 1;
+  const chamber = game.chamber || [];
+  const { live: chamberLive, blank: chamberBlank } = getChamberCounts(chamber);
+
+  const formatItemList = items => {
+    if (!items || items.length === 0) return '无道具';
+    return items.map(k => (ITEM_INFO[k]?.name || k)).join('、');
+  };
+
+  const isAiTurn = game.turn === 'ai';
+  const turnActor = isAiTurn ? '角色' : '<user>';
+
+  const lines = [
+    `[恶魔轮盘战局实况]`,
+    `- 轮次与弹仓：当前是恶魔轮盘第 ${currentRoundNum} 轮，弹仓剩余 ${chamberLive} 实弹、${chamberBlank} 空弹（共 ${chamber.length} 发，未知入膛顺序）`,
+    `- 双方血量：【<user>】${game.userHp}/${game.maxHp} HP | 【角色】${game.aiHp}/${game.maxHp} HP`,
+    `- 双方剩余道具：【<user>】${formatItemList(game.userItems)} | 【角色】${formatItemList(game.aiItems)}`,
+  ];
+
+  if (game.sawedOff) {
+    lines.push(`- 战术状态：手锯已锯短枪管（下一发实弹伤害提升至 2 点！）`);
+  }
+  if (game.handcuffed) {
+    lines.push(`- 战术状态：【${game.handcuffed === 'user' ? '<user>' : '角色'}】被手铐锁住，本轮跳过行动`);
+  }
+
+  lines.push(`- 当前/下一行动回合归属（最关键）：【${turnActor}】（仅该方拥有开火或使用道具的行动权）`);
+
+  if (isAiTurn) {
+    lines.push(`【行动指令】：当前明确轮到【角色】行动！角色必须在 JSON 顶层返回结构化动作指令（gameAction），执行扣动扳机（朝自身开枪或朝<user>开枪）或使用道具，并在 messages 中输出纯私聊台词。严禁不发 gameAction。`);
+  } else {
+    lines.push(`【行动指令】：当前处于【<user>】的回合，等待【<user>】开火或使用道具！当前不是角色回合，角色严禁在顶层返回 gameAction 动作指令（严禁替<user>开枪或代打），仅在 messages 中以纯私聊台词做出反应。`);
   }
 
   return lines.join('\n');
@@ -933,11 +971,12 @@ export const BUCKSHOT_SYSTEM_PROMPT = `[小游戏功能规范：恶魔轮盘 (Bu
     - 严格依据战局实况中的【当前回合行动方】判定：
       * 若当前为【角色】的回合：角色必须在 JSON 顶层返回结构化动作指令（gameAction），执行射击或使用道具，并撰写 notice 字段；
       * 若当前为【<user>】的回合：当前不是角色的回合，角色严禁返回 gameAction 动作指令（严禁替<user>开枪或代打），角色只在 messages 中输出台词对话。
-    - notice 字段规范: 由角色撰写以第三人称生动描摹角色自身扣动扳机或使用道具的动作与神态，必须使用具体标识（如【角色名】眼神一凛，果断将黑洞洞的枪口对准了【<user>】……）。
+    - notice 字段规范: 由角色撰写以第三人称生动描摹角色自身扣动扳机或使用道具的动作与神态，必须使用双方具体标识（如【角色】眼神一凛，果断将黑洞洞的枪口对准了【<user>】……）。
     - 系统裁决播报: 系统规则引擎会自动在角色的动作描摹后拼接实弹/空弹裁决、伤害计算、双方剩余生命值或道具具体生效通知，作为不可篡改的系统消息播报在对话流中。
     - 动作指令格式（仅限角色回合使用）:
-      * 射击对方: {"gameAction": {"action": "shoot_opponent", "notice": "【角色名】眼神一凛，果断将黑洞洞的枪口对准了【<user>】……"}}
-      * 朝自己开枪: {"gameAction": {"action": "shoot_self", "notice": "【角色名】深吸一口气，咬牙把枪口抵向了自己……"}}
-      * 使用道具: {"gameAction": {"action": "use_item", "item": "magnifier"|"saw"|"beer"|"handcuffs"|"cigarette", "notice": "【角色名】掏出……"}}
-  * 3. 严禁代打与擅自判定:
-    - 严禁在对话正文中擅自宣判射击是实弹还是空弹、扣了多少血或擅自宣告终局胜负，所有判定均以底层系统播报为准。终局后输家须在后续对话中履行约定的赌注。`;
+      * 射击对方: {"gameAction": {"action": "shoot_opponent", "notice": "【角色】眼神一凛，果断将黑洞洞的枪口对准了【<user>】……"}}
+      * 朝自己开枪: {"gameAction": {"action": "shoot_self", "notice": "【角色】深吸一口气，咬牙把枪口抵向了自己……"}}
+      * 使用道具: {"gameAction": {"action": "use_item", "item": "magnifier"|"saw"|"beer"|"handcuffs"|"cigarette", "notice": "【角色】掏出……"}}
+  * 3. 对局结束结算与卡片规范:
+    - 对局分出胜负时，系统与角色必须输出对决结算卡注明结束与胜者（如 [小游戏：恶魔轮盘对决结束，赌注：...，胜者：<user>] 或 胜者：角色）。
+    - 严禁在对话正文中擅自宣判射击是实弹还是空弹、扣了多少血或擅自宣告终局胜负，所有判定均以底层系统播报与对决结算卡为准。终局后输家须在后续对话中履行约定的赌注。`;

@@ -827,11 +827,31 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         } : null;
         delete nextGame.reloadedNotice;
 
+        const finishCardMsg = nextGame.status === 'finished' ? {
+          id: `${Date.now() + 2}-${Math.random().toString(36).slice(2, 7)}`,
+          role: 'system',
+          type: 'game',
+          game: {
+            kind: nextGame.kind,
+            title: nextGame.title || '恶魔轮盘',
+            status: 'finished',
+            winner: nextGame.winner,
+            loser: nextGame.loser,
+            wager: nextGame.wager || '纯娱乐',
+            round: nextGame.round,
+            state: nextGame,
+          },
+          text: `[小游戏：${nextGame.title || '恶魔轮盘'}对决结束，赌注：${nextGame.wager || '纯娱乐'}，胜者：${nextGame.winner === 'user' ? '<user>' : '角色'}]`,
+          timeLabel,
+          ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+          ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+        } : null;
+
         void perform(`continue:${id}`, async () => {
           if (targetGameMsgId) {
             await store.updateGameMessage(id, targetGameMsgId, nextGame);
           }
-          const msgsToAppend = [sysMsg, reloadSysMsg].filter(Boolean);
+          const msgsToAppend = [sysMsg, reloadSysMsg, finishCardMsg].filter(Boolean);
           if (msgsToAppend.length > 0) {
             await store.appendMessages(id, msgsToAppend);
           }

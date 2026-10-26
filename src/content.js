@@ -1,6 +1,6 @@
 import { findSticker } from './stickers.js';
 import { replyContext } from './replies.js';
-import { formatBuckshotChronicle } from './games/buckshot-roulette.js';
+import { formatBuckshotChronicle, formatBuckshotActionPrompt } from './games/buckshot-roulette.js';
 
 const text = value => typeof value === 'string' ? value.trim() : '';
 const states = { pending: '待收款', accepted: '已收下', returned: '已退回' };
@@ -306,19 +306,7 @@ export function extractLatestUserInput(messages, { contactName = '角色', userN
     const isBuckshot = activeGame.game?.kind === 'buckshot_roulette';
     if (isBuckshot) {
       const rawGameState = activeGame.game?.state || activeGame.game;
-      const chronicle = formatBuckshotChronicle(rawGameState, { userName, contactName });
-      const isAiTurn = rawGameState?.turn === 'ai';
-      if (isAiTurn) {
-        gameActionPrompt = `[恶魔轮盘战局实况与对弈推进]
-${chronicle}
-【回合方判定】：当前明确轮到【角色】行动！
-【角色行动指令】：角色必须在 JSON 顶层返回结构化动作指令（gameAction），执行扣动扳机（朝角色自身开枪或朝<user>开枪）或使用战术道具，并在 messages 中输出纯私聊台词。严禁不发 gameAction。`;
-      } else {
-        gameActionPrompt = `[恶魔轮盘战局实况与对弈推进]
-${chronicle}
-【回合方判定】：当前处于【<user>】的回合，等待【<user>】开枪或使用道具！
-【角色行动指令】：当前不是角色的回合，角色严禁在顶层返回 gameAction 动作指令（严禁替<user>开枪或代打）。角色仅在 messages 中以纯私聊台词做出反应（如挑衅、催促、紧张施压或日常闲聊）。`;
-      }
+      gameActionPrompt = formatBuckshotActionPrompt(rawGameState);
     } else {
       const isAiTurn = activeGame.game?.turn === 'ai';
       if (isAiTurn) {

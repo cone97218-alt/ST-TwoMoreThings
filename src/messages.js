@@ -487,6 +487,24 @@ export function createMessageService({ target, store, contextReader, modelClient
               }
             }
           }
+
+          if (currentGameState.status === 'finished') {
+            const winnerDesc = currentGameState.winner === 'user' ? '<user>' : '角色';
+            messages.push({
+              ...record('system', `[小游戏：恶魔轮盘对决结束，赌注：${currentGameState.wager || '纯娱乐'}，胜者：${winnerDesc}]`, clock, '', context.batch),
+              type: 'game',
+              game: {
+                kind: 'buckshot_roulette',
+                title: '恶魔轮盘',
+                status: 'finished',
+                winner: currentGameState.winner,
+                loser: currentGameState.loser,
+                wager: currentGameState.wager || '纯娱乐',
+                round: currentGameState.round,
+                state: currentGameState,
+              },
+            });
+          }
         } else {
           // 抽鬼牌行动
           const drawIndex = typeof rawGameAction === 'object' && rawGameAction.drawIndex !== undefined

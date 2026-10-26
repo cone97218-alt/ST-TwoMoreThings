@@ -67,10 +67,14 @@ export function renderCardActions(message, { readOnly, busy }) {
     if (game.status === 'invited') {
       if (!isUserSender && game.sender === 'ai') {
         gameAction = `<button type="button" class="game-open-action" data-game-invite-id="${escape(message.id)}" data-game-invite-action="accept">接受对决</button>
+          <button type="button" class="game-open-action secondary" data-game-invite-id="${escape(message.id)}" data-game-invite-action="counter">更换赌注</button>
           <button type="button" class="game-open-action secondary" data-game-invite-id="${escape(message.id)}" data-game-invite-action="reject">拒绝</button>`;
+      } else if (isUserSender) {
+        gameAction = `<button type="button" class="game-open-action secondary" data-game-invite-id="${escape(message.id)}" data-game-invite-action="counter">更换赌注</button>`;
       }
     } else if (game.status === 'countered') {
       gameAction = `<button type="button" class="game-open-action" data-game-invite-id="${escape(message.id)}" data-game-invite-action="accept-counter">接受新赌注</button>
+        <button type="button" class="game-open-action secondary" data-game-invite-id="${escape(message.id)}" data-game-invite-action="counter">更换赌注</button>
         <button type="button" class="game-open-action secondary" data-game-invite-id="${escape(message.id)}" data-game-invite-action="reject">拒绝</button>`;
     } else if (game.status === 'playing') {
       gameAction = `<button type="button" class="game-open-action" data-open-game-id="${escape(message.id)}" aria-label="进入牌桌">进入牌桌</button>`;

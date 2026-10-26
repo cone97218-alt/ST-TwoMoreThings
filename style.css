@@ -382,6 +382,8 @@ h3 { font-size: 14px; font-weight: 600; }
 .game-board-title strong { font-weight: 600; color: var(--pp-text); }
 .game-board-title .game-icon svg { width: 16px; height: 16px; color: var(--pp-active); }
 .game-round-pill, .game-wager-pill { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--pp-surface); border: 1px solid var(--pp-divider-soft); color: var(--pp-muted); }
+button.game-wager-pill.is-clickable { cursor: pointer; font-family: inherit; transition: all .15s; display: inline-flex; align-items: center; gap: 3px; }
+button.game-wager-pill.is-clickable:hover { border-color: var(--pp-active); color: var(--pp-active); background: var(--pp-pale); }
 
 /* 顶部控制按钮统一尺寸与对齐 */
 .game-board-controls { display: flex; align-items: center; gap: 4px; }
@@ -429,6 +431,11 @@ button.playing-card .joker-badge { position: absolute; top: -5px; right: -5px; b
 .banner-text strong { font-size: 12px; display: block; }
 .banner-text p { font-size: 10px; margin: 2px 0; }
 .wager-fulfill { font-size: 10px; font-weight: 500; }
+button.wager-fulfill.is-clickable { cursor: pointer; font-family: inherit; transition: all .15s; border-radius: 4px; padding: 2px 6px; border: 1px dashed currentColor; background: transparent; }
+button.wager-fulfill.is-clickable:hover { opacity: 0.85; }
+.dialog-field-tip { margin: 0 0 10px 0; color: var(--pp-muted); font-size: 12px; line-height: 1.5; }
+.dialog-field-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--pp-divider-soft); background: var(--pp-surface); color: var(--pp-text); font-size: 13px; font-family: inherit; }
+.dialog-field-input:focus { outline: none; border-color: var(--pp-active); }
 .game-finish-actions { display: flex; gap: 8px; margin-top: 8px; }
 .fulfill-button { flex: 2; padding: 6px 10px; border-radius: 6px; background: #137333; color: #fff; font-size: 11px; font-weight: 500; border: none; cursor: pointer; }
 .fulfill-button.admit-defeat { background: #c5221f; }

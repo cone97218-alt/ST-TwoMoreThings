@@ -41,7 +41,7 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
       <div class="banner-text">
         <strong>${isUserWinner ? '你赢了！' : '你输了！'}</strong>
         <p>${isUserWinner ? '对方手握鬼牌落败。' : '你手握鬼牌落败。'}</p>
-        <span class="wager-fulfill">赌注：${escape(game.wager || '纯娱乐')}</span>
+        <button type="button" class="wager-fulfill is-clickable" data-action="edit-game-wager" title="点击更换赌注">赌注：${escape(game.wager || '纯娱乐')} ✎</button>
       </div>
     </div>`;
   } else if (isUserTurn) {
@@ -83,7 +83,7 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
       <div class="game-board-title">
         <span class="game-icon">${icon('gamepad')}</span>
         <span class="game-round-pill">${game.round || 1}</span>
-        <span class="game-wager-pill">赌注：${escape(game.wager || '纯娱乐')}</span>
+        <button type="button" class="game-wager-pill is-clickable" data-action="edit-game-wager" title="点击更换赌注">赌注：${escape(game.wager || '纯娱乐')} ✎</button>
       </div>
       <div class="game-board-controls">
         ${!isFinished ? `<button type="button" class="game-surrender-inline-btn" data-action="surrender-game" title="认输结算">认输</button>` : ''}

@@ -143,6 +143,39 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     ui.notice = null;
     root.querySelector('.phone-top-notice')?.remove();
   }
+  const promptWagerDialog = async (currentWager = '') => {
+    const container = doc.createElement('div');
+    container.className = 'wager-dialog-body';
+
+    const tip = doc.createElement('p');
+    tip.textContent = '设置或修改抽鬼牌对决赌注（输家需履行的惩罚或约定）：';
+    tip.className = 'dialog-field-tip';
+
+    const inputEl = doc.createElement('input');
+    inputEl.type = 'text';
+    inputEl.className = 'dialog-field-input';
+    inputEl.value = currentWager || '';
+    inputEl.placeholder = '输入新赌注，例如：答应赢家一个要求';
+    inputEl.setAttribute('aria-label', '新赌注');
+
+    container.append(tip, inputEl);
+
+    let resultValue = null;
+    const ok = await dialog.custom({
+      title: '修改抽鬼牌赌注',
+      content: container,
+      confirmText: '确认更换',
+      cancelText: '取消',
+      submit: () => {
+        const val = inputEl.value.trim();
+        if (!val) return false;
+        resultValue = val;
+        return true;
+      },
+    });
+
+    return ok ? resultValue : null;
+  };
   function pushPhoneNotice(notice) {
     if (element.hidden || !element.isConnected || !control.isEnabled()) return;
     dismissPhoneNotice();
@@ -650,7 +683,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       event.stopPropagation();
     }
   }
-  function click(event) {
+  async function click(event) {
     if (ui.conflict) {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
@@ -910,6 +943,35 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             }
             await service.continueChat(id);
           }, onContextChange);
+        } else if (gInviteAction === 'counter') {
+          const currentWager = message.game?.wager || '答应赢家一个要求';
+          const newWager = await promptWagerDialog(currentWager);
+          if (newWager && newWager !== currentWager) {
+            const updatedInvite = {
+              ...message.game,
+              wager: newWager,
+              status: 'countered',
+              state: { ...(message.game.state || message.game), wager: newWager, status: 'countered' },
+            };
+            const batch = ui.batch;
+            const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
+            const replyText = `这赌注不太行，我们换成【${newWager}】怎么样？`;
+            const sysMsg = {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              role: 'system',
+              type: 'game-action',
+              text: `【${userName}】提议将抽鬼牌赌注更换为【${newWager}】`,
+              timeLabel,
+              ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+              ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+            };
+            void perform(`send:${id}`, async () => {
+              await store.updateGameMessage(id, msgId, updatedInvite);
+              await service.send(id, replyText);
+              await store.appendMessages(id, [sysMsg]);
+              await service.continueChat(id);
+            }, onContextChange);
+          }
         } else if (gInviteAction === 'reject') {
           const game = rejectOldMaidGame(message.game.state || message.game, { contactName });
           store.updateGameMessage(id, msgId, game);
@@ -1357,6 +1419,48 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             }
             await store.appendMessages(convId, [sysMsg]);
             await service.continueChat(convId);
+          }, onContextChange);
+        }
+        break;
+      }
+      case 'edit-game-wager': {
+        const convId = conversationId();
+        const service = ui.view === 'group-chat' ? groups : messages;
+        const currentWager = ui.activeGame?.wager || '答应赢家一个要求';
+        const newWager = await promptWagerDialog(currentWager);
+        if (newWager && newWager !== currentWager) {
+          if (ui.activeGame) {
+            ui.activeGame.wager = newWager;
+            if (ui.activeGame.state) ui.activeGame.state.wager = newWager;
+          }
+          const batch = ui.batch;
+          const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
+          const currentStore = store.read();
+          const user = currentStore.userProfile || { name: ui.defaultUser || '我' };
+          const userName = displayName(user) || '你';
+          const targetGameMsgId = ui.activeGameMessageId || currentStore.conversations[convId]?.findLast(m => m.type === 'game')?.id;
+          const sysMsg = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            role: 'system',
+            type: 'game-action',
+            text: `【${userName}】将本局赌注变更为【${newWager}】`,
+            timeLabel,
+            ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+            ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+          };
+          render();
+          void perform(`continue:${convId}`, async () => {
+            if (targetGameMsgId && ui.activeGame) {
+              await store.updateGameMessage(convId, targetGameMsgId, ui.activeGame);
+            }
+            await store.appendMessages(convId, [sysMsg]);
+            await service.continueChat(convId);
+            const latestStore = store.read();
+            const updatedMsg = latestStore.conversations?.[convId]?.find(m => m.id === targetGameMsgId);
+            if (updatedMsg?.game) {
+              ui.activeGame = updatedMsg.game.state || updatedMsg.game;
+              render();
+            }
           }, onContextChange);
         }
         break;

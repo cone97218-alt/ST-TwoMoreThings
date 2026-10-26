@@ -13,7 +13,7 @@ import {
   getAiMicroExpression,
   cleanParticipantName,
 } from '../src/games/old-maid.js';
-import { normalizeContent, messageText } from '../src/content.js';
+import { normalizeContent, messageText, extractLatestUserInput } from '../src/content.js';
 import { renderCardBody } from '../src/ui/cards.js';
 import { renderGameBoard } from '../src/ui/game-board.js';
 import { renderChat } from '../src/ui/messages.js';
@@ -559,4 +559,116 @@ test('cleanParticipantName filters <user> macro and renders clean 【你】', ()
   assert(!html.includes('<user>'));
   assert(html.includes('system-notice-delete'));
   assert(!html.includes('game-action-icon'));
+});
+
+test('extractLatestUserInput suppresses ancient user messages during active card games and normal continuing chat', () => {
+  // 场景 1: 普通对话，角色已回复，用户点继续（未发新消息）
+  const normalChat = [
+    { id: '1', role: 'user', text: '讲个笑话' },
+    { id: '2', role: 'assistant', text: '从前有座山……' },
+  ];
+  assert.equal(extractLatestUserInput(normalChat), '', '角色已回复且无新发言时应返回空，避免重复提醒旧输入');
+
+  // 场景 2: 抽鬼牌多轮对弈，用户很久前发了“好，开始打牌”，后续均为摸牌与角色对话
+  const gameMatch = [
+    { id: '1', role: 'user', text: '好，开始打牌' },
+    { id: '2', role: 'assistant', text: '来吧，谁怕谁！' },
+    { id: '3', role: 'system', type: 'game-action', text: '【玩家】从【林舟】手中抽了一张牌' },
+    { id: '4', role: 'assistant', text: '哎呀，被你抽走了！' },
+    { id: '5', role: 'system', type: 'game-action', text: '【玩家】从【林舟】手中抽了一张牌' },
+    { id: 'g1', role: 'system', type: 'game', game: { kind: 'old_maid', status: 'playing', turn: 'ai' } },
+  ];
+  const promptInput = extractLatestUserInput(gameMatch);
+  assert(!promptInput.includes('好，开始打牌'), '不应再包含多轮前陈旧的“好，开始打牌”');
+  assert(promptInput.includes('[小游戏对弈推进]'), '应正确注入对弈推进提示');
+
+  // 场景 3: 抽鬼牌对弈中，用户不仅摸了牌，还在本轮发了新聊天消息
+  const gameWithFreshUser = [
+    ...gameMatch.slice(0, 4),
+    { id: '5', role: 'user', text: '你手牌里肯定藏着鬼牌吧？' },
+    { id: '6', role: 'system', type: 'game-action', text: '【玩家】从【林舟】手中抽了一张牌' },
+    { id: 'g1', role: 'system', type: 'game', game: { kind: 'old_maid', status: 'playing', turn: 'ai' } },
+  ];
+  const freshPrompt = extractLatestUserInput(gameWithFreshUser);
+  assert(freshPrompt.includes('你手牌里肯定藏着鬼牌吧？'), '应包含用户在本轮的新鲜发言');
+  assert(freshPrompt.includes('[小游戏对弈推进]'), '同时应附带对弈推进指示');
+});
+
+test('programmatic wager change during invitation and ongoing game', async () => {
+  const h = createHarness({ messages: [{ is_user: false, mes: 'hello' }] });
+  const target = h.host.captureChat();
+  const store = createPhoneStore({ target });
+  await store.upsertContacts([{ id: 'c1', name: '林舟', personality: '调皮' }]);
+
+  // 1. 测试邀约卡片上的更换赌注按钮渲染
+  const inviteMsg = {
+    id: 'inv_1',
+    role: 'user',
+    type: 'game',
+    game: {
+      kind: 'old_maid',
+      title: '抽鬼牌',
+      status: 'invited',
+      sender: 'user',
+      wager: '答应赢家一个要求',
+    },
+  };
+  const { renderCardActions } = await import('../src/ui/cards.js');
+  const cardActionsHtml = renderCardActions(inviteMsg, { readOnly: false, busy: new Set() });
+  assert(cardActionsHtml.includes('data-game-invite-action="counter"'), '邀约卡片应包含更换赌注按钮');
+  assert(cardActionsHtml.includes('更换赌注'));
+
+  // 2. 测试对战棋盘上的可点击赌注药丸与更换功能
+  const boardHtml = renderGameBoard(
+    { kind: 'old_maid', status: 'playing', wager: '输了请喝奶茶', round: 1, userCards: [], aiCards: [], discardPile: [] },
+    { contact: { name: '林舟' }, busy: new Set() }
+  );
+  assert(boardHtml.includes('data-action="edit-game-wager"'), '牌桌标题栏应提供点击更换赌注按钮');
+  assert(boardHtml.includes('输了请喝奶茶 ✎'));
+
+  // 3. 测试 AI 在对局中通过 gameAction 更改/加码赌注
+  const contextReader = createContextReader({
+    target,
+    store,
+    readMainStoryContext: () => ({ floorMessages: [], storySummary: '', worldbook: '' }),
+  });
+
+  const activeGame = createOldMaidGame({ wager: '初始赌注', starter: 'user', userName: '玩家', contactName: '林舟' });
+  activeGame.turn = 'ai';
+  await store.appendMessages('c1', [{
+    id: 'game_msg_1',
+    role: 'system',
+    type: 'game',
+    game: activeGame,
+    batch: { key: '1' },
+  }]);
+
+  const modelClient = {
+    async complete() {
+      return JSON.stringify({
+        messages: [{ text: '换个更有意思的赌注吧！' }],
+        gameAction: {
+          action: 'draw',
+          drawIndex: 0,
+          wager: '输的人给赢家洗衣服一周',
+          notice: '【林舟】一边加码赌注，一边抽走了【玩家】的一张手牌。',
+        },
+      });
+    },
+  };
+
+  const service = createMessageService({
+    store,
+    contextReader,
+    modelClient,
+    normalizeIncomingMessages: items => items,
+  });
+
+  await service.continueChat('c1');
+  const thread = store.read().conversations.c1;
+  const gameMsg = thread.find(m => m.id === 'game_msg_1');
+  assert.equal(gameMsg.game.wager, '输的人给赢家洗衣服一周', '牌局赌注应被程序成功更新');
+
+  const wagerChangeNotice = thread.find(m => m.text?.includes('将本局赌注变更为【输的人给赢家洗衣服一周】'));
+  assert(wagerChangeNotice, '应自动推送更换赌注的系统公告通知');
 });

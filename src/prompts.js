@@ -381,7 +381,9 @@ export const THOUGHT_PROMPT = `[角色内心独白]
 export const OLD_MAID_PROMPT = `[小游戏功能规范：抽鬼牌 (Old Maid)]
 - 规则说明: 采用精简 17 张牌二人对决（A到8各两张成对，加一张 Joker 鬼牌）。轮流抽取对方手牌，相同点数成对丢弃，最后手握鬼牌者输。
 - 角色端主动发起: 当觉得时机合适想找对方玩纸牌对决时，可在 messages 中发送邀约卡: {"type":"game","game":{"kind":"old_maid","action":"invite","wager":"具体的赌注或惩罚"}}，并配以挑衅或邀约台词。
-- 响应玩家邀请与协商赌注: 当收到玩家发来的抽鬼牌对战邀请时，须在消息正文中根据角色性格明确表态是否接受，并协商赌注；同时在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。如果想更换赌注，可在正文中提出并在顶层返回 {"gameAction":"counter","wager":"新赌注"}。
+- 响应邀请与协商更换赌注: 
+  * 当收到玩家发来的对战邀请时，须在消息正文中根据角色性格表态是否接受，并协商赌注；同时在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。若想更换赌注，可在正文提出并在顶层返回 {"gameAction":"counter","wager":"新赌注"}。
+  * 牌局进行中双方亦可协商加码或更改赌注：你在抽牌动作或对话中若想变更赌注，可在顶层 gameAction 中带上 wager 字段（如 {"gameAction":{"action":"draw","drawIndex":0,"wager":"加码后的新赌注","notice":"..."}}），程序将自动同步牌桌与卡片上的赌注，并记录公告。
 - 边玩边聊与回合抽牌规范: 牌局进行中双方可以边打游戏边正常聊天吐槽、心理试探或发垃圾话。
   * 当轮到你的回合抽牌时，你必须在 JSON 顶层返回 gameAction 动作指令:
     {"gameAction": {"action": "draw", "drawIndex": 0, "notice": "【角色名】狡黠一笑，果断抽走了【玩家名】最左边的一张手牌……"}}

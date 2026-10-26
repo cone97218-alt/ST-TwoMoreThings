@@ -173,20 +173,45 @@ export function formatSingleUserInput(message) {
 export function extractLatestUserInput(messages) {
   if (!Array.isArray(messages) || !messages.length) return '';
   let lastUserIdx = -1;
+  let lastAssistantIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m && !m.withdrawn && (m.role === 'user' || m.speakerId === '@user')) {
+    if (!m || m.withdrawn) continue;
+    if (lastUserIdx === -1 && (m.role === 'user' || m.speakerId === '@user')) {
       lastUserIdx = i;
-      break;
     }
+    if (lastAssistantIdx === -1 && (m.role === 'assistant' || (m.speakerId && m.speakerId !== '@user'))) {
+      lastAssistantIdx = i;
+    }
+    if (lastUserIdx !== -1 && lastAssistantIdx !== -1) break;
   }
-  if (lastUserIdx === -1) return '';
 
+  // 检查是否有进行中的抽鬼牌或最新对局系统动作
+  const activeGame = messages.find(m => m && !m.withdrawn && m.type === 'game' && m.game?.status === 'playing');
+  const postAssistantMessages = lastAssistantIdx !== -1 ? messages.slice(lastAssistantIdx + 1) : messages;
+  const hasRecentGameAction = postAssistantMessages.some(m => m && !m.withdrawn && (m.type === 'game-action' || m.game?.action === 'draw'));
+
+  // 情况 1: 角色已经回复过最后的文本发言 (lastAssistantIdx > lastUserIdx)
+  if (lastAssistantIdx !== -1 && lastAssistantIdx > lastUserIdx) {
+    if (activeGame || hasRecentGameAction) {
+      return '[小游戏对弈推进] 玩家已完成摸牌（手牌已变动消除），当前轮到你从玩家手牌中抽牌并发表对弈反应与日常台词。';
+    }
+    // 普通对话且无新用户发言（例如用户点继续），返回空，避免重复提醒上上轮的陈旧提问
+    return '';
+  }
+
+  if (lastUserIdx === -1) {
+    if (activeGame || hasRecentGameAction) {
+      return '[小游戏对弈推进] 玩家已完成摸牌（手牌已变动消除），当前轮到你从玩家手牌中抽牌并发表对弈反应与日常台词。';
+    }
+    return '';
+  }
+
+  // 情况 2: 用户在本轮有最新发言 (lastUserIdx > lastAssistantIdx)
   const userMessages = [];
   for (let i = lastUserIdx; i >= 0; i--) {
     const m = messages[i];
-    if (!m) continue;
-    if (m.withdrawn) continue;
+    if (!m || m.withdrawn) continue;
     const isUser = m.role === 'user' || m.speakerId === '@user';
     if (isUser) {
       userMessages.unshift(m);
@@ -195,7 +220,14 @@ export function extractLatestUserInput(messages) {
     }
   }
 
-  return userMessages.map(formatSingleUserInput).filter(Boolean).join('\n');
+  const userText = userMessages.map(formatSingleUserInput).filter(Boolean).join('\n');
+  if (activeGame || hasRecentGameAction) {
+    return userText
+      ? `${userText}\n[小游戏对弈推进] 玩家已完成摸牌，轮到你从玩家手牌中抽牌并发表对弈反应与日常台词。`
+      : '[小游戏对弈推进] 玩家已完成摸牌，轮到你从玩家手牌中抽牌并发表对弈反应与日常台词。';
+  }
+
+  return userText;
 }
 
 export function contextMessage(message, thread) {

@@ -292,11 +292,29 @@ export function createMessageService({ target, store, contextReader, modelClient
               state: { ...(pendingInvite.game.state || pendingInvite.game), wager: newWager, status: 'countered' },
             };
             await store.updateGameMessage(id, pendingInvite.id, updatedInvite);
+            messages.push({
+              ...record('system', `【${contactName}】提议将抽鬼牌赌注更换为【${newWager}】`, clock, '', context.batch),
+              type: 'game-action',
+            });
           }
         } else if (gameActionKind === 'reject' || gameActionKind === 'rejected') {
           const reason = String(typeof rawGameAction === 'object' && rawGameAction.reason ? rawGameAction.reason : '').trim();
           const rejectedGame = rejectOldMaidGame(pendingInvite.game.state || pendingInvite.game, { reason, contactName });
           await store.updateGameMessage(id, pendingInvite.id, rejectedGame);
+        }
+      }
+
+      // 进行中的牌局：检查 AI 是否在动作中提议更换/加码赌注
+      if (activeGameMsg && typeof rawGameAction === 'object' && rawGameAction.wager) {
+        const proposedWager = String(rawGameAction.wager).trim();
+        const currentGame = activeGameMsg.game.state || activeGameMsg.game;
+        if (proposedWager && proposedWager !== currentGame.wager) {
+          currentGame.wager = proposedWager;
+          activeGameMsg.game.wager = proposedWager;
+          messages.push({
+            ...record('system', `【${contactName}】将本局赌注变更为【${proposedWager}】`, clock, '', context.batch),
+            type: 'game-action',
+          });
         }
       }
 
@@ -309,6 +327,7 @@ export function createMessageService({ target, store, contextReader, modelClient
         const gameState = activeGameMsg.game.state || activeGameMsg.game;
         const result = aiDrawCard(gameState, drawIndex, { userName, contactName, customNotice });
         if (!result.error) {
+          if (activeGameMsg.game.wager) result.game.wager = activeGameMsg.game.wager;
           await store.updateGameMessage(id, activeGameMsg.id, result.game);
           if (result.game.lastAction?.description) {
             messages.push({
@@ -317,6 +336,10 @@ export function createMessageService({ target, store, contextReader, modelClient
             });
           }
         }
+      } else if (activeGameMsg && typeof rawGameAction === 'object' && rawGameAction.wager) {
+        // 非摸牌回合但变更了赌注，同步保存至 store
+        const gameState = activeGameMsg.game.state || activeGameMsg.game;
+        await store.updateGameMessage(id, activeGameMsg.id, gameState);
       }
       for (const item of rawMsgActions) {
         if (!item || typeof item !== 'object') continue;

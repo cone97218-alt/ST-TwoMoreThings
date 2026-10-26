@@ -122,94 +122,136 @@ export function createPhoneStore({
   };
 
   const read = () => {
-    if (target.metadata?.pocketPhone === undefined) {
-      return empty;
-    }
-    const raw = target.metadata.pocketPhone;
+    const raw = target.metadata?.pocketPhone;
     const phoneSettings = getPhoneSettings();
+
     if (!phoneSettings) {
+      if (raw === undefined) return empty;
       if (raw?.promptPresets) {
         return { ...raw, promptPresets: normalizePromptPresets(raw.promptPresets) };
       }
       return raw;
     }
 
-    const hasGlobalPrompts = Boolean(phoneSettings.prompts && Object.keys(phoneSettings.prompts).length > 0);
-    const hasGlobalPresets = Array.isArray(phoneSettings.promptPresets) && phoneSettings.promptPresets.length > 0;
-    const hasGlobalActivePreset = Boolean(phoneSettings.activePresetId);
-    const hasGlobalCalendarPresets = Array.isArray(phoneSettings.calendarCustomPresets);
-    const charKey = getCharacterKey();
-    const boundCalendar = phoneSettings.characterCalendars?.[charKey];
+    let globalChanged = false;
 
-    const needsCalendarBinding = (!raw.calendar || !raw.calendar.descriptor) && Boolean(boundCalendar?.descriptor);
-    const needsMerge = hasGlobalPrompts || hasGlobalPresets || hasGlobalActivePreset || hasGlobalCalendarPresets || needsCalendarBinding || raw.promptPresets;
-
-    if (!needsMerge) {
-      return raw;
+    // 1. 提示词库 (prompts) - 全局优先
+    let prompts = undefined;
+    if (phoneSettings.prompts !== undefined) {
+      prompts = structuredClone(phoneSettings.prompts);
+    } else if (raw?.prompts && Object.keys(raw.prompts).length > 0) {
+      phoneSettings.prompts = structuredClone(raw.prompts);
+      prompts = structuredClone(raw.prompts);
+      globalChanged = true;
     }
 
-    // 1. 提示词库 (prompts) - 全局有效
-    const prompts = hasGlobalPrompts
-      ? { ...(raw.prompts || {}), ...phoneSettings.prompts }
-      : (raw.prompts || {});
+    // 2. 提示词预设列表 (promptPresets) - 全局优先
+    let promptPresets = undefined;
+    if (Array.isArray(phoneSettings.promptPresets)) {
+      promptPresets = phoneSettings.promptPresets;
+    } else if (Array.isArray(raw?.promptPresets) && raw.promptPresets.length > 0) {
+      phoneSettings.promptPresets = structuredClone(raw.promptPresets);
+      promptPresets = phoneSettings.promptPresets;
+      globalChanged = true;
+    }
 
-    // 2. 提示词预设列表 (promptPresets) - 全局有效
-    let promptPresets = hasGlobalPresets
-      ? phoneSettings.promptPresets
-      : (raw.promptPresets || DEFAULT_PROMPT_PRESETS);
-    const normalizedPresets = normalizePromptPresets(promptPresets);
-
-    // 3. 当前启用的预设编号 (activePresetId) - 全局有效
-    let activePresetId = hasGlobalActivePreset
-      ? phoneSettings.activePresetId
-      : (raw.activePresetId || normalizedPresets[0]?.id || 'default_preset');
+    // 3. 当前启用的预设编号 (activePresetId) - 全局优先
+    let activePresetId = undefined;
+    if (phoneSettings.activePresetId) {
+      activePresetId = phoneSettings.activePresetId;
+    } else if (raw?.activePresetId) {
+      activePresetId = raw.activePresetId;
+      phoneSettings.activePresetId = activePresetId;
+      globalChanged = true;
+    }
 
     // 4. 自定义日历预设 (calendar.customPresets) - 全局可切换生效
-    let calendar = raw.calendar;
-    const globalCustomPresets = hasGlobalCalendarPresets ? phoneSettings.calendarCustomPresets : [];
+    let globalCustomPresets = undefined;
+    if (Array.isArray(phoneSettings.calendarCustomPresets)) {
+      globalCustomPresets = phoneSettings.calendarCustomPresets;
+    } else if (Array.isArray(raw?.calendar?.customPresets) && raw.calendar.customPresets.length > 0) {
+      phoneSettings.calendarCustomPresets = structuredClone(raw.calendar.customPresets);
+      globalCustomPresets = phoneSettings.calendarCustomPresets;
+      globalChanged = true;
+    }
 
     // 5. 日历默认选择与角色绑定 (characterCalendars)
-    if (!raw.calendar || !raw.calendar.descriptor) {
-      if (boundCalendar?.descriptor) {
+    const charKey = getCharacterKey();
+    if (!phoneSettings.characterCalendars) {
+      phoneSettings.characterCalendars = {};
+    }
+    const boundCalendar = phoneSettings.characterCalendars[charKey];
+
+    let calendar = raw?.calendar;
+    if (boundCalendar?.descriptor) {
+      calendar = {
+        ...(raw?.calendar || {}),
+        descriptor: structuredClone(boundCalendar.descriptor),
+        items: Array.isArray(raw?.calendar?.items) && raw.calendar.items.length > 0
+          ? raw.calendar.items
+          : (Array.isArray(boundCalendar.items) ? structuredClone(boundCalendar.items) : []),
+        ...(globalCustomPresets ? { customPresets: globalCustomPresets } : {}),
+      };
+    } else if (raw?.calendar?.descriptor) {
+      phoneSettings.characterCalendars[charKey] = {
+        descriptor: structuredClone(raw.calendar.descriptor),
+        items: Array.isArray(raw.calendar.items)
+          ? structuredClone(raw.calendar.items.filter(it => !it.todoId))
+          : [],
+      };
+      globalChanged = true;
+      if (globalCustomPresets) {
         calendar = {
-          ...(raw.calendar || {}),
-          descriptor: structuredClone(boundCalendar.descriptor),
-          items: Array.isArray(boundCalendar.items) ? structuredClone(boundCalendar.items) : (raw.calendar?.items || []),
-          customPresets: globalCustomPresets,
-        };
-      } else if (raw.calendar || globalCustomPresets.length > 0) {
-        calendar = {
-          ...(raw.calendar || { items: [] }),
+          ...raw.calendar,
           customPresets: globalCustomPresets,
         };
       }
-    } else if (hasGlobalCalendarPresets) {
+    } else if (globalCustomPresets && globalCustomPresets.length > 0) {
       calendar = {
-        ...raw.calendar,
+        ...(raw?.calendar || { items: [] }),
         customPresets: globalCustomPresets,
       };
     }
 
+    if (globalChanged) {
+      void saveGlobalExtensionSettings();
+    }
+
+    const needsMerge = prompts !== undefined || promptPresets !== undefined || activePresetId !== undefined || calendar !== raw?.calendar;
+
+    if (!needsMerge) {
+      if (raw === undefined) return empty;
+      return raw;
+    }
+
+    const base = raw !== undefined ? raw : empty;
     return {
-      ...raw,
-      prompts,
-      promptPresets: normalizedPresets,
-      activePresetId,
-      ...(calendar ? { calendar } : {}),
+      ...base,
+      ...(prompts !== undefined ? { prompts } : {}),
+      ...(promptPresets !== undefined ? { promptPresets: normalizePromptPresets(promptPresets) } : {}),
+      ...(activePresetId !== undefined ? { activePresetId } : {}),
+      ...(calendar !== undefined ? { calendar } : {}),
     };
   };
   // Serialize normal phone saves so sending while a reply arrives keeps both changes.
   let saving = Promise.resolve();
   function update(change, cleanImages = false) {
     const operation = saving.then(async () => {
-      const previous = target.metadata.pocketPhone;
+      const previous = target.metadata?.pocketPhone;
       const current = read(), next = change(current);
       if (next === current) return current;
-      target.metadata.pocketPhone = next;
-      try { await target.saveMetadata(); }
-      catch (error) {
-        if (previous === undefined) delete target.metadata.pocketPhone;
-        else target.metadata.pocketPhone = previous;
+      if (target.metadata) {
+        target.metadata.pocketPhone = next;
+      }
+      try {
+        if (target.id) {
+          await target.saveMetadata();
+        }
+      } catch (error) {
+        if (target.metadata) {
+          if (previous === undefined) delete target.metadata.pocketPhone;
+          else target.metadata.pocketPhone = previous;
+        }
         throw error;
       }
 
@@ -218,15 +260,21 @@ export function createPhoneStore({
         let globalChanged = false;
 
         // 1. 提示词库同步到全局设置
-        if (next.prompts && next.prompts !== phoneSettings.prompts) {
-          phoneSettings.prompts = structuredClone(next.prompts);
-          globalChanged = true;
+        if (next.prompts) {
+          const nextPromptsJson = JSON.stringify(next.prompts);
+          if (JSON.stringify(phoneSettings.prompts || {}) !== nextPromptsJson) {
+            phoneSettings.prompts = structuredClone(next.prompts);
+            globalChanged = true;
+          }
         }
 
         // 2. 提示词预设同步到全局设置
-        if (next.promptPresets && next.promptPresets !== phoneSettings.promptPresets) {
-          phoneSettings.promptPresets = structuredClone(next.promptPresets);
-          globalChanged = true;
+        if (Array.isArray(next.promptPresets) && next.promptPresets.length > 0) {
+          const nextPresetsJson = JSON.stringify(next.promptPresets);
+          if (JSON.stringify(phoneSettings.promptPresets || []) !== nextPresetsJson) {
+            phoneSettings.promptPresets = structuredClone(next.promptPresets);
+            globalChanged = true;
+          }
         }
 
         // 3. 激活预设编号同步到全局设置
@@ -236,9 +284,12 @@ export function createPhoneStore({
         }
 
         // 4. 自定义日历预设同步到全局设置
-        if (next.calendar?.customPresets && next.calendar.customPresets !== phoneSettings.calendarCustomPresets) {
-          phoneSettings.calendarCustomPresets = structuredClone(next.calendar.customPresets);
-          globalChanged = true;
+        if (Array.isArray(next.calendar?.customPresets)) {
+          const nextCustomJson = JSON.stringify(next.calendar.customPresets);
+          if (JSON.stringify(phoneSettings.calendarCustomPresets || []) !== nextCustomJson) {
+            phoneSettings.calendarCustomPresets = structuredClone(next.calendar.customPresets);
+            globalChanged = true;
+          }
         }
 
         // 5. 日历默认选择与角色绑定
@@ -246,7 +297,8 @@ export function createPhoneStore({
         if (next.calendar?.descriptor) {
           if (!phoneSettings.characterCalendars) phoneSettings.characterCalendars = {};
           const currentBound = phoneSettings.characterCalendars[charKey];
-          if (!currentBound || JSON.stringify(currentBound.descriptor) !== JSON.stringify(next.calendar.descriptor)) {
+          const newDescJson = JSON.stringify(next.calendar.descriptor);
+          if (!currentBound || JSON.stringify(currentBound.descriptor) !== newDescJson) {
             phoneSettings.characterCalendars[charKey] = {
               descriptor: structuredClone(next.calendar.descriptor),
               items: Array.isArray(next.calendar.items)
@@ -365,6 +417,28 @@ export function createPhoneStore({
         if (group && actorId !== '@user' && !group.memberIds.includes(actorId)) throw new Error('收款人已不在群中，无法处理这条转账。');
         if (actorId === '@user' && group && !group.userIsMember) throw new Error('你不在这个群，无法处理转账。');
         const next = { ...message, transfer: { ...message.transfer, status, handledAt: new Date().toISOString() } };
+        next.text = messageText(next);
+        return { ...state, conversations: { ...state.conversations, [id]: messages.map(item => item.id === messageId ? next : item) } };
+      });
+    },
+    updateGameMessage(id, messageId, gameState) {
+      return update(state => {
+        assertEnabled();
+        const messages = state.conversations[id] || [], message = messages.find(item => item.id === messageId);
+        if (!message || message.type !== 'game') throw new Error('这条游戏记录已不存在。');
+        const next = {
+          ...message,
+          game: {
+            ...message.game,
+            status: gameState.status,
+            round: gameState.round,
+            turn: gameState.turn,
+            winner: gameState.winner,
+            loser: gameState.loser,
+            lastAction: gameState.lastAction,
+            state: gameState,
+          },
+        };
         next.text = messageText(next);
         return { ...state, conversations: { ...state.conversations, [id]: messages.map(item => item.id === messageId ? next : item) } };
       });

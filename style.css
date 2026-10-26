@@ -332,7 +332,7 @@ h3 { font-size: 14px; font-weight: 600; }
 .bubble.sticker-message, .is-mine .bubble.sticker-message { border: 0; padding: 0; background: transparent; box-shadow: none; }
 .sticker-message img { display: block; width: 104px; height: 104px; object-fit: contain; }
 .message-row .bubble.sticker-message::after { display: none; }
-.location-message, .transfer-message, .image-message { display: flex; flex-direction: column; gap: 4px; width: 196px; text-align: left; }
+.location-message, .transfer-message, .image-message, .game-message { display: flex; flex-direction: column; gap: 4px; width: 196px; text-align: left; }
 .card-label { display: flex; align-items: center; gap: 5px; font-size: 10px; opacity: .8; }
 .card-label svg { width: 15px; height: 15px; }
 .bubble strong { font-size: 12px; font-weight: 500; }
@@ -350,6 +350,87 @@ h3 { font-size: 14px; font-weight: 600; }
 .photo-placeholder { width: 100%; min-height: 86px; display: grid; place-items: center; background: var(--pp-pale); color: var(--pp-active); border-radius: 6px; }
 .photo-placeholder svg { width: 27px; height: 27px; }
 .photo-description { font-size: 11px; line-height: 1.6; }
+
+/* 抽鬼牌卡片消息样式 */
+.game-card-body { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.game-card-wager { font-size: 11px; line-height: 1.4; color: var(--pp-muted); }
+.game-card-status { display: inline-block; font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 4px; width: fit-content; }
+.game-card-status.pending { background: var(--pp-surface-soft); color: var(--pp-muted); }
+.game-card-status.active { background: var(--pp-surface-soft); color: var(--pp-active); }
+.game-card-status.win { background: #e6f4ea; color: #137333; }
+.game-card-status.lose { background: #fce8e6; color: #c5221f; }
+.game-open-action { padding: 4px 10px; font-size: 11px; font-weight: 600; color: var(--pp-active); border: 1px solid var(--pp-divider-soft); border-radius: 5px; background: var(--pp-surface-soft); cursor: pointer; transition: background .15s; }
+.game-open-action:hover { background: var(--pp-pale); }
+.game-open-action.secondary { background: transparent; color: var(--pp-muted); }
+.game-open-action.secondary:hover { background: var(--pp-pale); }
+
+/* 纯对弈模式锁定栏 */
+.game-locked-composer { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: var(--pp-surface-soft); border-top: 1px solid var(--pp-divider-soft); }
+.game-locked-hint { font-size: 11px; color: var(--pp-muted); }
+.game-surrender-btn { font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--pp-divider-soft); background: var(--pp-surface); color: var(--pp-muted); cursor: pointer; transition: all .15s; }
+.game-surrender-btn:hover { color: #c5221f; border-color: #c5221f; }
+
+/* 浮动牌桌展开胶囊 */
+.game-floating-pill { position: absolute; right: 14px; bottom: 62px; z-index: 4; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; background: var(--pp-active); color: #fff; font-size: 11px; font-weight: 500; box-shadow: 0 3px 10px rgba(0,0,0,0.18); border: none; cursor: pointer; }
+.game-floating-pill svg { width: 15px; height: 15px; }
+
+/* 抽鬼牌半屏抽屉面板 */
+.game-board-drawer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--pp-surface); border-top: 1px solid var(--pp-divider-soft); box-shadow: 0 -4px 18px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 72dvh; overflow: hidden; border-radius: 16px 16px 0 0; }
+@keyframes drawerSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.game-board-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--pp-divider-soft); background: var(--pp-surface-soft); flex: 0 0 auto; }
+.game-board-title { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.game-board-title strong { font-weight: 600; color: var(--pp-text); }
+.game-board-title .game-icon svg { width: 16px; height: 16px; color: var(--pp-active); }
+.game-round-pill, .game-wager-pill { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--pp-surface); border: 1px solid var(--pp-divider-soft); color: var(--pp-muted); }
+
+/* 顶部控制按钮统一尺寸与对齐 */
+.game-board-controls { display: flex; align-items: center; gap: 4px; }
+.game-board-controls .game-ctrl-btn { width: 26px !important; height: 26px !important; min-height: 26px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; border-radius: 6px !important; background: transparent !important; color: var(--pp-muted) !important; border: none !important; cursor: pointer !important; transition: background .15s, color .15s !important; }
+.game-board-controls .game-ctrl-btn:hover { background: var(--pp-pale) !important; color: var(--pp-text) !important; }
+.game-board-controls .game-ctrl-btn svg { width: 16px !important; height: 16px !important; }
+
+.game-board-content { padding: 10px 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
+.game-section { display: flex; flex-direction: column; gap: 4px; }
+.player-header { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--pp-muted); }
+.player-label { font-weight: 500; }
+.micro-expression-box { font-size: 10px; color: var(--pp-muted); font-style: italic; line-height: 1.4; padding: 2px 0 4px; text-align: center; }
+
+/* 扇形手牌布局与按钮重置 */
+.cards-fan { display: flex; justify-content: center; align-items: flex-end; min-height: 85px; padding: 6px 4px; overflow-x: auto; scrollbar-width: none; }
+.cards-fan::-webkit-scrollbar { display: none; }
+button.playing-card { position: relative; width: 52px; height: 74px; flex-shrink: 0; margin-left: -14px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); background: #fff; border: none; padding: 0; cursor: pointer; user-select: none; transition: transform .18s cubic-bezier(.2,0,0,1), box-shadow .18s; }
+button.playing-card:first-child { margin-left: 0; }
+button.playing-card:disabled { cursor: default; }
+button.playing-card img { width: 100%; height: 100%; border-radius: 6px; display: block; object-fit: fill; pointer-events: none; }
+button.playing-card.pickable:hover, button.playing-card.pickable:focus-visible { transform: translateY(-10px) scale(1.06); box-shadow: 0 6px 14px rgba(0,0,0,0.3); z-index: 2; outline: none; }
+button.playing-card.is-joker { outline: 2px solid #e53935; }
+button.playing-card.is-bluffed { transform: translateY(-14px) !important; box-shadow: 0 6px 14px rgba(229,57,53,0.35); }
+button.playing-card .joker-badge { position: absolute; top: -5px; right: -5px; background: #e53935; color: #fff; font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+/* 中央台面与指示 */
+.table-section { background: var(--pp-surface-soft); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.game-turn-banner { display: flex; align-items: center; justify-content: space-between; font-size: 11px; }
+.game-turn-banner.user-turn { color: var(--pp-active); }
+.turn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pp-active); display: inline-block; margin-right: 6px; flex-shrink: 0; }
+.turn-dot.ai { background: var(--pp-muted); }
+.ai-draw-trigger-button { font-size: 10px; padding: 3px 8px; border-radius: 4px; background: var(--pp-active); color: #fff; border: none; cursor: pointer; font-weight: 500; }
+.last-action-feed { font-size: 10px; color: var(--pp-muted); line-height: 1.4; border-top: 1px dashed var(--pp-divider-soft); padding-top: 4px; }
+.game-psycho-bar { display: flex; align-items: center; justify-content: space-between; }
+.psycho-button { font-size: 10px; padding: 3px 8px; border-radius: 4px; background: var(--pp-surface); border: 1px solid var(--pp-divider-soft); color: var(--pp-text); cursor: pointer; transition: all .15s; }
+.psycho-button:hover { background: var(--pp-pale); color: var(--pp-active); }
+.psycho-hint { font-size: 9px; color: var(--pp-muted); }
+
+/* 终局横幅与操作 */
+.game-status-banner { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; }
+.game-status-banner.winner-user { background: #e6f4ea; color: #137333; }
+.game-status-banner.winner-ai { background: #fce8e6; color: #c5221f; }
+.banner-text strong { font-size: 12px; display: block; }
+.banner-text p { font-size: 10px; margin: 2px 0; }
+.wager-fulfill { font-size: 10px; font-weight: 500; }
+.game-finish-actions { display: flex; gap: 8px; margin-top: 8px; }
+.fulfill-button { flex: 2; padding: 6px 10px; border-radius: 6px; background: #137333; color: #fff; font-size: 11px; font-weight: 500; border: none; cursor: pointer; }
+.fulfill-button.admit-defeat { background: #c5221f; }
+.restart-button { flex: 1; padding: 6px 10px; border-radius: 6px; background: var(--pp-surface-soft); border: 1px solid var(--pp-divider-soft); color: var(--pp-text); font-size: 11px; cursor: pointer; }
 .attachment-button { width: 25px; min-height: 30px; }
 .attachment-button svg { width: 20px; height: 20px; }
 .attachment-panel { flex: 0 0 auto; max-height: min(220px, 36dvh); overflow-y: auto; padding: 6px 12px 8px; background: var(--pp-surface); border-top: 1px solid var(--pp-divider-soft); scrollbar-width: thin; }

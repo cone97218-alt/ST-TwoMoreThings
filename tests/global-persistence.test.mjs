@@ -26,10 +26,10 @@ test('global prompts persistence: custom prompt, preset and active selection cre
   await store1.addPresetEntry(customPreset.id, { name: '跑团规则', content: '必须遵守跑团守则。' });
   const entryCount = store1.read().promptPresets.find(p => p.id === customPreset.id).entries.length;
 
-  // Now create a completely fresh Chat 2 (new chat, clean metadata)
+  // Now create a completely fresh Chat 2 (new chat, clean metadata, target.metadata = {})
   const target2 = h.host.captureChat();
   target2.id = 'chat_2';
-  target2.metadata = { pocketPhone: { schemaVersion: 1 } };
+  target2.metadata = {};
   const store2 = createPhoneStore({ target: target2, host: h.host });
 
   const state2 = store2.read();
@@ -72,11 +72,11 @@ test('global calendar presets: custom calendar preset created in Chat 1 is switc
   const galaxyPreset = state1.calendar.customPresets.find(p => p.name === '银河联邦标准历');
   assert.ok(galaxyPreset);
 
-  // 2. Open fresh Chat 2 with another character
+  // 2. Open fresh Chat 2 with another character (target.metadata = {})
   const target2 = h.host.captureChat();
   target2.id = 'chat_2';
   target2.character = { name: '艾莉丝', avatar: 'alice.png' };
-  target2.metadata = { pocketPhone: { schemaVersion: 1 } };
+  target2.metadata = {};
   const store2 = createPhoneStore({ target: target2, host: h.host });
 
   // Chat 2 can see the custom calendar preset created in Chat 1!
@@ -117,11 +117,11 @@ test('character calendar binding: chosen calendar binds to character; fresh chat
   assert.equal(storeLin1.read().calendar.descriptor.country, 'JP');
   assert.equal(storeLin1.read().calendar.descriptor.era, '令和');
 
-  // Now user creates a brand new Chat 2 with the SAME character Lin
+  // Now user creates a brand new Chat 2 with the SAME character Lin (empty metadata)
   const targetLin2 = h.host.captureChat();
   targetLin2.id = 'chat_lin_2';
   targetLin2.character = { name: '林舟', avatar: 'linzhou.png' };
-  targetLin2.metadata = { pocketPhone: { schemaVersion: 1 } }; // fresh chat!
+  targetLin2.metadata = {}; // fresh chat!
   const storeLin2 = createPhoneStore({ target: targetLin2, host: h.host });
 
   // Lin's new chat automatically inherits Japan calendar!
@@ -135,7 +135,7 @@ test('character calendar binding: chosen calendar binds to character; fresh chat
   const targetBob = h.host.captureChat();
   targetBob.id = 'chat_bob_1';
   targetBob.character = { name: '鲍勃', avatar: 'bob.png' };
-  targetBob.metadata = { pocketPhone: { schemaVersion: 1 } };
+  targetBob.metadata = {};
   const storeBob = createPhoneStore({ target: targetBob, host: h.host });
 
   // Bob has NOT set a calendar, so Bob does not get Lin's Japan calendar

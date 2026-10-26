@@ -28,6 +28,7 @@ import { readContactAvatars } from './contact-avatars.js';
 import { displayName } from './profiles.js';
 import { renderTodos } from './ui/todos.js';
 import { renderPhoneNotice } from './ui/notifications.js';
+import { createOldMaidGame, createOldMaidInvitation, acceptOldMaidGame, rejectOldMaidGame, userDrawCard, aiDrawCard, setBluffCard, getAiMicroExpression } from './games/old-maid.js';
 import { readSocialPosts } from './social.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload, toggleScopeSelection } from './preset-engine.js';
 import { createPluginUpdatesView } from './ui/plugin-updates-view.js';
@@ -112,6 +113,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     calendarAiSetting: '', calendarAiCount: 3, calendarAiDays: 3, calendarAiFocus: '全部',
     calendarAiFestivals: [], calendarAiSchedules: [], calendarAiBusy: false,
     todoEditing: new Set(), todoDrafts: new Map(),
+    activeGame: null, activeGameMessageId: '', gameBoardFolded: false,
     replyToId: '',
     reactionMoreMessageId: '',
     thoughtMessageId: '',
@@ -690,6 +692,170 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       }
       return;
     }
+
+    // 抽鬼牌卡牌与牌桌操作优先响应（不受普通 button 过滤影响）
+    const gameActionEl = event.target.closest('[data-game-action]');
+    if (gameActionEl && ui.activeGame) {
+      const gAction = gameActionEl.dataset.gameAction;
+      const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages;
+      if (gAction === 'user-draw') {
+        const cardIndex = Number(gameActionEl.dataset.cardIndex);
+        const res = userDrawCard(ui.activeGame, cardIndex);
+        if (!res.error) {
+          ui.activeGame = res.game;
+          if (ui.activeGameMessageId) {
+            void store.updateGameMessage(id, ui.activeGameMessageId, ui.activeGame);
+          }
+          render();
+          onContextChange();
+        }
+        return;
+      }
+      if (gAction === 'ai-draw') {
+        const res = aiDrawCard(ui.activeGame);
+        if (!res.error) {
+          ui.activeGame = res.game;
+          if (ui.activeGameMessageId) {
+            void store.updateGameMessage(id, ui.activeGameMessageId, ui.activeGame);
+          }
+          render();
+          onContextChange();
+        }
+        return;
+      }
+      if (gAction === 'toggle-bluff') {
+        const cardIndex = Number(gameActionEl.dataset.cardIndex);
+        ui.activeGame = setBluffCard(ui.activeGame, cardIndex);
+        render();
+        return;
+      }
+      if (gAction === 'peek-expression') {
+        const expr = getAiMicroExpression(ui.activeGame);
+        ui.feedback = { text: expr.text };
+        render();
+        return;
+      }
+      if (gAction === 'urge-wager') {
+        const wager = ui.activeGame?.wager || '纯娱乐';
+        const text = `（把手中的对子牌放在桌上）承让啦，这局是我赢了！按照约定的赌注【${wager}】，快快兑现吧~`;
+        if (ui.activeGame) {
+          ui.activeGame.status = 'finished';
+          ui.activeGame.winner = 'user';
+          ui.activeGame.loser = 'ai';
+          if (ui.activeGameMessageId) {
+            store.updateGameMessage(id, ui.activeGameMessageId, ui.activeGame);
+          }
+        }
+        ui.activeGame = null;
+        ui.activeGameMessageId = '';
+        ui.gameBoardFolded = false;
+        render();
+        onContextChange();
+        void perform(`send:${id}`, async () => {
+          await service.send(id, text);
+          await service.continueChat(id);
+        }, onContextChange);
+        return;
+      }
+      if (gAction === 'admit-defeat') {
+        const wager = ui.activeGame?.wager || '纯娱乐';
+        const text = `（无奈地亮出鬼牌）好吧，是我输了……赌注【${wager}】，你说吧，要我怎么做？`;
+        if (ui.activeGame) {
+          ui.activeGame.status = 'finished';
+          ui.activeGame.winner = 'ai';
+          ui.activeGame.loser = 'user';
+          if (ui.activeGameMessageId) {
+            store.updateGameMessage(id, ui.activeGameMessageId, ui.activeGame);
+          }
+        }
+        ui.activeGame = null;
+        ui.activeGameMessageId = '';
+        ui.gameBoardFolded = false;
+        render();
+        onContextChange();
+        void perform(`send:${id}`, async () => {
+          await service.send(id, text);
+          await service.continueChat(id);
+        }, onContextChange);
+        return;
+      }
+      if (gAction === 'rematch') {
+        const newGame = acceptOldMaidGame(createOldMaidInvitation({ sender: 'user', wager: ui.activeGame.wager }));
+        const draft = {
+          type: 'game',
+          game: {
+            kind: 'old_maid',
+            title: '抽鬼牌',
+            gameId: newGame.id,
+            status: newGame.status,
+            sender: 'user',
+            wager: newGame.wager,
+            winner: newGame.winner,
+            loser: newGame.loser,
+            round: newGame.round,
+            turn: newGame.turn,
+            state: newGame,
+            lastAction: newGame.lastAction,
+          }
+        };
+        void perform(`send:${id}`, async () => {
+          await service.sendCard(id, draft);
+          const updatedMessages = store.read().conversations[id] || [];
+          const savedMsg = [...updatedMessages].reverse().find(m => m.type === 'game' && m.game?.gameId === newGame.id);
+          ui.activeGame = newGame;
+          ui.activeGameMessageId = savedMsg?.id || '';
+          ui.gameBoardFolded = false;
+        }, () => {
+          onContextChange();
+          void service.continueChat(id);
+        });
+        return;
+      }
+    }
+
+    // 响应角色发来的邀请（接受或拒绝）
+    const gameInviteBtn = event.target.closest('[data-game-invite-id]');
+    if (gameInviteBtn) {
+      const msgId = gameInviteBtn.dataset.gameInviteId;
+      const gInviteAction = gameInviteBtn.dataset.gameInviteAction;
+      const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages;
+      const message = store.read().conversations[id]?.find(m => m.id === msgId);
+      if (message?.game) {
+        if (gInviteAction === 'accept') {
+          const game = acceptOldMaidGame(message.game.state || message.game, { starter: 'user' });
+          store.updateGameMessage(id, msgId, game);
+          ui.activeGame = game;
+          ui.activeGameMessageId = msgId;
+          ui.gameBoardFolded = false;
+          render();
+          onContextChange();
+          void service.send(id, `好啊，我接受抽鬼牌对决！赌注就按【${game.wager}】，看谁先抽到鬼牌！`);
+        } else if (gInviteAction === 'reject') {
+          const game = rejectOldMaidGame(message.game.state || message.game);
+          store.updateGameMessage(id, msgId, game);
+          render();
+          onContextChange();
+          void service.send(id, `抽鬼牌就算了，我今天还有别的事呢。`);
+        }
+      }
+      return;
+    }
+
+    // 打开牌桌
+    const openGameBtn = event.target.closest('[data-open-game-id]');
+    if (openGameBtn) {
+      const msgId = openGameBtn.dataset.openGameId;
+      const id = conversationId();
+      const message = store.read().conversations[id]?.find(item => item.id === msgId);
+      if (message?.game) {
+        ui.activeGame = message.game.state || message.game;
+        ui.activeGameMessageId = msgId;
+        ui.gameBoardFolded = false;
+        render();
+      }
+      return;
+    }
+
     const button = event.target.closest('button');
     if (!button || button.disabled) return;
     if (button.dataset.wallpaper !== undefined) { const theme = store.read().theme; void perform('wallpaper', () => store.setWallpaper(theme, button.dataset.wallpaper)); return; }
@@ -1080,6 +1246,25 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'choose-stickers': ui.attachment = 'stickers'; render(); break;
       case 'choose-location': ui.attachment = 'location'; ui.attachmentDraft = {}; render(); break;
       case 'choose-transfer': ui.attachment = 'transfer'; ui.attachmentDraft = { currency: 'CNY' }; render(); break;
+      case 'choose-games': ui.attachment = 'games'; ui.attachmentDraft = { wager: '答应赢家一个要求' }; render(); break;
+      case 'fold-game-board': ui.gameBoardFolded = true; render(); break;
+      case 'unfold-game-board': ui.gameBoardFolded = false; render(); break;
+      case 'close-game-board': ui.activeGame = null; ui.activeGameMessageId = ''; render(); break;
+      case 'surrender-game': {
+        if (ui.activeGame && ui.activeGame.status === 'playing') {
+          ui.activeGame.status = 'finished';
+          ui.activeGame.winner = 'ai';
+          ui.activeGame.loser = 'user';
+          ui.activeGame.lastAction = { type: 'surrender', actor: 'user', description: '你选择提前认输，对方获得了胜利！' };
+          const convId = conversationId();
+          if (ui.activeGameMessageId) {
+            void store.updateGameMessage(convId, ui.activeGameMessageId, ui.activeGame);
+          }
+          render();
+          onContextChange();
+        }
+        break;
+      }
       case 'close-attachment': ui.attachment = ''; render(); break;
       case 'close-photo': ui.photo = null; render(); break;
       case 'photo': {
@@ -2061,6 +2246,33 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (event.target.matches('.attachment-form')) {
       const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages, type = ui.attachment;
+      if (type === 'games') {
+        const wager = (ui.attachmentDraft?.wager || '').trim() || '纯娱乐';
+        const invite = createOldMaidInvitation({ sender: 'user', wager });
+        const draft = {
+          type: 'game',
+          game: {
+            kind: 'old_maid',
+            title: '抽鬼牌',
+            gameId: invite.id,
+            status: 'invited',
+            sender: 'user',
+            wager: invite.wager,
+            state: invite,
+            lastAction: invite.lastAction,
+          },
+        };
+        void perform(`send:${id}`, async () => {
+          await service.sendCard(id, draft, { replyToId: ui.replyToId });
+        }, () => {
+          ui.attachment = '';
+          ui.attachmentDraft = {};
+          ui.replyToId = '';
+          onContextChange();
+          void perform(`continue:${id}`, () => service.continueChat(id), onContextChange);
+        });
+        return;
+      }
       const draft = { type, [type]: { ...ui.attachmentDraft } };
       void perform(`send:${id}`, () => service.sendCard(id, draft, { replyToId: ui.replyToId }), () => { ui.attachment = ''; ui.attachmentDraft = {}; ui.replyToId = ''; onContextChange(); });
     }

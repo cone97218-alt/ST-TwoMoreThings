@@ -177,7 +177,7 @@ export function renderPromptSettings(state, ui) {
 
 export function renderPromptLibrarySettings(state, ui) {
   const allPrompts = getAllPrompts(state);
-  const categories = ['全部', '短信与通讯', '群聊', '社交与论坛', '日历与日程', '待办与正文', '通用规则'];
+  const categories = ['全部', '短信与通讯', '群聊', '社交与论坛', '日历与日程', '待办与正文', '通用规则', '小游戏'];
   const activeCategory = ui.promptCategory || '全部';
   const customCount = allPrompts.filter(p => p.isCustom).length;
   const search = (ui.promptSearch || '').trim().toLowerCase();
@@ -204,7 +204,7 @@ export function renderPromptLibrarySettings(state, ui) {
       <input type="search" class="prompt-search-input" placeholder="搜索提示词名称或内容..." value="${escape(ui.promptSearch || '')}" data-action="search-prompts">
     </div>
     <div class="prompt-summary-row">
-      <span class="prompt-summary-text">共 16 项${customCount > 0 ? ` · 已修改 ${customCount} 项` : ' · 均为默认'}</span>
+      <span class="prompt-summary-text">共 ${allPrompts.length} 项${customCount > 0 ? ` · 已修改 ${customCount} 项` : ' · 均为默认'}</span>
       ${customCount > 0 ? `<button type="button" class="prompt-reset-all-btn" data-action="reset-all-prompts">全部恢复默认</button>` : ''}
     </div>
     <div class="prompt-cards-list">

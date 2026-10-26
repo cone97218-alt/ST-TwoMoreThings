@@ -1,0 +1,144 @@
+// 抽鬼牌对弈面板（In-Chat Game Board Drawer）
+import { action, escape, icon, asset } from './shared.js';
+import { getAiMicroExpression, cardDisplayName } from '../games/old-maid.js';
+import { displayName } from '../profiles.js';
+
+export function renderGameBoard(game, { contact, isGroup, busy }) {
+  if (!game || game.status !== 'playing' && game.status !== 'finished') return '';
+
+  const isFinished = game.status === 'finished';
+  const isUserTurn = game.turn === 'user' && !isFinished;
+  const isAiTurn = game.turn === 'ai' && !isFinished;
+  const expr = getAiMicroExpression(game);
+  const cardBackUrl = asset('cards/BACK.svg');
+
+  // 对手手牌区（背面牌按钮）
+  const aiHand = game.aiCards.map((card, index) => {
+    const isTarget = isUserTurn;
+    return `<button type="button" class="playing-card card-back ${isTarget ? 'pickable' : ''}"
+      ${isTarget ? `data-game-action="user-draw" data-card-index="${index}" aria-label="抽取第 ${index + 1} 张牌"` : 'disabled'}
+      ${busy.has(`game:${game.id}`) ? 'disabled' : ''}>
+      <img src="${escape(cardBackUrl)}" alt="扑克背面" draggable="false" loading="lazy">
+    </button>`;
+  }).join('');
+
+  // 玩家手牌区（明牌按钮）
+  const userHand = game.userCards.map((card, index) => {
+    const cardUrl = asset(`cards/${card.id}.svg`);
+    const isBluffed = game.bluffCardIndex === index;
+    const canBluff = isAiTurn;
+    return `<button type="button" class="playing-card card-front ${card.isJoker ? 'is-joker' : ''} ${isBluffed ? 'is-bluffed' : ''} ${canBluff ? 'bluffable' : ''}"
+      ${canBluff ? `data-game-action="toggle-bluff" data-card-index="${index}" aria-label="微抽第 ${index + 1} 张牌"` : ''}>
+      <img src="${escape(cardUrl)}" alt="${escape(cardDisplayName(card))}" draggable="false" loading="lazy">
+      ${card.isJoker ? '<span class="joker-badge">鬼牌</span>' : ''}
+    </button>`;
+  }).join('');
+
+  // 状态指示
+  let statusBanner = '';
+  if (isFinished) {
+    const isUserWinner = game.winner === 'user';
+    statusBanner = `<div class="game-status-banner ${isUserWinner ? 'winner-user' : 'winner-ai'}">
+      <div class="banner-text">
+        <strong>${isUserWinner ? '你赢了！' : '你输了！'}</strong>
+        <p>${isUserWinner ? '对方手握鬼牌落败。' : '你手握鬼牌落败。'}</p>
+        <span class="wager-fulfill">赌注：${escape(game.wager || '纯娱乐')}</span>
+      </div>
+    </div>`;
+  } else if (isUserTurn) {
+    statusBanner = `<div class="game-turn-banner user-turn">
+      <span class="turn-dot"></span>
+      <span class="turn-desc">你的回合：点击抽取对方的一张牌</span>
+    </div>`;
+  } else {
+    statusBanner = `<div class="game-turn-banner ai-turn">
+      <span class="turn-dot ai"></span>
+      <span class="turn-desc">对方回合：对方正在观察你的手牌</span>
+      <button type="button" class="ai-draw-trigger-button" data-game-action="ai-draw" ${busy.has(`game:${game.id}`) ? 'disabled' : ''}>
+        让对方抽牌
+      </button>
+    </div>`;
+  }
+
+  // 心理战操作
+  let psychoTools = '';
+  if (!isFinished) {
+    psychoTools = `<div class="game-psycho-bar">
+      ${isUserTurn ? `
+        <button type="button" class="psycho-button" data-game-action="peek-expression">
+          察言观色
+        </button>
+      ` : `
+        <span class="psycho-hint">点击手牌可微抽一截诱导对方</span>
+      `}
+    </div>`;
+  }
+
+  // 终局操作
+  let finishActions = '';
+  if (isFinished) {
+    const isUserWinner = game.winner === 'user';
+    finishActions = `<div class="game-finish-actions">
+      ${isUserWinner ? `
+        <button type="button" class="fulfill-button" data-game-action="urge-wager">
+          催促对方兑现赌注
+        </button>
+      ` : `
+        <button type="button" class="fulfill-button admit-defeat" data-game-action="admit-defeat">
+          承认落败并受罚
+        </button>
+      `}
+      <button type="button" class="restart-button" data-game-action="rematch">
+        再来一局
+      </button>
+    </div>`;
+  }
+
+  const lastActionText = game.lastAction?.description || '';
+
+  return `<section class="game-board-drawer" role="dialog" aria-label="抽鬼牌对弈桌">
+    <header class="game-board-header">
+      <div class="game-board-title">
+        <span class="game-icon">${icon('gamepad')}</span>
+        <span class="game-round-pill">${game.round || 1}</span>
+        <span class="game-wager-pill">赌注：${escape(game.wager || '纯娱乐')}</span>
+      </div>
+      <div class="game-board-controls">
+        ${action('fold-game-board', '折叠牌桌', 'arrow-down', 'icon-button game-ctrl-btn')}
+        ${action('close-game-board', '关闭牌桌', 'close', 'icon-button game-ctrl-btn')}
+      </div>
+    </header>
+
+    <div class="game-board-content">
+      <!-- 对方区域 -->
+      <div class="game-section ai-section">
+        <div class="player-header">
+          <span class="player-label">${escape(displayName(contact))} 的手牌 · ${game.aiCards.length} 张</span>
+        </div>
+        ${expr.text ? `<div class="micro-expression-box">${escape(expr.text)}</div>` : ''}
+        <div class="cards-fan ai-cards-fan">
+          ${aiHand}
+        </div>
+      </div>
+
+      <!-- 中央战况指示 -->
+      <div class="game-section table-section">
+        ${statusBanner}
+        ${lastActionText ? `<div class="last-action-feed">${escape(lastActionText)}</div>` : ''}
+        ${psychoTools}
+      </div>
+
+      <!-- 玩家区域 -->
+      <div class="game-section user-section">
+        <div class="player-header">
+          <span class="player-label">你的手牌 · ${game.userCards.length} 张</span>
+          <span class="discard-counter">已成对消除：${game.discardPile.length} 对</span>
+        </div>
+        <div class="cards-fan user-cards-fan">
+          ${userHand}
+        </div>
+        ${finishActions}
+      </div>
+    </div>
+  </section>`;
+}

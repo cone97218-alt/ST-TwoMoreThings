@@ -24,6 +24,7 @@ Yesicon 标明图标数据来自 Iconify；下列 Solar 条目的 SVG 使用其 
 | `smile` | [`solar:smile-circle-broken`](https://yesicon.app/solar/smile-circle-broken) |  |
 | `location` | [`solar:map-point-broken`](https://yesicon.app/solar/map-point-broken) |  |
 | `transfer` | [`solar:transfer-horizontal-broken`](https://yesicon.app/solar/transfer-horizontal-broken) |  |
+| `gamepad` | [`solar:gamepad-broken`](https://yesicon.app/solar/gamepad-broken) | 小游戏面板与对局 |
 | `image` | [`solar:gallery-broken`](https://yesicon.app/solar/gallery-broken) |  |
 | `sun` | [`solar:sun-broken`](https://yesicon.app/solar/sun-broken) |  |
 | `phone` | [`solar:smartphone-broken`](https://yesicon.app/solar/smartphone-broken) | 扩展菜单与悬浮球 |

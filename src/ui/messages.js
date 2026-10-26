@@ -3,6 +3,7 @@ import { displayName } from '../profiles.js';
 import { partitionHistory } from '../timeline.js';
 import { messageText } from '../content.js';
 import { renderAttachments, renderCardActions, renderCardBody } from './cards.js';
+import { renderGameBoard } from './game-board.js';
 import { chatBackgroundStyle } from '../backgrounds.js';
 import { renderTodoCandidate } from './todos.js';
 import { replyContext } from '../replies.js';
@@ -413,7 +414,11 @@ export function renderChat(state, { ui, busy }) {
     </div>
   </div>`;
 
-  const composer = ui.multiSelectMode ? multiToolbar : observer ? `<div class="composer observer-composer">
+  const isPlayingGame = Boolean(ui.activeGame && ui.activeGame.status === 'playing');
+  const composer = ui.multiSelectMode ? multiToolbar : isPlayingGame ? `<div class="composer game-locked-composer">
+    <span class="game-locked-hint">抽鬼牌对决中 · 请在牌桌操作</span>
+    <button type="button" class="game-surrender-btn" data-action="surrender-game">认输结算</button>
+  </div>` : observer ? `<div class="composer observer-composer">
     <span>旁观群聊</span>
     ${action('continue', '继续', 'refresh', 'continue-button', generating)}
   </div>` : `<form class="composer">
@@ -454,6 +459,11 @@ export function renderChat(state, { ui, busy }) {
       </div>
     </div>
     ${!ui.multiSelectMode ? replyPreview : ''}${composer}
+    ${ui.activeGame ? (ui.gameBoardFolded
+      ? `<button type="button" class="game-floating-pill" data-action="unfold-game-board" aria-label="展开抽鬼牌牌桌">
+          ${icon('gamepad')} 抽鬼牌进行中 · 第 ${ui.activeGame.round || 1} 轮
+        </button>`
+      : renderGameBoard(ui.activeGame, { contact, isGroup, busy })) : ''}
     ${renderEditModal(state, ui, contact.id)}
     ${renderForwardModal(state, ui, contact.id)}
     ${renderFavoritesModal(state, ui, contact, user, isGroup)}`;

@@ -317,6 +317,7 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
               speaker: message.role === 'user' ? state.userProfile?.name || target.user : person.memberIds ? state.contacts.find(contact => contact.id === message.speakerId)?.name || '群成员' : person.name,
               text: messageText(message), ...(message.translation ? { translation: message.translation } : {}),
               ...(message.type === 'transfer' ? { recipient: message.transfer.recipientId === '@user' ? state.userProfile?.name || target.user : state.contacts.find(contact => contact.id === message.transfer.recipientId)?.name || '已移出的联系人' } : {}),
+              ...(message.type === 'game' ? { game: { kind: message.game.kind, title: message.game.title, wager: message.game.wager, status: message.game.status, winner: message.game.winner === 'user' ? state.userProfile?.name || target.user : message.game.winner === 'ai' ? person.name : '', round: message.game.round, turn: message.game.turn, lastAction: message.game.lastAction?.description || '' } } : {}),
               ...(message.forwarded ? { forwarded: true, ...(message.forwardedFrom ? { forwardedFrom: message.forwardedFrom } : {}) } : {}),
               ...(replyTo ? { replyTo } : {}),
             };

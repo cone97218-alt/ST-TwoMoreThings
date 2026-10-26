@@ -27,6 +27,7 @@ export function messageText(message) {
     case 'transfer': return `[转账：${message.transfer.amount} ${message.transfer.currency || 'CNY'}${message.transfer.note ? `，${message.transfer.note}` : ''}；${states[message.transfer.status] || states.pending}]`;
     case 'image': return `[图片：${message.image.description}]`;
     case 'poke': return `[拍一拍：${message.poke?.actorName || '对方'}拍了拍${message.poke?.targetName || '你'}${message.poke?.suffix || '的头像'}]`;
+    case 'game': return `[小游戏：${message.game?.title || (message.game?.kind === 'old_maid' ? '抽鬼牌' : '游戏')}${message.game?.wager ? `，赌注：${message.game.wager}` : ''}；${message.game?.status === 'finished' ? (message.game.winner === 'user' ? '玩家获胜' : '对方获胜') : `进行中(第${message.game?.round || 1}轮)`}]`;
     default: return message.text || '';
   }
 }
@@ -89,6 +90,25 @@ export function normalizeContent(item) {
         targetId: text(item.poke?.targetId) || '@user',
         targetName: text(item.poke?.targetName) || '你',
         suffix: rawSuffix.startsWith('的') ? rawSuffix : `的${rawSuffix}`,
+      },
+    };
+  }
+  if (item.type === 'game' && item.game) {
+    content = {
+      type: 'game',
+      game: {
+        kind: text(item.game.kind) || 'old_maid',
+        title: text(item.game.title) || '抽鬼牌',
+        gameId: text(item.game.gameId || item.game.id),
+        status: item.game.status || 'ongoing',
+        sender: text(item.game.sender) || (item.role === 'assistant' ? 'ai' : 'user'),
+        wager: text(item.game.wager) || '纯娱乐',
+        winner: text(item.game.winner),
+        loser: text(item.game.loser),
+        round: Number(item.game.round) || 1,
+        turn: item.game.turn || 'user',
+        state: item.game.state || null,
+        lastAction: item.game.lastAction || null,
       },
     };
   }

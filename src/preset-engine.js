@@ -19,6 +19,7 @@ import {
   LANGUAGE_RULE,
   STORY_MEMORY_RULE,
   IMAGE_PROMPT,
+  OLD_MAID_PROMPT,
 } from './prompts.js';
 import { shortenMessageId, extractLatestUserInput } from './content.js';
 
@@ -46,6 +47,7 @@ export const PRESET_SLOTS = [
   { macro: '{{calendar_prompt}}', name: '日历话题线索注入', desc: '本周节日或纪念日话题提示' },
   { macro: '{{summary_prompt}}', name: '短信回流正文记忆摘要', desc: '判断手机短信与待办哪些值得供正文参考' },
   { macro: '{{image_prompt}}', name: '照片转绘图描述提示词', desc: '自拍或照片描述转为生图提示词' },
+  { macro: '{{old_maid_prompt}}', name: '抽鬼牌对决规则', desc: '仅单聊：抽鬼牌对决规则、主动邀约、协商赌注与心理战' },
 ];
 
 export const PRESET_SCOPES = [
@@ -104,6 +106,14 @@ export const DEFAULT_PRESET_ENTRIES = [
     role: 'system',
     enabled: true,
     content: `{{messages_prompt}}\n{{rich_messages_prompt}}`,
+  },
+  {
+    id: 'entry_old_maid_rules',
+    name: '抽鬼牌对决规则',
+    scope: '短信',
+    role: 'system',
+    enabled: true,
+    content: `{{old_maid_prompt}}`,
   },
   {
     id: 'entry_thought_rules',

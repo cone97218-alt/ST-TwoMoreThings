@@ -6,6 +6,7 @@ import { CALENDAR_PROMPT } from './calendar.js';
 import { parseTodoCandidates } from './todos.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
 import { replyToMessage } from './replies.js';
+import { createOldMaidInvitation, acceptOldMaidGame, rejectOldMaidGame } from './games/old-maid.js';
 
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
@@ -200,6 +201,21 @@ export function createMessageService({ target, store, contextReader, modelClient
       const indexedMessages = parsePayload(reply, 'messages', { allowEmpty: actions.length > 0 || rawMsgActions.length > 0, indexed: true }).map(content => {
         if (!content) return null;
         if (content.type === 'transfer') content.transfer.recipientId = '@user';
+        if (content.type === 'game') {
+          const wager = String(content.game?.wager || '').trim() || '纯娱乐';
+          const invite = createOldMaidInvitation({ sender: 'ai', wager });
+          content.game = {
+            kind: 'old_maid',
+            title: '抽鬼牌',
+            gameId: invite.id,
+            status: 'invited',
+            sender: 'ai',
+            wager: invite.wager,
+            state: invite,
+            lastAction: invite.lastAction,
+          };
+          content.text = messageText(content);
+        }
         if (content.type === 'poke') {
           content.poke.actorId = id;
           if (!content.poke.actorName || content.poke.actorName === '对方') {
@@ -221,6 +237,22 @@ export function createMessageService({ target, store, contextReader, modelClient
       for (const item of actions) {
         const targetTransferId = resolveReplyId(item.transferId) || item.transferId;
         await store.respondTransfer(id, targetTransferId, item.status, id, context.batch);
+      }
+      const rawGameAction = answer.gameAction;
+      if (rawGameAction) {
+        const gameActionKind = typeof rawGameAction === 'string' ? rawGameAction : String(rawGameAction.action || rawGameAction.status || '').trim();
+        const pendingInvite = [...existingThread].reverse().find(m => m.type === 'game' && m.game?.status === 'invited');
+        if (pendingInvite) {
+          if (gameActionKind === 'accept' || gameActionKind === 'accepted') {
+            const wager = String(typeof rawGameAction === 'object' && rawGameAction.wager ? rawGameAction.wager : pendingInvite.game.wager || '纯娱乐').trim();
+            const startedGame = acceptOldMaidGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user' });
+            await store.updateGameMessage(id, pendingInvite.id, startedGame);
+          } else if (gameActionKind === 'reject' || gameActionKind === 'rejected') {
+            const reason = String(typeof rawGameAction === 'object' && rawGameAction.reason ? rawGameAction.reason : '').trim();
+            const rejectedGame = rejectOldMaidGame(pendingInvite.game.state || pendingInvite.game, { reason });
+            await store.updateGameMessage(id, pendingInvite.id, rejectedGame);
+          }
+        }
       }
       for (const item of rawMsgActions) {
         if (!item || typeof item !== 'object') continue;

@@ -50,7 +50,10 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
         user: ctx.name1 || '我', personaWorld: ctx.powerUserSettings?.persona_description_lorebook || '',
         host,
         async saveMetadata() {
-          if (!target.id) throw new Error('请先打开一个角色聊天，再保存手机内容。');
+          if (!target.id) {
+            // 在未命名的极新空白聊天中，暂无聊天文件，先记录在 target.metadata 中
+            return;
+          }
           try {
             const live = context();
             if (live.chatMetadata && target.metadata?.pocketPhone && live.chatMetadata !== target.metadata) {

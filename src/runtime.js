@@ -40,7 +40,7 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
   const files = createImageFiles({ host });
   const imageProviders = createImageProviders({ host });
   const appearance = createAppearanceSettings({ host, documentRef });
-  const makeStore = (target, options = {}) => createPhoneStore({ target, initialState, removeImages: files.remove, ...options });
+  const makeStore = (target, options = {}) => createPhoneStore({ target, host, initialState, removeImages: files.remove, ...options });
   let phone, phoneTarget, activeRequests = 0;
   const entries = createPhoneEntries({ host, documentRef, open, defaults: preset?.entries,
     isEnabled: () => createPhoneControl({ host, target: host.captureChat() }).isEnabled(),

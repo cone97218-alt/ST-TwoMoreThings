@@ -48,6 +48,7 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
         },
         character: character ? { name: character.name, avatar: character.avatar, description: character.description || character.data?.description || '', personality: character.personality || character.data?.personality || '', scenario: character.scenario || character.data?.scenario || '', world: character.data?.extensions?.world || '' } : null,
         user: ctx.name1 || '我', personaWorld: ctx.powerUserSettings?.persona_description_lorebook || '',
+        host,
         async saveMetadata() {
           if (!target.id) throw new Error('请先打开一个角色聊天，再保存手机内容。');
           try {

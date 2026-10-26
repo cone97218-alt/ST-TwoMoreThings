@@ -46,6 +46,42 @@ export const PRESET_SLOTS = [
   { macro: '{{image_prompt}}', name: '照片转绘图描述提示词', desc: '自拍或照片描述转为生图提示词' },
 ];
 
+export const PRESET_SCOPES = [
+  { id: '通用', name: '通用', desc: '全部任务通用' },
+  { id: '短信', name: '短信', desc: '私聊短信生成' },
+  { id: '群聊', name: '群聊', desc: '群聊多角色续写' },
+  { id: '心声', name: '心声', desc: '角色隐秘心声' },
+  { id: '动态', name: '动态', desc: 'Ainstagram 动态与评论' },
+  { id: '论坛', name: '论坛', desc: '公众论坛帖子与回帖' },
+  { id: '日历', name: '日历', desc: 'AI 节日与日程' },
+  { id: '待办', name: '待办', desc: '待办事项规划' },
+  { id: '通讯录', name: '通讯录', desc: '通讯录发掘整理' },
+  { id: '联系人', name: '联系人', desc: '联系人风格提炼' },
+  { id: '摘要', name: '摘要', desc: '短信回流记忆摘要' },
+  { id: '生图', name: '生图', desc: '照片绘图描述' },
+  { id: '仅手机app', name: '仅手机app', desc: '除生图/摘要外的手机任务' },
+];
+
+export function toggleScopeSelection(currentScope, clickedScope) {
+  const current = String(currentScope || '通用').trim();
+  const clicked = String(clickedScope || '').trim();
+  if (!clicked || clicked === '通用') {
+    return '通用';
+  }
+  let list = current === '通用' ? [] : current.split('+').map(s => s.trim()).filter(Boolean);
+  if (list.includes(clicked)) {
+    list = list.filter(s => s !== clicked);
+  } else {
+    list.push(clicked);
+  }
+  if (list.length === 0) {
+    return '通用';
+  }
+  const orderMap = new Map(PRESET_SCOPES.map((sc, i) => [sc.name, i]));
+  list.sort((a, b) => (orderMap.get(a) ?? 999) - (orderMap.get(b) ?? 999));
+  return list.join('+');
+}
+
 export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_system_rules',

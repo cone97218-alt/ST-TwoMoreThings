@@ -923,6 +923,28 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .preset-name-field { font-size: 11px; padding: 4px 8px; border-radius: 5px; border: 1px solid var(--pp-divider-soft); background: var(--pp-paper); color: var(--pp-ink); }
 .preset-scope-field { font-size: 11px; padding: 4px 6px; border-radius: 5px; border: 1px solid var(--pp-divider-soft); background: var(--pp-paper); color: var(--pp-ink); }
 
+/* 生效范围下拉多选组件 */
+.preset-scope-wrap { position: relative; display: inline-flex; }
+.preset-scope-select-btn { display: inline-flex; align-items: center; gap: 5px; max-width: 180px; min-width: 100px; height: 100%; padding: 4px 8px; border-radius: 5px; border: 1px solid var(--pp-divider-soft); background: var(--pp-paper); color: var(--pp-ink); font-size: 11px; cursor: pointer; box-sizing: border-box; text-align: left; transition: all .15s ease; }
+.preset-scope-select-btn:hover { border-color: var(--pp-active); }
+.preset-scope-label-prefix { font-size: 10px; color: var(--pp-muted); flex-shrink: 0; }
+.preset-scope-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--pp-active); flex: 1; }
+.preset-scope-arrow { font-size: 9px; color: var(--pp-muted); transition: transform .15s ease; flex-shrink: 0; }
+.preset-scope-arrow.is-open { transform: rotate(180deg); }
+.preset-scope-dropdown { position: absolute; top: calc(100% + 4px); right: 0; width: 230px; max-height: 270px; background: var(--pp-paper); border: 1px solid var(--pp-rule); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); z-index: 100; display: flex; flex-direction: column; overflow: hidden; animation: fadeIn .12s ease; }
+.preset-scope-dropdown-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--pp-surface); border-bottom: 1px solid var(--pp-divider-soft); font-size: 11px; font-weight: 600; color: var(--pp-ink); flex-shrink: 0; }
+.preset-scope-close-btn { background: none; border: none; font-size: 14px; line-height: 1; color: var(--pp-muted); cursor: pointer; padding: 0 2px; }
+.preset-scope-close-btn:hover { color: var(--pp-ink); }
+.preset-scope-list { padding: 4px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.preset-scope-option { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 5px; border: 1px solid transparent; background: transparent; cursor: pointer; text-align: left; transition: all .1s ease; width: 100%; box-sizing: border-box; }
+.preset-scope-option:hover { background: var(--pp-surface-soft); }
+.preset-scope-option.is-checked { background: var(--pp-feedback); border-color: var(--pp-active); }
+.preset-scope-checkbox { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--pp-muted); background: var(--pp-surface); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: #fff; flex-shrink: 0; }
+.preset-scope-option.is-checked .preset-scope-checkbox { background: var(--pp-active); border-color: var(--pp-active); }
+.preset-scope-option-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.preset-scope-item-name { font-size: 11px; font-weight: 600; color: var(--pp-ink); line-height: 1.25; }
+.preset-scope-item-desc { font-size: 9.5px; color: var(--pp-muted); line-height: 1.2; }
+
 /* 插槽宏插入快捷工具栏 */
 .preset-macro-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .preset-macro-title { font-size: 10px; font-weight: 600; color: var(--pp-muted); }

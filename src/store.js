@@ -78,15 +78,125 @@ const appendTodoCandidates = (state, conversationId, messages, rows) => {
   return { ...state, todos: [...readTodos(state), ...candidates.filter(todo => !existing.has(todo.id))] };
 };
 
-export function createPhoneStore({ target, assertEnabled = () => {}, isReading = () => false, onIncomingMessage = () => {}, initialState, removeImages = async () => {} }) {
+export function createPhoneStore({
+  target,
+  host = target?.host,
+  globalSettingsProvider,
+  saveGlobalSettings: saveGlobalSettingsProp,
+  characterKey: characterKeyProp,
+  assertEnabled = () => {},
+  isReading = () => false,
+  onIncomingMessage = () => {},
+  initialState,
+  removeImages = async () => {},
+}) {
   const empty = initialState || emptyState();
-  const read = () => {
-    const raw = target.metadata.pocketPhone || empty;
-    if (raw?.promptPresets) {
-      const normalized = normalizePromptPresets(raw.promptPresets);
-      return { ...raw, promptPresets: normalized };
+  const getSettingsKey = () => host?.phoneSettingsKey || 'pocketPhone';
+  const readGlobalExtensionSettings = () => {
+    if (typeof globalSettingsProvider === 'function') return globalSettingsProvider();
+    if (typeof host?.readSettings === 'function') return host.readSettings();
+    if (typeof target?.host?.readSettings === 'function') return target.host.readSettings();
+    return null;
+  };
+  const saveGlobalExtensionSettings = async () => {
+    if (typeof saveGlobalSettingsProp === 'function') return await saveGlobalSettingsProp();
+    if (typeof host?.saveSettings === 'function') return await host.saveSettings();
+    if (typeof target?.host?.saveSettings === 'function') return await target.host.saveSettings();
+  };
+  const getPhoneSettings = () => {
+    const ext = readGlobalExtensionSettings();
+    if (!ext || typeof ext !== 'object') return null;
+    const key = getSettingsKey();
+    if (!ext[key] || typeof ext[key] !== 'object') {
+      ext[key] = {};
     }
-    return raw;
+    return ext[key];
+  };
+  const getCharacterKey = () => {
+    if (characterKeyProp) return characterKeyProp;
+    if (target?.character?.avatar) return `character:${target.character.avatar}`;
+    if (target?.character?.name) return `character:${target.character.name}`;
+    if (target?.groupId) return `group:${target.groupId}`;
+    if (target?.id) return `chat:${target.id}`;
+    return 'default';
+  };
+
+  const read = () => {
+    if (target.metadata?.pocketPhone === undefined) {
+      return empty;
+    }
+    const raw = target.metadata.pocketPhone;
+    const phoneSettings = getPhoneSettings();
+    if (!phoneSettings) {
+      if (raw?.promptPresets) {
+        return { ...raw, promptPresets: normalizePromptPresets(raw.promptPresets) };
+      }
+      return raw;
+    }
+
+    const hasGlobalPrompts = Boolean(phoneSettings.prompts && Object.keys(phoneSettings.prompts).length > 0);
+    const hasGlobalPresets = Array.isArray(phoneSettings.promptPresets) && phoneSettings.promptPresets.length > 0;
+    const hasGlobalActivePreset = Boolean(phoneSettings.activePresetId);
+    const hasGlobalCalendarPresets = Array.isArray(phoneSettings.calendarCustomPresets);
+    const charKey = getCharacterKey();
+    const boundCalendar = phoneSettings.characterCalendars?.[charKey];
+
+    const needsCalendarBinding = (!raw.calendar || !raw.calendar.descriptor) && Boolean(boundCalendar?.descriptor);
+    const needsMerge = hasGlobalPrompts || hasGlobalPresets || hasGlobalActivePreset || hasGlobalCalendarPresets || needsCalendarBinding || raw.promptPresets;
+
+    if (!needsMerge) {
+      return raw;
+    }
+
+    // 1. 提示词库 (prompts) - 全局有效
+    const prompts = hasGlobalPrompts
+      ? { ...(raw.prompts || {}), ...phoneSettings.prompts }
+      : (raw.prompts || {});
+
+    // 2. 提示词预设列表 (promptPresets) - 全局有效
+    let promptPresets = hasGlobalPresets
+      ? phoneSettings.promptPresets
+      : (raw.promptPresets || DEFAULT_PROMPT_PRESETS);
+    const normalizedPresets = normalizePromptPresets(promptPresets);
+
+    // 3. 当前启用的预设编号 (activePresetId) - 全局有效
+    let activePresetId = hasGlobalActivePreset
+      ? phoneSettings.activePresetId
+      : (raw.activePresetId || normalizedPresets[0]?.id || 'default_preset');
+
+    // 4. 自定义日历预设 (calendar.customPresets) - 全局可切换生效
+    let calendar = raw.calendar;
+    const globalCustomPresets = hasGlobalCalendarPresets ? phoneSettings.calendarCustomPresets : [];
+
+    // 5. 日历默认选择与角色绑定 (characterCalendars)
+    if (!raw.calendar || !raw.calendar.descriptor) {
+      if (boundCalendar?.descriptor) {
+        calendar = {
+          ...(raw.calendar || {}),
+          descriptor: structuredClone(boundCalendar.descriptor),
+          items: Array.isArray(boundCalendar.items) ? structuredClone(boundCalendar.items) : (raw.calendar?.items || []),
+          customPresets: globalCustomPresets,
+        };
+      } else if (raw.calendar || globalCustomPresets.length > 0) {
+        calendar = {
+          ...(raw.calendar || { items: [] }),
+          customPresets: globalCustomPresets,
+        };
+      }
+    } else if (hasGlobalCalendarPresets) {
+      calendar = {
+        ...raw.calendar,
+        customPresets: globalCustomPresets,
+      };
+    }
+
+    return {
+      ...raw,
+      prompts,
+      promptPresets: normalizedPresets,
+      activePresetId,
+      ...(calendar ? { calendar } : {}),
+    };
   };
   // Serialize normal phone saves so sending while a reply arrives keeps both changes.
   let saving = Promise.resolve();
@@ -101,6 +211,56 @@ export function createPhoneStore({ target, assertEnabled = () => {}, isReading =
         if (previous === undefined) delete target.metadata.pocketPhone;
         else target.metadata.pocketPhone = previous;
         throw error;
+      }
+
+      const phoneSettings = getPhoneSettings();
+      if (phoneSettings) {
+        let globalChanged = false;
+
+        // 1. 提示词库同步到全局设置
+        if (next.prompts && next.prompts !== phoneSettings.prompts) {
+          phoneSettings.prompts = structuredClone(next.prompts);
+          globalChanged = true;
+        }
+
+        // 2. 提示词预设同步到全局设置
+        if (next.promptPresets && next.promptPresets !== phoneSettings.promptPresets) {
+          phoneSettings.promptPresets = structuredClone(next.promptPresets);
+          globalChanged = true;
+        }
+
+        // 3. 激活预设编号同步到全局设置
+        if (next.activePresetId && next.activePresetId !== phoneSettings.activePresetId) {
+          phoneSettings.activePresetId = next.activePresetId;
+          globalChanged = true;
+        }
+
+        // 4. 自定义日历预设同步到全局设置
+        if (next.calendar?.customPresets && next.calendar.customPresets !== phoneSettings.calendarCustomPresets) {
+          phoneSettings.calendarCustomPresets = structuredClone(next.calendar.customPresets);
+          globalChanged = true;
+        }
+
+        // 5. 日历默认选择与角色绑定
+        const charKey = getCharacterKey();
+        if (next.calendar?.descriptor) {
+          if (!phoneSettings.characterCalendars) phoneSettings.characterCalendars = {};
+          const currentBound = phoneSettings.characterCalendars[charKey];
+          if (!currentBound || JSON.stringify(currentBound.descriptor) !== JSON.stringify(next.calendar.descriptor)) {
+            phoneSettings.characterCalendars[charKey] = {
+              descriptor: structuredClone(next.calendar.descriptor),
+              items: Array.isArray(next.calendar.items)
+                ? structuredClone(next.calendar.items.filter(it => !it.todoId))
+                : [],
+            };
+            globalChanged = true;
+          }
+        }
+
+        if (globalChanged) {
+          try { await saveGlobalExtensionSettings(); }
+          catch { /* debounce save failure non-fatal to metadata */ }
+        }
       }
       // 先保存真实删除，再删已无引用的文件；文件失败不能伪装成存档回滚成功。
       if (cleanImages) {

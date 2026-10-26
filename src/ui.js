@@ -29,7 +29,7 @@ import { displayName } from './profiles.js';
 import { renderTodos } from './ui/todos.js';
 import { renderPhoneNotice } from './ui/notifications.js';
 import { readSocialPosts } from './social.js';
-import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload } from './preset-engine.js';
+import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload, toggleScopeSelection } from './preset-engine.js';
 import { createPluginUpdatesView } from './ui/plugin-updates-view.js';
 import { createPhoneDialog } from './ui/dialog.js';
 import { MEMORY_CONFLICT_CODE } from './memory-sources.js';
@@ -543,6 +543,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (ui.attachment && event && !event.composedPath().some(node => node.getRootNode?.() === root && node.matches?.('.attachment-panel, .attachment-button'))) {
       ui.attachment = ''; root.querySelector('.attachment-panel')?.remove();
+    }
+    if (ui.openScopeEntryId && event && !event.composedPath().some(node => node.getRootNode?.() === root && node.matches?.('.preset-scope-wrap'))) {
+      ui.openScopeEntryId = null;
+      render();
     }
     if (ui.modelsOpen && !event?.composedPath().some(node => node.getRootNode?.() === root && node.matches?.('.model-picker'))) closeModels();
     if (!ui.chatMenu && !ui.inboxMenu && !ui.selectedMessage) return;
@@ -1508,6 +1512,31 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           ui.expandedPresetEntries.add(entryId);
         }
         render();
+        break;
+      }
+      case 'toggle-scope-dropdown': {
+        const entryId = button.dataset.entryId;
+        if (!entryId) break;
+        ui.openScopeEntryId = ui.openScopeEntryId === entryId ? null : entryId;
+        render();
+        break;
+      }
+      case 'close-scope-dropdown': {
+        ui.openScopeEntryId = null;
+        render();
+        break;
+      }
+      case 'toggle-scope-item': {
+        const entryId = button.dataset.entryId;
+        const scopeName = button.dataset.scopeName;
+        const currentActiveId = store.read()?.activePresetId || 'default_preset';
+        const presets = normalizePromptPresets(store.read()?.promptPresets);
+        const preset = presets.find(p => p.id === currentActiveId) || presets[0];
+        const entry = preset?.entries?.find(e => e.id === entryId);
+        if (entryId && scopeName && entry) {
+          const nextScope = toggleScopeSelection(entry.scope, scopeName);
+          void store.updatePresetEntry(currentActiveId, entryId, { scope: nextScope }).then(() => render());
+        }
         break;
       }
       case 'export-prompt-preset': {

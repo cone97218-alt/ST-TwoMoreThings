@@ -5,7 +5,7 @@ import { displayName } from '../profiles.js';
 import { renderBackgroundPicker } from './backgrounds.js';
 import { VERSION } from '../version.js';
 import { getAllPrompts } from '../prompts.js';
-import { DEFAULT_PROMPT_PRESETS, PRESET_SLOTS, normalizePromptPresets } from '../preset-engine.js';
+import { DEFAULT_PROMPT_PRESETS, PRESET_SLOTS, PRESET_SCOPES, normalizePromptPresets } from '../preset-engine.js';
 import { readBaiBaiExcludeSettings } from '../worldbook.js';
 
 export function renderPromptPresetSettings(state, ui) {
@@ -105,28 +105,41 @@ export function renderPromptPresetSettings(state, ui) {
             </div>
 
             <!-- 折叠编辑区域（默认折叠） -->
-            ${isExpanded ? `
+            ${isExpanded ? (() => {
+              const isOpen = ui.openScopeEntryId === entry.id;
+              const currentScopes = scope === '通用' ? [] : scope.split('+').map(s => s.trim()).filter(Boolean);
+              return `
               <div class="preset-item-drawer">
                 <div class="preset-edit-row">
                   <input type="text" class="preset-name-field" placeholder="条目显示名称" value="${escape(entry.name || '')}" data-action="edit-entry-name" data-entry-id="${escape(entry.id)}">
                   <div class="preset-scope-wrap">
-                    <input type="text" list="preset-scope-options" class="preset-scope-field" placeholder="生效范围(如 通用、短信、日历+待办)" value="${escape(scope)}" data-action="edit-entry-scope" data-entry-id="${escape(entry.id)}">
-                    <datalist id="preset-scope-options">
-                      <option value="通用">全部任务通用</option>
-                      <option value="短信">私聊短信生成</option>
-                      <option value="心声">角色隐秘心声推演</option>
-                      <option value="群聊">群聊多角色续写</option>
-                      <option value="通讯录">通讯录发掘与整理</option>
-                      <option value="联系人">联系人线上风格提炼</option>
-                      <option value="动态">Ainstagram 动态发布</option>
-                      <option value="动态+短信">动态留言与角色互动</option>
-                      <option value="论坛">公众论坛帖子与回帖</option>
-                      <option value="日历">AI 节日构想</option>
-                      <option value="日历+待办">日程推演与待办规划</option>
-                      <option value="短信+待办">短信提取待办</option>
-                      <option value="摘要">短信回流正文记忆摘要</option>
-                      <option value="生图">照片转绘图描述提示词</option>
-                    </datalist>
+                    <button type="button" class="preset-scope-select-btn" data-action="toggle-scope-dropdown" data-entry-id="${escape(entry.id)}" title="点击选择生效范围（单选/多选）: ${escape(scope)}">
+                      <span class="preset-scope-label-prefix">范围:</span>
+                      <span class="preset-scope-value">${escape(scope)}</span>
+                      <span class="preset-scope-arrow ${isOpen ? 'is-open' : ''}">▾</span>
+                    </button>
+                    ${isOpen ? `
+                      <div class="preset-scope-dropdown" data-entry-id="${escape(entry.id)}">
+                        <div class="preset-scope-dropdown-header">
+                          <span>生效范围 (可多选)</span>
+                          <button type="button" class="preset-scope-close-btn" data-action="close-scope-dropdown" title="关闭">×</button>
+                        </div>
+                        <div class="preset-scope-list">
+                          ${PRESET_SCOPES.map(sc => {
+                            const isChecked = sc.name === '通用'
+                              ? (scope === '通用' || !scope)
+                              : currentScopes.includes(sc.name);
+                            return `<button type="button" class="preset-scope-option ${isChecked ? 'is-checked' : ''}" data-action="toggle-scope-item" data-entry-id="${escape(entry.id)}" data-scope-name="${escape(sc.name)}">
+                              <span class="preset-scope-checkbox">${isChecked ? '✓' : ''}</span>
+                              <div class="preset-scope-option-info">
+                                <span class="preset-scope-item-name">${escape(sc.name)}</span>
+                                <span class="preset-scope-item-desc">${escape(sc.desc)}</span>
+                              </div>
+                            </button>`;
+                          }).join('')}
+                        </div>
+                      </div>
+                    ` : ''}
                   </div>
                 </div>
 
@@ -142,8 +155,8 @@ export function renderPromptPresetSettings(state, ui) {
                 </div>
 
                 <textarea class="preset-content-editor" rows="6" placeholder="输入提示词内容，可插入插槽宏..." data-action="edit-entry-content" data-entry-id="${escape(entry.id)}">${escape(entry.content || '')}</textarea>
-              </div>
-            ` : ''}
+              </div>`;
+            })() : ''}
           </div>`;
         }).join('')}
       </div>

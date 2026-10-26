@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compilePromptPreset, collapseMessages, PRESET_SLOTS, DEFAULT_PROMPT_PRESETS, DEFAULT_PRESET_ENTRIES, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload } from '../src/preset-engine.js';
+import { compilePromptPreset, collapseMessages, PRESET_SLOTS, PRESET_SCOPES, toggleScopeSelection, DEFAULT_PROMPT_PRESETS, DEFAULT_PRESET_ENTRIES, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload } from '../src/preset-engine.js';
 import { createPhoneStore } from '../src/store.js';
 
 test('preset engine: compiles entries and replaces macros with slots', () => {
@@ -626,5 +626,46 @@ test('preset engine: compiles character thought rules with thought taskScope', (
   assert.ok(!compiledChat.some(m => m.name === '心声推演' || m.content.includes('角色隐秘心声推演')));
   assert.ok(compiledChat.some(m => m.name === '短信规则'));
 });
+
+test('preset scopes: toggleScopeSelection handles single, multi-select A+B format, and reset to 通用', () => {
+  assert.ok(Array.isArray(PRESET_SCOPES));
+  assert.ok(PRESET_SCOPES.some(s => s.name === '通用'));
+  assert.ok(PRESET_SCOPES.some(s => s.name === '短信'));
+  assert.ok(PRESET_SCOPES.some(s => s.name === '论坛'));
+
+  // 1. 从“通用”选择单个作用域 -> 变为该作用域
+  let scope = toggleScopeSelection('通用', '短信');
+  assert.equal(scope, '短信');
+
+  // 2. 在“短信”基础上添加“群聊” -> 变为多选 "短信+群聊"
+  scope = toggleScopeSelection(scope, '群聊');
+  assert.equal(scope, '短信+群聊');
+
+  // 3. 在 "短信+群聊" 基础上添加 "待办" -> 变为 "短信+群聊+待办" (按预设列表顺序排序)
+  scope = toggleScopeSelection(scope, '待办');
+  assert.equal(scope, '短信+群聊+待办');
+
+  // 4. 反选取消 "群聊" -> 变为 "短信+待办"
+  scope = toggleScopeSelection(scope, '群聊');
+  assert.equal(scope, '短信+待办');
+
+  // 5. 点击“通用” -> 直接重置为“通用”
+  scope = toggleScopeSelection(scope, '通用');
+  assert.equal(scope, '通用');
+
+  // 6. 从“通用”选择“论坛” -> "论坛"
+  scope = toggleScopeSelection('通用', '论坛');
+  assert.equal(scope, '论坛');
+
+  // 7. 取消最后一个选中项 -> 自动回退为“通用”
+  scope = toggleScopeSelection(scope, '论坛');
+  assert.equal(scope, '通用');
+
+  // 8. 空值或非法参数安全容错
+  assert.equal(toggleScopeSelection('', '心声'), '心声');
+  assert.equal(toggleScopeSelection(null, '心声'), '心声');
+  assert.equal(toggleScopeSelection('短信', ''), '通用');
+});
+
 
 

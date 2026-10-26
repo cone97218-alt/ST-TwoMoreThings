@@ -306,7 +306,7 @@ export function createMessageService({ target, store, contextReader, modelClient
           const wager = String(typeof rawGameAction === 'object' && rawGameAction.wager ? rawGameAction.wager : pendingInvite.game.wager || '纯娱乐').trim();
           let startedGame;
           if (gameKind === 'buckshot_roulette') {
-            startedGame = acceptBuckshotGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user', userName, contactName });
+            startedGame = acceptBuckshotGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'random', userName, contactName });
           } else {
             startedGame = acceptOldMaidGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user', userName, contactName });
           }
@@ -316,6 +316,9 @@ export function createMessageService({ target, store, contextReader, modelClient
               ...record('system', startedGame.lastAction.description, clock, '', context.batch),
               type: 'game-action',
             });
+          }
+          if (startedGame.turn === 'ai') {
+            activeGameMsg = { ...pendingInvite, game: startedGame };
           }
         } else if (gameActionKind === 'counter' || gameActionKind === 'negotiate') {
           const newWager = String(typeof rawGameAction === 'object' && rawGameAction.wager ? rawGameAction.wager : '').trim();

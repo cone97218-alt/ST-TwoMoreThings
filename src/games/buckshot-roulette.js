@@ -165,19 +165,23 @@ export function createBuckshotInvitation({
 // 接受邀请，正式装弹开局
 export function acceptBuckshotGame(inviteOrGame, {
   wager,
-  starter = 'user',
-  userName = '你',
-  contactName = '对方',
+  starter = 'random',
+  userName = '<user>',
+  contactName = '角色',
   maxHp,
 } = {}) {
-  const uName = cleanParticipantName(userName, '你');
-  const cName = cleanParticipantName(contactName, '对方');
+  const uName = cleanParticipantName(userName, '<user>');
+  const cName = cleanParticipantName(contactName, '角色');
   const hp = Math.max(2, Math.min(6, Number(maxHp || inviteOrGame.maxHp) || 3));
   const { chamber, liveCount, blankCount } = generateChamber(1);
 
   // 双方初始各分配 2 件道具
   const userItems = drawRandomItems([], 2);
   const aiItems = drawRandomItems([], 2);
+
+  // 随机决定首轮先手方（50% user / 50% ai）
+  const actualStarter = starter && starter !== 'random' ? starter : (Math.random() < 0.5 ? 'user' : 'ai');
+  const starterActorName = actualStarter === 'user' ? uName : cName;
 
   const game = {
     ...inviteOrGame,
@@ -187,7 +191,8 @@ export function acceptBuckshotGame(inviteOrGame, {
     userHp: hp,
     aiHp: hp,
     round: 1,
-    turn: starter,
+    turn: actualStarter,
+    firstStarter: actualStarter, // 记录首轮先手，供后续轮次交替换先手
     winner: null,
     loser: null,
     chamber,
@@ -210,20 +215,20 @@ export function acceptBuckshotGame(inviteOrGame, {
         itemsDistributed: { user: [...userItems], ai: [...aiItems] },
         itemsUsed: [],
         actions: [
-          { summary: `装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）。双方各获 2 件道具。` },
+          { summary: `掷硬币由【${starterActorName}】先手。装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）。双方各获 2 件道具。` },
         ],
       },
     ],
     lastAction: {
       type: 'start',
-      actor: starter,
-      description: `【恶魔轮盘 · 第 1 轮】生死对决开始！装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹），双方各获 2 件战术道具。当前轮到【${starter === 'user' ? uName : cName}】行动。`,
+      actor: actualStarter,
+      description: `【恶魔轮盘 · 第 1 轮】生死对决开始！掷硬币决定由【${starterActorName}】先手行动……装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹），双方各获 2 件战术道具。当前轮到【${starterActorName}】行动。`,
     },
     history: [
       {
         round: 1,
         actor: 'system',
-        text: `装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）。轮到【${starter === 'user' ? uName : cName}】行动。`,
+        text: `掷硬币由【${starterActorName}】先手。装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）。轮到【${starterActorName}】行动。`,
       },
     ],
   };
@@ -247,15 +252,16 @@ export function rejectBuckshotGame(inviteOrGame, { reason = '', contactName = '�
 // 直接创建一局已开局的游戏
 export function createBuckshotGame({
   wager = '',
-  starter = 'user',
-  userName = '你',
-  contactName = '对方',
+  starter = 'random',
+  userName = '<user>',
+  contactName = '角色',
   maxHp = 3,
 } = {}) {
-  const uName = cleanParticipantName(userName, '你');
-  const cName = cleanParticipantName(contactName, '对方');
-  const invite = createBuckshotInvitation({ sender: starter, wager, maxHp, userName: uName, contactName: cName });
-  return acceptBuckshotGame(invite, { starter, userName: uName, contactName: cName, maxHp });
+  const uName = cleanParticipantName(userName, '<user>');
+  const cName = cleanParticipantName(contactName, '角色');
+  const actualStarter = starter && starter !== 'random' ? starter : (Math.random() < 0.5 ? 'user' : 'ai');
+  const invite = createBuckshotInvitation({ sender: actualStarter === 'ai' ? 'ai' : 'user', wager, maxHp, userName: uName, contactName: cName });
+  return acceptBuckshotGame(invite, { starter: actualStarter, userName: uName, contactName: cName, maxHp });
 }
 
 // 检查胜负与终局判定
@@ -313,8 +319,8 @@ export function checkGameStatus(game, { userName = '你', contactName = '对方'
   return game;
 }
 
-// 弹仓打空时自动换弹并补发道具
-export function reloadChamberIfNeeded(game, { userName = '你', contactName = '对方' } = {}) {
+// 弹仓打空时自动换弹并补发道具，且轮次交替更换先手方
+export function reloadChamberIfNeeded(game, { userName = '<user>', contactName = '角色' } = {}) {
   if (game.status !== 'playing') return game;
   if (game.chamber.length > 0) return game;
 
@@ -332,6 +338,13 @@ export function reloadChamberIfNeeded(game, { userName = '你', contactName = '�
   nextGame.userKnownNext = null;
   nextGame.aiKnownNext = null;
   nextGame.sawedOff = false;
+  nextGame.handcuffed = null; // 换轮重新装填时自动解除手铐限制
+
+  // 轮次交替换先手：奇数轮（1, 3, 5...）为 firstStarter，偶数轮（2, 4, 6...）换由对方先手
+  const firstStarter = nextGame.firstStarter || 'user';
+  const otherActor = firstStarter === 'user' ? 'ai' : 'user';
+  const roundStarter = (nextGame.round % 2 === 1) ? firstStarter : otherActor;
+  nextGame.turn = roundStarter;
 
   const prevUserItemsCount = (nextGame.userItems || []).length;
   const prevAiItemsCount = (nextGame.aiItems || []).length;
@@ -340,10 +353,10 @@ export function reloadChamberIfNeeded(game, { userName = '你', contactName = '�
   const userDealt = nextGame.userItems.slice(prevUserItemsCount);
   const aiDealt = nextGame.aiItems.slice(prevAiItemsCount);
 
-  const uName = cleanParticipantName(userName, '你');
-  const cName = cleanParticipantName(contactName, '对方');
-  const actorName = nextGame.turn === 'user' ? uName : cName;
-  const reloadMsg = `【恶魔轮盘 · 第 ${nextGame.round} 轮】弹药耗尽，重新装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）！双方补发战术道具。当前轮到【${actorName}】行动。`;
+  const uName = cleanParticipantName(userName, '<user>');
+  const cName = cleanParticipantName(contactName, '角色');
+  const actorName = roundStarter === 'user' ? uName : cName;
+  const reloadMsg = `【恶魔轮盘 · 第 ${nextGame.round} 轮】弹药耗尽，轮换由【${actorName}】先手！重新装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹），双方补发战术道具。当前轮到【${actorName}】行动。`;
 
   nextGame.reloadedNotice = reloadMsg;
   nextGame.history.push({

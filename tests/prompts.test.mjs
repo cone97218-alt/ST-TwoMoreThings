@@ -154,16 +154,23 @@ test('settings UI: renderPromptLibrarySettings renders tabs, search, and cards',
     promptCategory: '全部',
     promptSearch: '',
     promptDrafts: {},
+    expandedPrompts: new Set(['messages']),
   };
 
   const html = renderPromptLibrarySettings(state, ui);
   assert.ok(html.includes('prompts-manager'));
   assert.ok(html.includes('data-action="filter-prompt-category"'));
   assert.ok(html.includes('data-action="search-prompts"'));
+  assert.ok(html.includes('data-action="toggle-prompt-card"'));
   assert.ok(html.includes('已定制的私聊提示词'));
   assert.ok(html.includes('data-action="save-prompt"'));
   assert.ok(html.includes('data-action="reset-prompt"'));
   assert.ok(html.includes('data-action="reset-all-prompts"'));
+
+  // 默认折叠测试：未展开时隐藏编辑框
+  const collapsedHtml = renderPromptLibrarySettings(state, { ...ui, expandedPrompts: new Set() });
+  assert.ok(collapsedHtml.includes('data-action="toggle-prompt-card"'));
+  assert.ok(!collapsedHtml.includes('已定制的私聊提示词'));
 
   // Filter by category
   const filteredHtml = renderPromptLibrarySettings(state, { ...ui, promptCategory: '群聊' });

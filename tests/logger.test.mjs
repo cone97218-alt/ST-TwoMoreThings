@@ -63,18 +63,25 @@ test('settings UI: renderLogSettings renders backflow and model logs', () => {
 
   const state = { injectEnabled: true };
   const logs = logger.getLogs();
-  const ui = { expandedLogs: new Set([logs[0].id]) };
+  const ui = { expandedLogs: new Set([logs[0].id]), backflowExpanded: false };
   const html = renderLogSettings(state, ui, { logger, backflowPreview: '准备注入的手机参考内容' });
 
   assert.ok(html.includes('logs-manager'));
   assert.ok(html.includes('下一轮注入主聊天内容'));
-  assert.ok(html.includes('准备注入的手机参考内容'));
+  assert.ok(html.includes('data-action="toggle-backflow-fold"'));
+  // 默认折叠：未展开时隐藏正文预览框
+  assert.ok(!html.includes('准备注入的手机参考内容'));
   assert.ok(html.includes('data-action="refresh-backflow-preview"'));
   assert.ok(html.includes('data-action="copy-backflow-prompt"'));
   assert.ok(html.includes('私聊回复'));
-  assert.ok(html.includes('测试系统提示词'));
+  // 发送的系统提示词框已移除
+  assert.ok(!html.includes('发送的系统提示词'));
   assert.ok(html.includes('测试回答结果'));
   assert.ok(html.includes('data-action="clear-logs"'));
+
+  // 展开后可查看注入内容
+  const expandedHtml = renderLogSettings(state, { ...ui, backflowExpanded: true }, { logger, backflowPreview: '准备注入的手机参考内容' });
+  assert.ok(expandedHtml.includes('准备注入的手机参考内容'));
 });
 
 test('calendar UI: modal backdrop and buttons render when calendarAiOpen is true', () => {

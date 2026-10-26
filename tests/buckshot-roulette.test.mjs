@@ -14,6 +14,7 @@ import {
   useItem,
   getAiBuckshotDecision,
   getChamberCounts,
+  reloadChamberIfNeeded,
   formatBuckshotChronicle,
 } from '../src/games/buckshot-roulette.js';
 import { renderGameBoard } from '../src/ui/game-board.js';
@@ -324,18 +325,40 @@ test('buckshot: messageText outputs [恶魔轮盘：...] instead of [抽鬼牌�
   assert.ok(!txt.includes('[抽鬼牌：'));
 });
 
-test('buckshot: reloadChamberIfNeeded generates reloadedNotice when chamber empties', () => {
+test('buckshot: reloadChamberIfNeeded generates reloadedNotice and alternates starters on round reload', () => {
   const game = createBuckshotGame({ maxHp: 4, starter: 'user', userName: '指挥官', contactName: '爱丽丝' });
-  game.chamber = [false]; // 仅剩 1 发空弹
+  assert.equal(game.firstStarter, 'user');
+  assert.equal(game.turn, 'user');
+  game.chamber = [false]; // 第 1 轮仅剩 1 发空弹
   game.round = 1;
+  game.handcuffed = 'user';
 
-  const res = shootOpponent(game, { actor: 'user', userName: '指挥官', contactName: '爱丽丝' });
-  assert.equal(res.game.round, 2);
-  assert.ok(res.game.chamber.length > 0);
-  assert.ok(res.game.reloadedNotice);
-  assert.ok(res.game.reloadedNotice.includes('【恶魔轮盘 · 第 2 轮】'));
-  assert.ok(res.game.reloadedNotice.includes('重新装填'));
-  assert.ok(res.game.reloadedNotice.includes('爱丽丝'));
+  // 用户射击对手空弹，弹仓打空，换轮重装
+  const res1 = shootOpponent(game, { actor: 'user', userName: '指挥官', contactName: '爱丽丝' });
+  assert.equal(res1.game.round, 2);
+  assert.equal(res1.game.turn, 'ai'); // 第 2 轮交替换为 AI 先手
+  assert.equal(res1.game.handcuffed, null); // 手铐自动清除
+  assert.ok(res1.game.chamber.length > 0);
+  assert.ok(res1.game.reloadedNotice.includes('【恶魔轮盘 · 第 2 轮】'));
+  assert.ok(res1.game.reloadedNotice.includes('爱丽丝'));
+
+  // 模拟第 2 轮打空，进入第 3 轮
+  res1.game.chamber = [];
+  const res2 = reloadChamberIfNeeded(res1.game, { userName: '指挥官', contactName: '爱丽丝' });
+  assert.equal(res2.round, 3);
+  assert.equal(res2.turn, 'user'); // 第 3 轮交替重回 user 先手
+  assert.ok(res2.reloadedNotice.includes('【恶魔轮盘 · 第 3 轮】'));
+  assert.ok(res2.reloadedNotice.includes('指挥官'));
+
+  // 测试随机开局选择
+  const invite = createBuckshotInvitation({ sender: 'user', wager: '纯娱乐' });
+  const starters = new Set();
+  for (let i = 0; i < 30; i++) {
+    const started = acceptBuckshotGame(invite, { starter: 'random' });
+    starters.add(started.turn);
+  }
+  assert.ok(starters.has('user'));
+  assert.ok(starters.has('ai'));
 });
 
 test('buckshot: multi-step AI turn resolves items and ultimately fires weapon', () => {

@@ -1082,7 +1082,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           const customWager = gInviteAction === 'accept-counter' ? message.game.wager : undefined;
           let game;
           if (gameKind === 'buckshot_roulette') {
-            game = acceptBuckshotGame(message.game.state || message.game, { ...(customWager ? { wager: customWager } : {}), starter: 'user', userName, contactName });
+            game = acceptBuckshotGame(message.game.state || message.game, { ...(customWager ? { wager: customWager } : {}), starter: 'random', userName, contactName });
           } else {
             game = acceptOldMaidGame(message.game.state || message.game, { ...(customWager ? { wager: customWager } : {}), starter: 'user', userName, contactName });
           }
@@ -2120,6 +2120,18 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         render();
         break;
       }
+      case 'toggle-prompt-card': {
+        const promptId = button.dataset.promptId;
+        if (!promptId) break;
+        if (!(ui.expandedPrompts instanceof Set)) ui.expandedPrompts = new Set();
+        if (ui.expandedPrompts.has(promptId)) {
+          ui.expandedPrompts.delete(promptId);
+        } else {
+          ui.expandedPrompts.add(promptId);
+        }
+        render();
+        break;
+      }
       case 'toggle-scope-dropdown': {
         const entryId = button.dataset.entryId;
         if (!entryId) break;
@@ -2271,6 +2283,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       }
       case 'reset-prompt': {
         const promptId = button.dataset.promptId;
+        if (!promptId) break;
+        if (!confirm('确定要将该功能提示词恢复为默认内容吗？未保存的自定义修改将会丢失。')) break;
         void perform('prompt-reset', () => store.resetPrompt(promptId), () => {
           if (ui.promptDrafts) delete ui.promptDrafts[promptId];
           ui.feedback = { text: '已恢复默认提示词。' };
@@ -2278,6 +2292,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
       }
       case 'reset-all-prompts': {
+        if (!confirm('确定要将所有功能提示词全部恢复为默认内容吗？所有自定义修改将被重置。')) break;
         void perform('prompt-reset-all', () => store.resetAllPrompts(), () => {
           ui.promptDrafts = {};
           ui.feedback = { text: '已恢复所有提示词为默认。' };
@@ -2350,6 +2365,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'clear-logs': {
         logger?.clearLogs?.();
         ui.feedback = { text: '已清空请求日志。' };
+        render();
+        break;
+      }
+      case 'toggle-backflow-fold': {
+        ui.backflowExpanded = !Boolean(ui.backflowExpanded);
         render();
         break;
       }

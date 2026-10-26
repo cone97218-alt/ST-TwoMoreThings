@@ -154,7 +154,7 @@ export function renderPromptPresetSettings(state, ui) {
                   </div>
                 </div>
 
-                <textarea class="preset-content-editor" rows="6" placeholder="输入提示词内容，可插入插槽宏..." data-action="edit-entry-content" data-entry-id="${escape(entry.id)}">${escape(entry.content || '')}</textarea>
+                <textarea class="preset-content-editor" rows="18" placeholder="输入提示词内容，可插入插槽宏..." data-action="edit-entry-content" data-entry-id="${escape(entry.id)}">${escape(entry.content || '')}</textarea>
               </div>`;
             })() : ''}
           </div>`;
@@ -211,23 +211,31 @@ export function renderPromptLibrarySettings(state, ui) {
       ${filtered.length === 0 ? `<div class="prompt-empty-hint">未找到匹配的提示词</div>` : filtered.map(item => {
         const draft = ui.promptDrafts?.[item.id];
         const val = draft !== undefined ? draft : item.currentPrompt;
-        return `<div class="prompt-card" data-prompt-id="${escape(item.id)}">
-          <div class="prompt-card-header">
+        const isExpanded = ui.expandedPrompts instanceof Set ? ui.expandedPrompts.has(item.id) : false;
+        return `<div class="prompt-card ${isExpanded ? 'is-expanded' : ''}" data-prompt-id="${escape(item.id)}">
+          <button type="button" class="prompt-card-header" data-action="toggle-prompt-card" data-prompt-id="${escape(item.id)}">
             <div class="prompt-title-group">
               <span class="prompt-card-title">${escape(item.title)}</span>
               <span class="prompt-category-badge">${escape(item.category)}</span>
               <span class="prompt-status-tag ${item.isCustom ? 'custom' : 'default'}">${item.isCustom ? '已修改' : '默认'}</span>
             </div>
-          </div>
-          <div class="prompt-desc">
-            <span>${escape(item.description)}</span>
-            <span class="prompt-macro-note">对应插槽宏：<code>${escape(item.macro || `{{${item.id}_prompt}}`)}</code></span>
-          </div>
-          <textarea class="prompt-textarea" data-prompt-textarea="${escape(item.id)}" rows="7" spellcheck="false" placeholder="输入提示词内容...">${escape(val)}</textarea>
-          <div class="prompt-card-actions">
-            <button type="button" class="prompt-action-btn primary-btn" data-action="save-prompt" data-prompt-id="${escape(item.id)}">保存修改</button>
-            ${item.isCustom ? `<button type="button" class="prompt-action-btn secondary-btn" data-action="reset-prompt" data-prompt-id="${escape(item.id)}">恢复默认</button>` : ''}
-          </div>
+            <span class="prompt-toggle-icon" aria-hidden="true">
+              ${icon(isExpanded ? 'down' : 'next')}
+            </span>
+          </button>
+          ${isExpanded ? `
+            <div class="prompt-card-body">
+              <div class="prompt-desc">
+                <span>${escape(item.description)}</span>
+                <span class="prompt-macro-note">对应插槽宏：<code>${escape(item.macro || `{{${item.id}_prompt}}`)}</code></span>
+              </div>
+              <textarea class="prompt-textarea" data-prompt-textarea="${escape(item.id)}" rows="21" spellcheck="false" placeholder="输入提示词内容...">${escape(val)}</textarea>
+              <div class="prompt-card-actions">
+                <button type="button" class="prompt-action-btn primary-btn" data-action="save-prompt" data-prompt-id="${escape(item.id)}">保存修改</button>
+                ${item.isCustom ? `<button type="button" class="prompt-action-btn secondary-btn" data-action="reset-prompt" data-prompt-id="${escape(item.id)}">恢复默认</button>` : ''}
+              </div>
+            </div>
+          ` : ''}
         </div>`;
       }).join('')}
     </div>
@@ -238,21 +246,29 @@ export function renderLogSettings(state, ui, { logger, backflowPreview } = {}) {
   const logs = logger?.getLogs?.() || [];
   const lastBackflow = backflowPreview !== undefined ? backflowPreview : (logger?.getLastBackflowPrompt?.() || '');
   const isInjectEnabled = Boolean(state?.injectEnabled || state?.injectCalendarEnabled);
+  const isBackflowExpanded = Boolean(ui.backflowExpanded);
 
   return `<div class="logs-manager">
     <div class="log-section">
       <div class="log-section-header">
-        <div class="log-section-title">
-          <strong>下一轮注入主聊天内容</strong>
-          <span class="log-status-tag ${isInjectEnabled ? 'success' : 'warning'}">${isInjectEnabled ? '带入正文开启' : '带入正文未开启'}</span>
-        </div>
+        <button type="button" class="log-section-fold-trigger" data-action="toggle-backflow-fold">
+          <span class="log-toggle-icon" aria-hidden="true">
+            ${icon(isBackflowExpanded ? 'down' : 'next')}
+          </span>
+          <div class="log-section-title">
+            <strong>下一轮注入主聊天内容</strong>
+            <span class="log-status-tag ${isInjectEnabled ? 'success' : 'warning'}">${isInjectEnabled ? '带入正文开启' : '带入正文未开启'}</span>
+          </div>
+        </button>
         <div class="log-actions">
           <button type="button" class="log-mini-btn" data-action="refresh-backflow-preview">刷新预览</button>
           ${lastBackflow ? `<button type="button" class="log-mini-btn primary" data-action="copy-backflow-prompt">复制内容</button>` : ''}
         </div>
       </div>
-      <p class="log-desc">主聊天生成时将作为「手机参考」附在正文提示词中，包含近期短信、待办与日历节日线索。</p>
-      <textarea class="log-textarea" readonly rows="6" placeholder="当前无待注入正文的内容（未开启短信/日历带入正文，或当前批次暂无新短信、待办，或当前无剧情日期/临近7天内无节日日程）">${escape(lastBackflow)}</textarea>
+      ${isBackflowExpanded ? `
+        <p class="log-desc">主聊天生成时将作为「手机参考」附在正文提示词中，包含近期短信、待办与日历节日线索。</p>
+        <textarea class="log-textarea" readonly rows="18" placeholder="当前无待注入正文的内容（未开启短信/日历带入正文，或当前批次暂无新短信、待办，或当前无剧情日期/临近7天内无节日日程）">${escape(lastBackflow)}</textarea>
+      ` : ''}
     </div>
 
     <div class="log-section" style="margin-top: 14px;">
@@ -296,7 +312,7 @@ export function renderLogSettings(state, ui, { logger, backflowPreview } = {}) {
                               <strong class="log-entry-name">${eIdx + 1}. ${escape(ent.name || '未命名条目')}</strong>
                               <button type="button" class="log-copy-inline" data-action="copy-log-text" data-copy-type="entry" data-entry-index="${eIdx}" data-log-id="${escape(item.id)}">复制</button>
                             </div>
-                            <textarea class="log-block-pre" readonly rows="${Math.min(6, Math.max(2, (ent.content || '').split('\n').length))}">${escape(ent.content || '')}</textarea>
+                            <textarea class="log-block-pre" readonly rows="${Math.min(18, Math.max(6, ((ent.content || '').split('\n').length) * 3))}">${escape(ent.content || '')}</textarea>
                           </div>
                         `).join('')}
                       </div>
@@ -304,24 +320,17 @@ export function renderLogSettings(state, ui, { logger, backflowPreview } = {}) {
                   ` : ''}
                   <div class="log-block">
                     <div class="log-block-head">
-                      <span>发送的系统提示词</span>
-                      <button type="button" class="log-copy-inline" data-action="copy-log-text" data-copy-type="system" data-log-id="${escape(item.id)}">复制</button>
-                    </div>
-                    <textarea class="log-block-pre" readonly rows="5">${escape(item.systemPrompt)}</textarea>
-                  </div>
-                  <div class="log-block">
-                    <div class="log-block-head">
                       <span>实际发送给大模型的消息序列 (Messages)</span>
                       <button type="button" class="log-copy-inline" data-action="copy-log-text" data-copy-type="messages" data-log-id="${escape(item.id)}">复制</button>
                     </div>
-                    <textarea class="log-block-pre" readonly rows="6">${escape(messagesJson)}</textarea>
+                    <textarea class="log-block-pre" readonly rows="18">${escape(messagesJson)}</textarea>
                   </div>
                   <div class="log-block">
                     <div class="log-block-head">
                       <span>模型返回原始结果</span>
                       <button type="button" class="log-copy-inline" data-action="copy-log-text" data-copy-type="reply" data-log-id="${escape(item.id)}">复制</button>
                     </div>
-                    <textarea class="log-block-pre ${item.error ? 'error-text' : ''}" readonly rows="5">${escape(item.error ? `错误：${item.error}` : item.reply)}</textarea>
+                    <textarea class="log-block-pre ${item.error ? 'error-text' : ''}" readonly rows="15">${escape(item.error ? `错误：${item.error}` : item.reply)}</textarea>
                   </div>
                 </div>
               ` : ''}

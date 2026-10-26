@@ -104,6 +104,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
     return `<div class="message-row is-system is-game-action" data-game-action-msg-id="${escape(message.id)}" data-message-row-id="${escape(message.id)}">
       <div class="game-action-notice" role="status">
         <span class="game-action-text">${escape(displayText)}</span>
+        ${!readOnly ? `<button type="button" class="system-notice-delete" data-action="delete-system-message" data-message-id="${escape(message.id)}" title="删除此对局记录" aria-label="删除对局记录">×</button>` : ''}
       </div>
     </div>`;
   }

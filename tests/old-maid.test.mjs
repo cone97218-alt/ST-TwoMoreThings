@@ -517,14 +517,14 @@ test('Old Maid full flow: invite -> accept -> user draw -> ai auto draw and chat
   const aiChat = [...thread].reverse().find(m => m.role === 'assistant');
   assert.equal(aiChat.text, '让我看看……选这张！');
 
-  // 5. 验证界面元素（系统通知药丸纯净整洁，不包含突兀的图标或删除键）
+  // 5. 验证界面元素（系统通知药丸纯净整洁，保留删除功能且无突兀卡牌图标）
   const chatHtml = renderChat(store.read(), {
     ui: { view: 'messages', contactId: 'c1', visibleMessages: 20, batch: { key: '1' }, drafts: new Map() },
     busy: new Set(),
   });
   assert(chatHtml.includes('game-action-notice'));
   assert(chatHtml.includes('game-action-text'));
-  assert(!chatHtml.includes('system-notice-delete'));
+  assert(chatHtml.includes('system-notice-delete'));
   assert(!chatHtml.includes('game-action-icon'));
 
   const boardHtml = renderGameBoard(game, { contact: { name: '林舟' }, busy: new Set() });
@@ -557,6 +557,6 @@ test('cleanParticipantName filters <user> macro and renders clean 【你】', ()
   });
   assert(html.includes('轮到【你】抽牌'));
   assert(!html.includes('<user>'));
-  assert(!html.includes('system-notice-delete'));
+  assert(html.includes('system-notice-delete'));
   assert(!html.includes('game-action-icon'));
 });

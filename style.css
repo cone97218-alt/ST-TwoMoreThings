@@ -1375,8 +1375,9 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   max-width: 88%;
-  padding: 4px 14px;
+  padding: 4px 12px;
   border-radius: 999px;
   font-size: 11px;
   line-height: 1.45;
@@ -1406,27 +1407,33 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   text-decoration: underline;
 }
 .system-notice-delete {
-  width: 15px;
-  height: 15px;
-  min-height: 15px;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  min-height: 14px;
   padding: 0;
   margin-left: 2px;
   border-radius: 50%;
   font-size: 11px;
   line-height: 1;
   color: var(--pp-muted);
-  opacity: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.15s ease;
+  opacity: 0.35;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
-.poke-notice:hover .system-notice-delete {
-  opacity: 0.65;
+.poke-notice:hover .system-notice-delete,
+.game-action-notice:hover .system-notice-delete {
+  opacity: 0.85;
 }
 .system-notice-delete:hover {
-  opacity: 1;
+  opacity: 1 !important;
   color: var(--pp-error);
+  background: color-mix(in srgb, var(--pp-error) 12%, transparent);
 }
 
 /* 消息底部角标（转发、已编辑、已收藏） */

@@ -190,7 +190,7 @@ h3 { font-size: 14px; font-weight: 600; }
 .danger-button:hover:not(:disabled) { color: var(--pp-danger-text); filter: brightness(1.08); }
 .form-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 /* 短信：连续消息、气泡与输入区。 */
-.view-chat, .view-group-chat { width: 100%; align-self: stretch; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--pp-surface-soft); }
+.view-chat, .view-group-chat { position: relative; width: 100%; align-self: stretch; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--pp-surface-soft); }
 .conversation-heading { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 10px; border-bottom: 1px solid var(--pp-divider-soft); background: var(--pp-paper); flex: 0 0 auto; }
 .back-button { width: 24px; margin-left: -6px; }
 .conversation-person { flex: 1; min-width: 0; }
@@ -370,13 +370,14 @@ h3 { font-size: 14px; font-weight: 600; }
 .game-surrender-btn { font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--pp-divider-soft); background: var(--pp-surface); color: var(--pp-muted); cursor: pointer; transition: all .15s; }
 .game-surrender-btn:hover { color: #c5221f; border-color: #c5221f; }
 
-/* 浮动牌桌展开胶囊 */
-.game-floating-pill { position: absolute; right: 14px; bottom: 84px; z-index: 4; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; background: var(--pp-active); color: #fff; font-size: 11px; font-weight: 500; box-shadow: 0 3px 10px rgba(0,0,0,0.18); border: none; cursor: pointer; }
+/* 浮动牌桌展开胶囊（置于右上部，不遮挡底部输入框） */
+.game-floating-pill { position: absolute; right: 14px; top: 56px; z-index: 4; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; background: var(--pp-active); color: #fff; font-size: 11px; font-weight: 500; box-shadow: 0 3px 10px rgba(0,0,0,0.18); border: none; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease; }
+.game-floating-pill:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,0.22); }
 .game-floating-pill svg { width: 15px; height: 15px; }
 
-/* 抽鬼牌半屏抽屉面板 */
-.game-board-drawer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--pp-surface); border-top: 1px solid var(--pp-divider-soft); box-shadow: 0 -4px 18px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 72dvh; overflow: hidden; border-radius: 16px 16px 0 0; }
-@keyframes drawerSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+/* 抽鬼牌自上而下对弈抽屉面板（置于顶部标题栏下方，不遮挡底部输入框） */
+.game-board-drawer { position: absolute; left: 0; right: 0; top: 48px; z-index: 5; background: var(--pp-surface); border-bottom: 1px solid var(--pp-divider-soft); box-shadow: 0 6px 20px rgba(0,0,0,0.18); display: flex; flex-direction: column; max-height: min(390px, 56dvh); overflow: hidden; border-radius: 0 0 16px 16px; animation: drawerSlideDown .2s cubic-bezier(0, 0, 0.2, 1); }
+@keyframes drawerSlideDown { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .game-board-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--pp-divider-soft); background: var(--pp-surface-soft); flex: 0 0 auto; }
 .game-board-title { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .game-board-title strong { font-weight: 600; color: var(--pp-text); }
@@ -440,6 +441,55 @@ button.wager-fulfill.is-clickable:hover { opacity: 0.85; }
 .fulfill-button { flex: 2; padding: 6px 10px; border-radius: 6px; background: #137333; color: #fff; font-size: 11px; font-weight: 500; border: none; cursor: pointer; }
 .fulfill-button.admit-defeat { background: #c5221f; }
 .restart-button { flex: 1; padding: 6px 10px; border-radius: 6px; background: var(--pp-surface-soft); border: 1px solid var(--pp-divider-soft); color: var(--pp-text); font-size: 11px; cursor: pointer; }
+
+/* ===== 恶魔轮盘 (Buckshot Roulette) 专属样式 ===== */
+.buckshot-drawer { max-height: min(420px, 62dvh); }
+.buckshot-content { display: flex; flex-direction: column; gap: 8px; }
+.buckshot-side { background: var(--pp-surface-soft); border-radius: 8px; padding: 7px 10px; display: flex; flex-direction: column; gap: 5px; }
+
+/* 生命值充能槽 */
+.hp-pips-group { display: inline-flex; align-items: center; gap: 4px; }
+.hp-pip { width: 10px; height: 10px; border-radius: 50%; display: inline-block; transition: all .2s ease; }
+.hp-pip.is-filled { background: #34a853; box-shadow: 0 0 5px rgba(52,168,83,0.5); }
+.hp-pip.is-lost { background: var(--pp-divider-soft); border: 1px dashed var(--pp-muted); opacity: 0.5; }
+.hp-num { font-size: 10px; font-weight: 600; color: var(--pp-muted); margin-left: 2px; }
+
+/* 弹仓与局势指示条 */
+.buckshot-chamber-bar { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; background: var(--pp-surface); border: 1px solid var(--pp-divider-soft); border-radius: 6px; font-size: 11px; }
+.chamber-stat { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px; }
+.chamber-label strong { color: var(--pp-active); font-size: 12px; }
+.chamber-detail { font-size: 10px; color: var(--pp-muted); }
+.chamber-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.chamber-badge { font-size: 9.5px; padding: 2px 6px; border-radius: 4px; font-weight: 500; display: inline-flex; align-items: center; }
+.chamber-badge.is-sawed { background: #fce8e6; color: #c5221f; border: 1px solid #f5c2c7; animation: pulseSaw 1.5s infinite; }
+.chamber-badge.is-cuffed { background: #e8f0fe; color: #1a73e8; border: 1px solid #c2d7fa; }
+.chamber-badge.is-known { background: #fef7e0; color: #b06000; border: 1px solid #fce8b2; }
+@keyframes pulseSaw { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+
+/* 道具条与按钮 */
+.buckshot-items-bar { display: flex; flex-direction: column; gap: 3px; }
+.items-label { font-size: 10px; color: var(--pp-muted); }
+.items-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.buckshot-empty-hint { font-size: 10px; color: var(--pp-muted); font-style: italic; }
+.buckshot-item-pill { font-size: 10px; padding: 3px 7px; border-radius: 5px; border: 1px solid var(--pp-divider-soft); background: var(--pp-surface); color: var(--pp-text); display: inline-flex; flex-direction: column; text-align: left; transition: all .15s ease; user-select: none; }
+.buckshot-item-pill.is-opponent { background: var(--pp-surface); color: var(--pp-muted); }
+button.buckshot-item-pill.is-user { cursor: pointer; max-width: 130px; }
+button.buckshot-item-pill.is-user strong { font-weight: 600; color: var(--pp-active); font-size: 10.5px; }
+button.buckshot-item-pill.is-user small { font-size: 8.5px; color: var(--pp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+button.buckshot-item-pill.is-usable:hover { border-color: var(--pp-active); background: var(--pp-pale); transform: translateY(-2px); box-shadow: 0 3px 8px rgba(0,0,0,0.12); }
+button.buckshot-item-pill:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 核心扳机操作 */
+.buckshot-trigger-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.buckshot-shoot-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 6px; border-radius: 8px; border: 1px solid var(--pp-divider-soft); cursor: pointer; transition: all .18s ease; text-align: center; }
+.buckshot-shoot-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.buckshot-shoot-btn .shoot-title { font-size: 11.5px; font-weight: 600; line-height: 1.3; }
+.buckshot-shoot-btn .shoot-sub { font-size: 9px; opacity: 0.8; margin-top: 2px; }
+.buckshot-shoot-btn.shoot-opponent { background: var(--pp-active); color: #fff; border-color: var(--pp-active); }
+.buckshot-shoot-btn.shoot-opponent:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+.buckshot-shoot-btn.shoot-self { background: var(--pp-surface); color: var(--pp-text); border-color: var(--pp-divider-soft); }
+.buckshot-shoot-btn.shoot-self:hover:not(:disabled) { border-color: var(--pp-active); background: var(--pp-pale); color: var(--pp-active); transform: translateY(-1px); }
+
 .attachment-button { width: 25px; min-height: 30px; }
 .attachment-button svg { width: 20px; height: 20px; }
 .attachment-panel { flex: 0 0 auto; max-height: min(220px, 36dvh); overflow-y: auto; padding: 6px 12px 8px; background: var(--pp-surface); border-top: 1px solid var(--pp-divider-soft); scrollbar-width: thin; }

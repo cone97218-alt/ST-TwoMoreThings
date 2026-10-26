@@ -29,6 +29,15 @@ import { displayName } from './profiles.js';
 import { renderTodos } from './ui/todos.js';
 import { renderPhoneNotice } from './ui/notifications.js';
 import { createOldMaidGame, createOldMaidInvitation, acceptOldMaidGame, rejectOldMaidGame, userDrawCard, aiDrawCard, setBluffCard, getAiMicroExpression } from './games/old-maid.js';
+import {
+  createBuckshotGame,
+  createBuckshotInvitation,
+  acceptBuckshotGame,
+  rejectBuckshotGame,
+  shootOpponent as buckshotShootOpponent,
+  shootSelf as buckshotShootSelf,
+  useItem as buckshotUseItem,
+} from './games/buckshot-roulette.js';
 import { readSocialPosts } from './social.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload, toggleScopeSelection } from './preset-engine.js';
 import { createPluginUpdatesView } from './ui/plugin-updates-view.js';
@@ -148,7 +157,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     container.className = 'wager-dialog-body';
 
     const tip = doc.createElement('p');
-    tip.textContent = '设置或修改抽鬼牌对决赌注（输家需履行的惩罚或约定）：';
+    tip.textContent = '设置或修改对决赌注（输家需履行的惩罚或约定）：';
     tip.className = 'dialog-field-tip';
 
     const inputEl = doc.createElement('input');
@@ -162,7 +171,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
     let resultValue = null;
     const ok = await dialog.custom({
-      title: '修改抽鬼牌赌注',
+      title: '修改对决赌注',
       content: container,
       confirmText: '确认更换',
       cancelText: '取消',
@@ -752,6 +761,67 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       return;
     }
 
+    // 恶魔轮盘扳机与道具操作响应
+    const buckshotActionEl = event.target.closest('[data-buckshot-action]');
+    if (buckshotActionEl && ui.activeGame && ui.activeGame.kind === 'buckshot_roulette') {
+      const bAction = buckshotActionEl.dataset.buckshotAction;
+      const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages;
+      const currentStore = store.read();
+      const user = currentStore.userProfile || { name: ui.defaultUser || '我' };
+      const userName = displayName(user) || '你';
+      const contact = currentStore.contacts?.find(p => p.id === id);
+      const contactName = displayName(contact) || '对方';
+
+      let stepResult = null;
+      if (bAction === 'shoot-opponent') {
+        stepResult = buckshotShootOpponent(ui.activeGame, { actor: 'user', userName, contactName });
+      } else if (bAction === 'shoot-self') {
+        stepResult = buckshotShootSelf(ui.activeGame, { actor: 'user', userName, contactName });
+      } else if (bAction === 'use-item') {
+        const itemKey = buckshotActionEl.dataset.itemKey;
+        stepResult = buckshotUseItem(ui.activeGame, { actor: 'user', itemKey, userName, contactName });
+      }
+
+      if (stepResult && !stepResult.error && stepResult.game) {
+        const nextGame = stepResult.game;
+        ui.activeGame = nextGame;
+        const targetGameMsgId = ui.activeGameMessageId || (currentStore.conversations[id] || []).find(m => m.type === 'game' && m.game?.status === 'playing')?.id;
+        if (targetGameMsgId && !ui.activeGameMessageId) {
+          ui.activeGameMessageId = targetGameMsgId;
+        }
+        const batch = ui.batch;
+        const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
+        const sysMsg = nextGame.lastAction?.description ? {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          role: 'system',
+          type: 'game-action',
+          text: nextGame.lastAction.description,
+          timeLabel,
+          ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+          ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+        } : null;
+
+        void perform(`continue:${id}`, async () => {
+          if (targetGameMsgId) {
+            await store.updateGameMessage(id, targetGameMsgId, nextGame);
+          }
+          if (sysMsg) {
+            await store.appendMessages(id, [sysMsg]);
+          }
+          // 当轮到 AI 行动，或游戏终局结算时，自动唤醒模型回话对决
+          if ((nextGame.status === 'playing' && nextGame.turn === 'ai') || nextGame.status === 'finished') {
+            await service.continueChat(id);
+            const latestStore = store.read();
+            const updatedMsg = latestStore.conversations?.[id]?.find(m => m.id === targetGameMsgId);
+            if (updatedMsg?.game) {
+              ui.activeGame = updatedMsg.game.state || updatedMsg.game;
+            }
+          }
+        }, onContextChange);
+      }
+      return;
+    }
+
     // 抽鬼牌卡牌与牌桌操作优先响应（不受普通 button 过滤影响）
     const gameActionEl = event.target.closest('[data-game-action]');
     if (gameActionEl && ui.activeGame) {
@@ -888,24 +958,48 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         return;
       }
       if (gAction === 'rematch') {
-        const newGame = acceptOldMaidGame(createOldMaidInvitation({ sender: 'user', wager: ui.activeGame.wager }));
-        const draft = {
-          type: 'game',
-          game: {
-            kind: 'old_maid',
-            title: '抽鬼牌',
-            gameId: newGame.id,
-            status: newGame.status,
-            sender: 'user',
-            wager: newGame.wager,
-            winner: newGame.winner,
-            loser: newGame.loser,
-            round: newGame.round,
-            turn: newGame.turn,
-            state: newGame,
-            lastAction: newGame.lastAction,
-          }
-        };
+        const gameKind = ui.activeGame?.kind || 'old_maid';
+        let newGame;
+        let draft;
+        if (gameKind === 'buckshot_roulette') {
+          newGame = acceptBuckshotGame(createBuckshotInvitation({ sender: 'user', wager: ui.activeGame.wager }));
+          draft = {
+            type: 'game',
+            game: {
+              kind: 'buckshot_roulette',
+              title: '恶魔轮盘',
+              gameId: newGame.id,
+              status: newGame.status,
+              sender: 'user',
+              wager: newGame.wager,
+              winner: newGame.winner,
+              loser: newGame.loser,
+              round: newGame.round,
+              turn: newGame.turn,
+              state: newGame,
+              lastAction: newGame.lastAction,
+            }
+          };
+        } else {
+          newGame = acceptOldMaidGame(createOldMaidInvitation({ sender: 'user', wager: ui.activeGame.wager }));
+          draft = {
+            type: 'game',
+            game: {
+              kind: 'old_maid',
+              title: '抽鬼牌',
+              gameId: newGame.id,
+              status: newGame.status,
+              sender: 'user',
+              wager: newGame.wager,
+              winner: newGame.winner,
+              loser: newGame.loser,
+              round: newGame.round,
+              turn: newGame.turn,
+              state: newGame,
+              lastAction: newGame.lastAction,
+            }
+          };
+        }
         void perform(`send:${id}`, async () => {
           await service.sendCard(id, draft);
           const updatedMessages = store.read().conversations[id] || [];
@@ -934,10 +1028,17 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const userName = displayName(user) || '你';
         const contact = currentStore.contacts?.find(p => p.id === id);
         const contactName = displayName(contact) || '对方';
+        const gameKind = message.game?.kind || 'old_maid';
+        const gameTitle = gameKind === 'buckshot_roulette' ? '恶魔轮盘' : '抽鬼牌';
 
         if (gInviteAction === 'accept' || gInviteAction === 'accept-counter') {
           const customWager = gInviteAction === 'accept-counter' ? message.game.wager : undefined;
-          const game = acceptOldMaidGame(message.game.state || message.game, { ...(customWager ? { wager: customWager } : {}), starter: 'user', userName, contactName });
+          let game;
+          if (gameKind === 'buckshot_roulette') {
+            game = acceptBuckshotGame(message.game.state || message.game, { ...(customWager ? { wager: customWager } : {}), starter: 'user', userName, contactName });
+          } else {
+            game = acceptOldMaidGame(message.game.state || message.game, { ...(customWager ? { wager: customWager } : {}), starter: 'user', userName, contactName });
+          }
           ui.activeGame = game;
           ui.activeGameMessageId = msgId;
           ui.gameBoardFolded = false;
@@ -977,7 +1078,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               role: 'system',
               type: 'game-action',
-              text: `【${userName}】提议将抽鬼牌赌注更换为【${newWager}】`,
+              text: `【${userName}】提议将${gameTitle}赌注更换为【${newWager}】`,
               timeLabel,
               ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
               ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
@@ -989,14 +1090,19 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             }, onContextChange);
           }
         } else if (gInviteAction === 'reject') {
-          const game = rejectOldMaidGame(message.game.state || message.game, { contactName });
+          let game;
+          if (gameKind === 'buckshot_roulette') {
+            game = rejectBuckshotGame(message.game.state || message.game, { contactName });
+          } else {
+            game = rejectOldMaidGame(message.game.state || message.game, { contactName });
+          }
           const batch = ui.batch;
           const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
           const sysMsg = {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             role: 'system',
             type: 'game-action',
-            text: `【${userName}】婉拒了本次抽鬼牌对决邀请。`,
+            text: `【${userName}】婉拒了本次${gameTitle}对决邀请。`,
             timeLabel,
             ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
             ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
@@ -2474,13 +2580,22 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (event.target.matches('.attachment-form')) {
       const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages, type = ui.attachment;
       if (type === 'games') {
+        const gameKind = (ui.attachmentDraft?.gameKind || 'buckshot_roulette').trim();
         const wager = (ui.attachmentDraft?.wager || '').trim() || '纯娱乐';
-        const invite = createOldMaidInvitation({ sender: 'user', wager });
+        let invite;
+        let title = '恶魔轮盘';
+        if (gameKind === 'buckshot_roulette') {
+          invite = createBuckshotInvitation({ sender: 'user', wager });
+          title = '恶魔轮盘';
+        } else {
+          invite = createOldMaidInvitation({ sender: 'user', wager });
+          title = '抽鬼牌';
+        }
         const draft = {
           type: 'game',
           game: {
-            kind: 'old_maid',
-            title: '抽鬼牌',
+            kind: gameKind,
+            title,
             gameId: invite.id,
             status: 'invited',
             sender: 'user',

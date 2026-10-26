@@ -10,8 +10,8 @@ import { createDirectoryService } from '../src/directory.js';
 import { createForumService } from '../src/forum.js';
 import { createCalendarAiService } from '../src/calendar-ai.js';
 
-test('prompts: definition registry has 18 items across 7 categories', () => {
-  assert.equal(PROMPT_DEFINITIONS.length, 18);
+test('prompts: definition registry has 19 items across 7 categories', () => {
+  assert.equal(PROMPT_DEFINITIONS.length, 19);
   const categories = new Set(PROMPT_DEFINITIONS.map(p => p.category));
   assert.ok(categories.has('短信与通讯'));
   assert.ok(categories.has('群聊'));
@@ -30,7 +30,7 @@ test('prompts: getPrompt and getAllPrompts default vs customized', () => {
   assert.equal(getPrompt('messages', customState), '自定义短信提示词内容');
 
   const all = getAllPrompts(customState);
-  assert.equal(all.length, 18);
+  assert.equal(all.length, 19);
   const messagesItem = all.find(p => p.id === 'messages');
   assert.equal(messagesItem.isCustom, true);
   assert.equal(messagesItem.currentPrompt, '自定义短信提示词内容');

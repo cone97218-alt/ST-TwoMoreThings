@@ -28,6 +28,7 @@ export function renderCardBody(message, generating = false) {
   if (message.type === 'game') {
     const game = message.game || {};
     const isUserSender = message.role === 'user' || game.sender === 'user';
+    const gameTitle = game.title || (game.kind === 'buckshot_roulette' ? '恶魔轮盘' : '抽鬼牌');
     let statusPill = '';
     if (game.status === 'invited') {
       statusPill = `<small class="game-card-status pending">${isUserSender ? '等待邀请结果' : '收到对决邀请'}</small>`;
@@ -41,7 +42,7 @@ export function renderCardBody(message, generating = false) {
       statusPill = `<small class="game-card-status active">进行中 · 第 ${game.round || 1} 轮</small>`;
     }
 
-    return `<span class="card-label">${icon('gamepad')}抽鬼牌</span>
+    return `<span class="card-label">${icon('gamepad')}${escape(gameTitle)}</span>
       <div class="game-card-body">
         <span class="game-card-wager">赌注：${escape(game.wager || '纯娱乐')}</span>
         ${statusPill}
@@ -89,7 +90,7 @@ export function renderCardActions(message, { readOnly, busy }) {
 export function renderAttachments(state, ui, busy, contact, isGroup) {
   if (!ui.attachment) return '';
   const heading = `<div class="attachment-heading">
-    <span>${({ menu: '', stickers: '表情', location: '定位', transfer: '转账', games: '抽鬼牌' })[ui.attachment] || ''}</span>
+    <span>${({ menu: '', stickers: '表情', location: '定位', transfer: '转账', games: '小游戏' })[ui.attachment] || ''}</span>
     ${action('close-attachment', '收起附件', 'close', 'icon-button')}
   </div>`;
   if (ui.attachment === 'menu') return `<section class="attachment-panel">
@@ -97,7 +98,7 @@ export function renderAttachments(state, ui, busy, contact, isGroup) {
       ${action('choose-stickers', '表情', 'smile')}
       ${action('choose-location', '定位', 'location')}
       ${action('choose-transfer', '转账', 'transfer')}
-      ${action('choose-games', '抽鬼牌', 'gamepad')}
+      ${action('choose-games', '小游戏', 'gamepad')}
     </div>
   </section>`;
   if (ui.attachment === 'stickers') {
@@ -117,14 +118,22 @@ export function renderAttachments(state, ui, busy, contact, isGroup) {
   if (ui.attachment === 'games') {
     const draft = ui.attachmentDraft || {};
     const currentWager = draft.wager ?? '';
+    const currentKind = draft.gameKind || 'buckshot_roulette';
     return `<section class="attachment-panel game-invite-picker">
       ${heading}
       <form class="attachment-form game-invite-form">
         <label class="attachment-field">
-          <span>赌注</span>
+          <span>对决项目</span>
+          <select name="gameKind" aria-label="对决项目">
+            <option value="buckshot_roulette" ${currentKind === 'buckshot_roulette' ? 'selected' : ''}>恶魔轮盘 (Buckshot Roulette)</option>
+            <option value="old_maid" ${currentKind === 'old_maid' ? 'selected' : ''}>抽鬼牌 (Old Maid)</option>
+          </select>
+        </label>
+        <label class="attachment-field">
+          <span>赌注与惩罚</span>
           <input name="wager" aria-label="赌注" type="text" value="${escape(currentWager)}" placeholder="输入赌注，如：答应赢家一个要求">
         </label>
-        <button type="submit" class="save-button" aria-label="发起抽鬼牌" ${busy.has(`send:${contact.id}`) ? 'disabled' : ''}>
+        <button type="submit" class="save-button" aria-label="发起对决" ${busy.has(`send:${contact.id}`) ? 'disabled' : ''}>
           发起邀请
         </button>
       </form>

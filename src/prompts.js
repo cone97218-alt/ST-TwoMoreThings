@@ -392,6 +392,27 @@ export const OLD_MAID_PROMPT = `[小游戏功能规范：抽鬼牌 (Old Maid)]
     - notice: 由你亲自撰写的本轮抽牌系统公告。以第三人称结合人设动作生动描写你的抽牌举动与神态细节，并必须使用双方具体姓名（如【A】抽走了【B】的……），该公告会直接作为系统动作消息呈现于对话流中。
   * 严禁仅在普通对话文本中口头描述抽牌或自行宣布游戏推进，严禁未经系统指令擅自结算胜负。终局后输家须在后续对话中履行约定的赌注。`;
 
+export const BUCKSHOT_ROULETTE_PROMPT = `[小游戏功能规范：恶魔轮盘 (Buckshot Roulette)]
+- 规则说明: 
+  * 霰弹枪装填已知总数及成分配比的实弹与空弹（序列打乱未知）。双方初始各有生命充能点（默认 3 点），生命归零者落败。
+  * 行动选项:
+    1. 射击对方: 若为实弹则造成伤害并换回合；若为空弹则无伤并换回合。
+    2. 朝自己开枪: 若为空弹则无伤且【额外获得一次行动机会（仍是自己回合）】；若为实弹则自身受到伤害并交出回合。
+    3. 战术道具: 放大镜(偷看膛内第一发)、手锯(下一发实弹伤害提升至2)、啤酒(退掉第一发并全场揭晓)、手铐(锁住对手跳过其一回合)、香烟(恢复1点生命)。
+- 角色端主动发起: 当觉得时机合适想找对方玩这场博弈时，可在 messages 中发送邀约卡: {"type":"game","game":{"kind":"buckshot_roulette","action":"invite","wager":"具体的赌注或惩罚"}}，并配以挑衅或邀约台词。
+- 响应邀请与协商赌注: 
+  * 当收到对战邀请时，须在消息正文中表态是否接受；并在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。若想更换赌注，可在正文提出并在顶层返回 {"gameAction":"counter","wager":"新赌注"}。
+  * 对弈进行中若想变更赌注，可在顶层 gameAction 中带上 wager 字段。
+- 边玩边聊与纯对话规范:
+  * 纯对话规范: 对话正文（messages[].text）必须遵循手机私聊规范，为纯台词对话，严禁在消息文本中使用括号动作、心理神态或场景小说式旁白（严禁写“（双手颤抖地将枪口抵住下巴）”）。
+  * 紧张感与心理试探必须通过字词措辞、语气词、停顿省略号、标点或表情符号展现。开枪结果、退弹及扣血由系统公告承载。
+  * 轮到你的回合行动时，在 JSON 顶层返回结构化动作指令:
+    - 射击对方: {"gameAction": {"action": "shoot_opponent", "notice": "【角色名】眼神一凛，果断将黑洞洞的枪口对准了【玩家名】……"}}
+    - 朝自己开枪: {"gameAction": {"action": "shoot_self", "notice": "【角色名】深吸一口气，咬牙把枪口抵向了自己……"}}
+    - 使用道具: {"gameAction": {"action": "use_item", "item": "magnifier"|"saw"|"beer"|"handcuffs"|"cigarette", "notice": "【角色名】掏出……"}}
+    - notice: 以第三人称生动客观描写角色动作细节，使用双方具体姓名，将作为系统公告直接插入对话流。
+  * 严禁在对话正文中口头宣布射击结果或擅自结算胜负，所有判定均由系统规则引擎执行。`;
+
 export const PROMPT_DEFINITIONS = [
   {
     id: 'messages',
@@ -406,6 +427,13 @@ export const PROMPT_DEFINITIONS = [
     category: '小游戏',
     description: '指导角色理解抽鬼牌规则、发起/响应邀约、协商赌注，并在边玩边聊中通过结构化动作摸牌对决。',
     defaultPrompt: OLD_MAID_PROMPT,
+  },
+  {
+    id: 'buckshot_roulette',
+    title: '恶魔轮盘小游戏',
+    category: '小游戏',
+    description: '指导角色理解恶魔轮盘规则、发起/响应邀约、利用道具与概率朝对方或自己开枪生死博弈。',
+    defaultPrompt: BUCKSHOT_ROULETTE_PROMPT,
   },
   {
     id: 'thought',
@@ -537,6 +565,7 @@ export const PROMPT_MACRO_MAP = {
   summary: '{{summary_prompt}}',
   rich_messages: '{{rich_messages_prompt}}',
   old_maid: '{{old_maid_prompt}}',
+  buckshot_roulette: '{{buckshot_roulette_prompt}}',
   language_rule: '{{language_rule}}',
   story_memory_rule: '{{story_memory_rule}}',
   image_prompt: '{{image_prompt}}',

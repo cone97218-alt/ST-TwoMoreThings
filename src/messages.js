@@ -7,6 +7,15 @@ import { parseTodoCandidates } from './todos.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
 import { replyToMessage } from './replies.js';
 import { createOldMaidInvitation, acceptOldMaidGame, rejectOldMaidGame, aiDrawCard } from './games/old-maid.js';
+import {
+  createBuckshotInvitation,
+  acceptBuckshotGame,
+  rejectBuckshotGame,
+  shootOpponent as buckshotShootOpponent,
+  shootSelf as buckshotShootSelf,
+  useItem as buckshotUseItem,
+  getAiBuckshotDecision,
+} from './games/buckshot-roulette.js';
 
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
@@ -215,18 +224,33 @@ export function createMessageService({ target, store, contextReader, modelClient
         if (!content) return null;
         if (content.type === 'transfer') content.transfer.recipientId = '@user';
         if (content.type === 'game') {
+          const kind = String(content.game?.kind || '').trim() || 'old_maid';
           const wager = String(content.game?.wager || '').trim() || '纯娱乐';
-          const invite = createOldMaidInvitation({ sender: 'ai', wager, userName, contactName });
-          content.game = {
-            kind: 'old_maid',
-            title: '抽鬼牌',
-            gameId: invite.id,
-            status: 'invited',
-            sender: 'ai',
-            wager: invite.wager,
-            state: invite,
-            lastAction: invite.lastAction,
-          };
+          if (kind === 'buckshot_roulette') {
+            const invite = createBuckshotInvitation({ sender: 'ai', wager, userName, contactName });
+            content.game = {
+              kind: 'buckshot_roulette',
+              title: '恶魔轮盘',
+              gameId: invite.id,
+              status: 'invited',
+              sender: 'ai',
+              wager: invite.wager,
+              state: invite,
+              lastAction: invite.lastAction,
+            };
+          } else {
+            const invite = createOldMaidInvitation({ sender: 'ai', wager, userName, contactName });
+            content.game = {
+              kind: 'old_maid',
+              title: '抽鬼牌',
+              gameId: invite.id,
+              status: 'invited',
+              sender: 'ai',
+              wager: invite.wager,
+              state: invite,
+              lastAction: invite.lastAction,
+            };
+          }
           content.text = messageText(content);
         }
         if (content.type === 'poke') {
@@ -272,9 +296,16 @@ export function createMessageService({ target, store, contextReader, modelClient
       }
 
       if (pendingInvite && rawGameAction) {
+        const gameKind = pendingInvite.game?.kind || 'old_maid';
+        const gameTitle = gameKind === 'buckshot_roulette' ? '恶魔轮盘' : '抽鬼牌';
         if (gameActionKind === 'accept' || gameActionKind === 'accepted') {
           const wager = String(typeof rawGameAction === 'object' && rawGameAction.wager ? rawGameAction.wager : pendingInvite.game.wager || '纯娱乐').trim();
-          const startedGame = acceptOldMaidGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user', userName, contactName });
+          let startedGame;
+          if (gameKind === 'buckshot_roulette') {
+            startedGame = acceptBuckshotGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user', userName, contactName });
+          } else {
+            startedGame = acceptOldMaidGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user', userName, contactName });
+          }
           await store.updateGameMessage(id, pendingInvite.id, startedGame);
           if (startedGame.lastAction?.description) {
             messages.push({
@@ -293,13 +324,18 @@ export function createMessageService({ target, store, contextReader, modelClient
             };
             await store.updateGameMessage(id, pendingInvite.id, updatedInvite);
             messages.push({
-              ...record('system', `【${contactName}】提议将抽鬼牌赌注更换为【${newWager}】`, clock, '', context.batch),
+              ...record('system', `【${contactName}】提议将${gameTitle}赌注更换为【${newWager}】`, clock, '', context.batch),
               type: 'game-action',
             });
           }
         } else if (gameActionKind === 'reject' || gameActionKind === 'rejected') {
           const reason = String(typeof rawGameAction === 'object' && rawGameAction.reason ? rawGameAction.reason : '').trim();
-          const rejectedGame = rejectOldMaidGame(pendingInvite.game.state || pendingInvite.game, { reason, contactName });
+          let rejectedGame;
+          if (gameKind === 'buckshot_roulette') {
+            rejectedGame = rejectBuckshotGame(pendingInvite.game.state || pendingInvite.game, { reason, contactName });
+          } else {
+            rejectedGame = rejectOldMaidGame(pendingInvite.game.state || pendingInvite.game, { reason, contactName });
+          }
           await store.updateGameMessage(id, pendingInvite.id, rejectedGame);
         }
       }
@@ -318,22 +354,83 @@ export function createMessageService({ target, store, contextReader, modelClient
         }
       }
 
-      // 进行中的牌局：若轮到对方摸牌，自动出牌推进回合
+      // 进行中的牌局：若轮到对方行动，自动出牌推进回合
       if (activeGameMsg && activeGameMsg.game?.turn === 'ai') {
-        const drawIndex = typeof rawGameAction === 'object' && rawGameAction.drawIndex !== undefined
-          ? Number(rawGameAction.drawIndex)
-          : undefined;
+        const gameKind = activeGameMsg.game?.kind || 'old_maid';
         const customNotice = String(typeof rawGameAction === 'object' && (rawGameAction.notice || rawGameAction.text) ? (rawGameAction.notice || rawGameAction.text) : '').trim();
-        const gameState = activeGameMsg.game.state || activeGameMsg.game;
-        const result = aiDrawCard(gameState, drawIndex, { userName, contactName, customNotice });
-        if (!result.error) {
-          if (activeGameMsg.game.wager) result.game.wager = activeGameMsg.game.wager;
-          await store.updateGameMessage(id, activeGameMsg.id, result.game);
-          if (result.game.lastAction?.description) {
-            messages.push({
-              ...record('system', result.game.lastAction.description, clock, '', context.batch),
-              type: 'game-action',
-            });
+        let currentGameState = activeGameMsg.game.state || activeGameMsg.game;
+
+        if (gameKind === 'buckshot_roulette') {
+          // 恶魔轮盘行动分发：支持连续决策（如使用道具或开枪赌空弹保留回合）
+          let loopCount = 0;
+          while (currentGameState.status === 'playing' && currentGameState.turn === 'ai' && loopCount < 3) {
+            loopCount++;
+            let actionType = typeof rawGameAction === 'object' && loopCount === 1 ? (rawGameAction.action || '') : '';
+            let itemKey = typeof rawGameAction === 'object' && loopCount === 1 ? (rawGameAction.item || '') : '';
+
+            // 如果非首轮循环或模型未给出合法动作，由 AI 算法自主决策兜底
+            if (!actionType || (actionType === 'use_item' && !itemKey)) {
+              const aiDecision = getAiBuckshotDecision(currentGameState);
+              if (!aiDecision) break;
+              actionType = aiDecision.action;
+              itemKey = aiDecision.item;
+            }
+
+            let stepResult = null;
+            if (actionType === 'use_item' && itemKey) {
+              stepResult = buckshotUseItem(currentGameState, {
+                actor: 'ai',
+                itemKey,
+                userName,
+                contactName,
+                customNotice: loopCount === 1 ? customNotice : '',
+              });
+            } else if (actionType === 'shoot_self') {
+              stepResult = buckshotShootSelf(currentGameState, {
+                actor: 'ai',
+                userName,
+                contactName,
+                customNotice: loopCount === 1 ? customNotice : '',
+              });
+            } else {
+              // 默认射击对手
+              stepResult = buckshotShootOpponent(currentGameState, {
+                actor: 'ai',
+                userName,
+                contactName,
+                customNotice: loopCount === 1 ? customNotice : '',
+              });
+            }
+
+            if (stepResult && !stepResult.error && stepResult.game) {
+              currentGameState = stepResult.game;
+              if (activeGameMsg.game.wager) currentGameState.wager = activeGameMsg.game.wager;
+              await store.updateGameMessage(id, activeGameMsg.id, currentGameState);
+              if (currentGameState.lastAction?.description) {
+                messages.push({
+                  ...record('system', currentGameState.lastAction.description, clock, '', context.batch),
+                  type: 'game-action',
+                });
+              }
+            } else {
+              break;
+            }
+          }
+        } else {
+          // 抽鬼牌行动
+          const drawIndex = typeof rawGameAction === 'object' && rawGameAction.drawIndex !== undefined
+            ? Number(rawGameAction.drawIndex)
+            : undefined;
+          const result = aiDrawCard(currentGameState, drawIndex, { userName, contactName, customNotice });
+          if (!result.error) {
+            if (activeGameMsg.game.wager) result.game.wager = activeGameMsg.game.wager;
+            await store.updateGameMessage(id, activeGameMsg.id, result.game);
+            if (result.game.lastAction?.description) {
+              messages.push({
+                ...record('system', result.game.lastAction.description, clock, '', context.batch),
+                type: 'game-action',
+              });
+            }
           }
         }
       } else if (activeGameMsg && typeof rawGameAction === 'object' && rawGameAction.wager) {

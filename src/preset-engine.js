@@ -20,6 +20,7 @@ import {
   STORY_MEMORY_RULE,
   IMAGE_PROMPT,
   OLD_MAID_PROMPT,
+  BUCKSHOT_ROULETTE_PROMPT,
 } from './prompts.js';
 import { shortenMessageId, extractLatestUserInput } from './content.js';
 
@@ -48,6 +49,7 @@ export const PRESET_SLOTS = [
   { macro: '{{summary_prompt}}', name: '短信回流正文记忆摘要', desc: '判断手机短信与待办哪些值得供正文参考' },
   { macro: '{{image_prompt}}', name: '照片转绘图描述提示词', desc: '自拍或照片描述转为生图提示词' },
   { macro: '{{old_maid_prompt}}', name: '抽鬼牌对决规则', desc: '仅单聊：抽鬼牌对决规则、主动邀约、协商赌注与心理战' },
+  { macro: '{{buckshot_roulette_prompt}}', name: '恶魔轮盘对决规则', desc: '仅单聊：恶魔轮盘生死对决、主动邀约、生命道具与概率博弈' },
 ];
 
 export const PRESET_SCOPES = [
@@ -114,6 +116,14 @@ export const DEFAULT_PRESET_ENTRIES = [
     role: 'system',
     enabled: true,
     content: `{{old_maid_prompt}}`,
+  },
+  {
+    id: 'entry_buckshot_rules',
+    name: '恶魔轮盘对决规则',
+    scope: '短信',
+    role: 'system',
+    enabled: true,
+    content: `{{buckshot_roulette_prompt}}`,
   },
   {
     id: 'entry_thought_rules',
@@ -261,7 +271,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 5;
+export const PRESET_SCHEMA_VERSION = 6;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -532,6 +542,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const sumPrompt = getPrompt('summary', state) || SUMMARY_PROMPT;
     const imgPrompt = getPrompt('image_prompt', state) || IMAGE_PROMPT;
     const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
+    const buckshotPrompt = getPrompt('buckshot_roulette', state) || BUCKSHOT_ROULETTE_PROMPT;
 
     content = content
       .replace(/\{\{messages_prompt\}\}/g, msgPrompt)
@@ -545,6 +556,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{todo_suggestions_prompt\}\}/g, todoPrompt)
       .replace(/\{\{rich_messages_prompt\}\}/g, richPrompt)
       .replace(/\{\{old_maid_prompt\}\}/g, oldMaidPrompt)
+      .replace(/\{\{buckshot_roulette_prompt\}\}/g, buckshotPrompt)
       .replace(/\{\{language_rule\}\}/g, langPrompt)
       .replace(/\{\{story_memory_rule\}\}/g, storyMemPrompt)
       .replace(/\{\{contacts_prompt\}\}/g, contactsPrompt)

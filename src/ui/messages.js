@@ -95,7 +95,14 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
 
   if (message.type === 'game-action') {
     const raw = message.gameAction?.text || message.text || '';
-    let displayText = raw.startsWith('[抽鬼牌：') && raw.endsWith(']') ? raw.slice(5, -1) : raw;
+    let displayText = raw;
+    if (displayText.startsWith('[抽鬼牌：') && displayText.endsWith(']')) {
+      displayText = displayText.slice(5, -1);
+    } else if (displayText.startsWith('[小游戏动作：') && displayText.endsWith(']')) {
+      displayText = displayText.slice(7, -1);
+    } else if (displayText.startsWith('[恶魔轮盘：') && displayText.endsWith(']')) {
+      displayText = displayText.slice(6, -1);
+    }
     displayText = displayText
       .replace(/【<user>】/gi, '【你】')
       .replace(/【\{\{user\}\}】/gi, '【你】')
@@ -472,8 +479,8 @@ export function renderChat(state, { ui, busy }) {
     </div>
     ${!ui.multiSelectMode ? replyPreview : ''}${composer}
     ${ui.activeGame ? (ui.gameBoardFolded
-      ? `<button type="button" class="game-floating-pill" data-action="unfold-game-board" aria-label="展开抽鬼牌牌桌">
-          ${icon('gamepad')} 抽鬼牌进行中 · 第 ${ui.activeGame.round || 1} 轮
+      ? `<button type="button" class="game-floating-pill" data-action="unfold-game-board" aria-label="展开对弈面板">
+          ${icon('gamepad')} ${escape(ui.activeGame.title || (ui.activeGame.kind === 'buckshot_roulette' ? '恶魔轮盘' : '抽鬼牌'))}进行中 · 第 ${ui.activeGame.round || 1} 轮
         </button>`
       : renderGameBoard(ui.activeGame, { contact, isGroup, busy })) : ''}
     ${renderEditModal(state, ui, contact.id)}

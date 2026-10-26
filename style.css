@@ -1356,8 +1356,7 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   animation: locate-bubble-flash 1.6s ease-out;
 }
 .poke-notice,
-.withdrawn-notice,
-.game-action-notice {
+.withdrawn-notice {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1372,20 +1371,23 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   background: color-mix(in srgb, var(--pp-paper) 86%, transparent);
   border: 1px solid var(--pp-divider-soft);
 }
-.poke-icon {
-  font-size: 11px;
-}
-.game-action-icon {
+.game-action-notice {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
-}
-.game-action-icon svg {
-  width: 13px;
-  height: 13px;
+  max-width: 88%;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
   color: var(--pp-muted);
-  vertical-align: -1px;
+  background: color-mix(in srgb, var(--pp-paper) 88%, transparent);
+  border: 1px solid var(--pp-divider-soft);
+  word-break: break-word;
+}
+.poke-icon {
+  font-size: 11px;
 }
 .poke-actor,
 .poke-target,
@@ -1413,10 +1415,14 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   font-size: 11px;
   line-height: 1;
   color: var(--pp-muted);
-  opacity: 0.65;
+  opacity: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.15s ease;
+}
+.poke-notice:hover .system-notice-delete {
+  opacity: 0.65;
 }
 .system-notice-delete:hover {
   opacity: 1;

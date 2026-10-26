@@ -11,6 +11,7 @@ import {
   aiDrawCard,
   setBluffCard,
   getAiMicroExpression,
+  cleanParticipantName,
 } from '../src/games/old-maid.js';
 import { normalizeContent, messageText } from '../src/content.js';
 import { renderCardBody } from '../src/ui/cards.js';
@@ -516,16 +517,46 @@ test('Old Maid full flow: invite -> accept -> user draw -> ai auto draw and chat
   const aiChat = [...thread].reverse().find(m => m.role === 'assistant');
   assert.equal(aiChat.text, '让我看看……选这张！');
 
-  // 5. 验证界面元素
+  // 5. 验证界面元素（系统通知药丸纯净整洁，不包含突兀的图标或删除键）
   const chatHtml = renderChat(store.read(), {
     ui: { view: 'messages', contactId: 'c1', visibleMessages: 20, batch: { key: '1' }, drafts: new Map() },
     busy: new Set(),
   });
   assert(chatHtml.includes('game-action-notice'));
-  assert(chatHtml.includes('game-action-icon'));
-  assert(chatHtml.includes('<svg'));
+  assert(chatHtml.includes('game-action-text'));
+  assert(!chatHtml.includes('system-notice-delete'));
+  assert(!chatHtml.includes('game-action-icon'));
 
   const boardHtml = renderGameBoard(game, { contact: { name: '林舟' }, busy: new Set() });
   assert(boardHtml.includes('game-board-drawer'));
   assert(boardHtml.includes('林舟 的手牌'));
+});
+
+test('cleanParticipantName filters <user> macro and renders clean 【你】', () => {
+  const norm1 = cleanParticipantName('<user>', '你');
+  assert.equal(norm1, '你');
+  const norm2 = cleanParticipantName('{{user}}', '你');
+  assert.equal(norm2, '你');
+  const norm3 = cleanParticipantName('玩家', '你');
+  assert.equal(norm3, '玩家');
+
+  const rawNotice = {
+    id: 'm_user_macro',
+    role: 'system',
+    type: 'game-action',
+    text: '对决正式开始！已消除 4 对初始手牌，轮到【<user>】抽牌。',
+    batch: { key: '1' },
+  };
+  const state = {
+    contacts: [{ id: 'c1', name: '林舟' }],
+    conversations: { c1: [rawNotice] },
+  };
+  const html = renderChat(state, {
+    ui: { view: 'messages', contactId: 'c1', visibleMessages: 20, batch: { key: '1' }, drafts: new Map() },
+    busy: new Set(),
+  });
+  assert(html.includes('轮到【你】抽牌'));
+  assert(!html.includes('<user>'));
+  assert(!html.includes('system-notice-delete'));
+  assert(!html.includes('game-action-icon'));
 });

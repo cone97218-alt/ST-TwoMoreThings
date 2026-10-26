@@ -48,22 +48,30 @@ export function messageText(message) {
     }
     case 'game': {
       const g = message.game || {};
-      const title = g.title || (g.kind === 'buckshot_roulette' ? '恶魔轮盘' : (g.kind === 'old_maid' ? '抽鬼牌' : '小游戏'));
+      const isBuckshot = g.kind === 'buckshot_roulette';
+      const title = g.title || (isBuckshot ? '恶魔轮盘' : (g.kind === 'old_maid' ? '抽鬼牌' : '小游戏'));
       const wager = g.wager ? `，赌注：${g.wager}` : '';
       if (g.status === 'invited') {
-        const inviter = g.sender === 'user' ? '玩家向你发起' : '你向玩家发起';
+        const inviter = isBuckshot
+          ? (g.sender === 'user' ? '<user>向角色发起' : '角色向<user>发起')
+          : (g.sender === 'user' ? '玩家向你发起' : '你向玩家发起');
         return `[小游戏邀约：${inviter}${title}对决${wager}；等待回应：可接受并确认赌注、可协商更换赌注、或拒绝]`;
       }
       if (g.status === 'countered') {
-        return `[小游戏邀约：对方提议更换赌注为【${g.wager}】；等待确认]`;
+        return `[小游戏邀约：${isBuckshot ? '提议更换赌注' : '对方提议更换赌注'}为【${g.wager}】；等待确认]`;
       }
       if (g.status === 'rejected') {
         return `[小游戏邀约：${title}对决已被拒绝]`;
       }
       if (g.status === 'finished') {
+        if (isBuckshot) {
+          const winnerName = g.winner === 'user' ? '<user>' : (g.winner === 'ai' ? '角色' : (g.winner || '平局'));
+          return `[小游戏：${title}对决结束${wager}，胜者：${winnerName}]`;
+        }
         return `[小游戏：${title}${wager}；对决结束(${g.winner === 'user' ? '玩家获胜' : '对方获胜'})]`;
       }
-      return `[小游戏：${title}${wager}；对局进行中(第${g.round || 1}轮，轮到${g.turn === 'user' ? '玩家' : '你'}行动)]`;
+      // 开始/进行中时注明开始，去除实时调整轮次注入
+      return `[小游戏：${title}对决开始${wager}]`;
     }
     default: return message.text || '';
   }
@@ -273,7 +281,7 @@ export function formatSingleUserInput(message) {
   return line;
 }
 
-export function extractLatestUserInput(messages) {
+export function extractLatestUserInput(messages, { contactName = '角色', userName = '<user>' } = {}) {
   if (!Array.isArray(messages) || !messages.length) return '';
   let lastUserIdx = -1;
   let lastAssistantIdx = -1;
@@ -289,24 +297,45 @@ export function extractLatestUserInput(messages) {
     if (lastUserIdx !== -1 && lastAssistantIdx !== -1) break;
   }
 
-  // 检查是否有进行中的小游戏或最新对局系统动作
+  // 严格检查是否有正在进行中的对局（对局已完结或终止时，停止注入战局推演提示词）
   const activeGame = messages.find(m => m && !m.withdrawn && m.type === 'game' && m.game?.status === 'playing');
-  const postAssistantMessages = lastAssistantIdx !== -1 ? messages.slice(lastAssistantIdx + 1) : messages;
-  const hasRecentGameAction = postAssistantMessages.some(m => m && !m.withdrawn && (m.type === 'game-action' || m.game?.action === 'draw' || m.game?.action === 'shoot'));
+  const hasActiveGame = Boolean(activeGame && activeGame.game?.status === 'playing');
 
-  const isBuckshot = activeGame?.game?.kind === 'buckshot_roulette';
   let gameActionPrompt = '';
-  if (isBuckshot) {
-    const rawGameState = activeGame?.game?.state || activeGame?.game;
-    const chronicle = formatBuckshotChronicle(rawGameState, { userName: '你', contactName: contact?.name || '对方' });
-    gameActionPrompt = `[恶魔轮盘战局实况与对弈推进]\n${chronicle}\n当前轮到你行动，请在 JSON 顶层返回结构化动作指令（gameAction），并配以纯私聊台词。`;
-  } else {
-    gameActionPrompt = '[小游戏对弈推进] 玩家已完成摸牌（手牌已变动消除），当前轮到你从玩家手牌中抽牌并发表对弈反应与日常台词。';
+  if (hasActiveGame) {
+    const isBuckshot = activeGame.game?.kind === 'buckshot_roulette';
+    if (isBuckshot) {
+      const rawGameState = activeGame.game?.state || activeGame.game;
+      const chronicle = formatBuckshotChronicle(rawGameState, { userName, contactName });
+      const isAiTurn = rawGameState?.turn === 'ai';
+      if (isAiTurn) {
+        gameActionPrompt = `[恶魔轮盘战局实况与对弈推进]
+${chronicle}
+【回合方判定】：当前明确轮到【角色】行动！
+【角色行动指令】：角色必须在 JSON 顶层返回结构化动作指令（gameAction），执行扣动扳机（朝角色自身开枪或朝<user>开枪）或使用战术道具，并在 messages 中输出纯私聊台词。严禁不发 gameAction。`;
+      } else {
+        gameActionPrompt = `[恶魔轮盘战局实况与对弈推进]
+${chronicle}
+【回合方判定】：当前处于【<user>】的回合，等待【<user>】开枪或使用道具！
+【角色行动指令】：当前不是角色的回合，角色严禁在顶层返回 gameAction 动作指令（严禁替<user>开枪或代打）。角色仅在 messages 中以纯私聊台词做出反应（如挑衅、催促、紧张施压或日常闲聊）。`;
+      }
+    } else {
+      const isAiTurn = activeGame.game?.turn === 'ai';
+      if (isAiTurn) {
+        gameActionPrompt = `[小游戏对弈推进]
+【回合方判定】：当前明确轮到【角色】抽牌！
+【角色行动指令】：角色必须在 JSON 顶层返回结构化动作指令（gameAction），从<user>手牌中抽牌，并在 messages 中发表对弈台词。`;
+      } else {
+        gameActionPrompt = `[小游戏对弈推进]
+【回合方判定】：当前处于【<user>】的摸牌回合，等待【<user>】抽牌！
+【角色行动指令】：当前不是角色的回合，角色严禁在顶层返回 gameAction 动作指令。角色仅在 messages 中以纯私聊台词做出反应。`;
+      }
+    }
   }
 
   // 情况 1: 角色已经回复过最后的文本发言 (lastAssistantIdx > lastUserIdx)
   if (lastAssistantIdx !== -1 && lastAssistantIdx > lastUserIdx) {
-    if (activeGame || hasRecentGameAction) {
+    if (hasActiveGame) {
       return gameActionPrompt;
     }
     // 普通对话且无新用户发言（例如用户点继续），返回空，避免重复提醒上上轮的陈旧提问
@@ -314,7 +343,7 @@ export function extractLatestUserInput(messages) {
   }
 
   if (lastUserIdx === -1) {
-    if (activeGame || hasRecentGameAction) {
+    if (hasActiveGame) {
       return gameActionPrompt;
     }
     return '';
@@ -334,7 +363,7 @@ export function extractLatestUserInput(messages) {
   }
 
   const userText = userMessages.map(formatSingleUserInput).filter(Boolean).join('\n');
-  if (activeGame || hasRecentGameAction) {
+  if (hasActiveGame) {
     return userText
       ? `${userText}\n${gameActionPrompt}`
       : gameActionPrompt;
@@ -351,6 +380,8 @@ export function contextMessage(message, thread) {
     ...(shortId ? { id: shortId } : {}),
     ...(message.speakerId ? { speakerId: message.speakerId } : { role: message.role }),
     text: textForModel,
+    ...(message.type === 'game' ? { type: 'game', game: message.game } : {}),
+    ...(message.type === 'game-action' ? { type: 'game-action', gameKind: message.gameKind } : {}),
     ...(message.type === 'sticker' ? { type: 'sticker', stickerId: message.stickerId } : {}),
     ...(message.translation && !message.withdrawn ? { translation: message.translation } : {}),
     ...(message.type === 'transfer' ? { transferId: shortId, recipientId: message.transfer.recipientId, status: message.transfer.status } : {}),

@@ -161,8 +161,12 @@ export function createMessageService({ target, store, contextReader, modelClient
       const state = store.read();
       const activePreset = getActivePreset(state);
 
-      const historySources = (context.history && context.history.length) ? context.history : (state.conversations[id] || []);
-      const latestUserInput = extractLatestUserInput(historySources);
+      const rawThread = state.conversations[id] || [];
+      const historySources = (context.history && context.history.length) ? context.history : rawThread;
+      const latestUserInput = extractLatestUserInput(historySources, {
+        contactName: context.contact?.name || '角色',
+        userName: context.user || '<user>',
+      });
 
       const storyHistoryText = (context.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
       const phoneContextData = sanitizePhoneContext(context);

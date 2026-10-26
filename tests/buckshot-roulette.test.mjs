@@ -448,3 +448,92 @@ test('buckshot: filterFinishedGameActions and isFinishedGameAction filter only c
   assert.equal(countAiTurnsAfterGame(batchThread[0], batchThread), 1);
   assert.equal(isGameActionExpired(batchThread[1], batchThread, 5), false);
 });
+
+test('buckshot: card text formatting and extractLatestUserInput turn precision', async () => {
+  const { messageText, extractLatestUserInput } = await import('../src/content.js');
+
+  // 1. 卡片格式测试：开始时注明开始，结束时注明结束与胜者（使用 <user> 和 角色，无变动轮次）
+  const playCard = {
+    type: 'game',
+    game: { kind: 'buckshot_roulette', status: 'playing', wager: '洗碗一周', round: 2, turn: 'ai' },
+  };
+  assert.equal(messageText(playCard), '[小游戏：恶魔轮盘对决开始，赌注：洗碗一周]');
+
+  const finishCardUserWin = {
+    type: 'game',
+    game: { kind: 'buckshot_roulette', status: 'finished', wager: '洗碗一周', winner: 'user' },
+  };
+  assert.equal(messageText(finishCardUserWin), '[小游戏：恶魔轮盘对决结束，赌注：洗碗一周，胜者：<user>]');
+
+  const finishCardAiWin = {
+    type: 'game',
+    game: { kind: 'buckshot_roulette', status: 'finished', wager: '洗碗一周', winner: 'ai' },
+  };
+  assert.equal(messageText(finishCardAiWin), '[小游戏：恶魔轮盘对决结束，赌注：洗碗一周，胜者：角色]');
+
+  // 2. extractLatestUserInput 战局注入与回合方判定测试
+  const activeGameAiTurn = {
+    id: 'g_active',
+    type: 'game',
+    game: {
+      kind: 'buckshot_roulette',
+      status: 'playing',
+      wager: '真心话',
+      round: 1,
+      turn: 'ai',
+      userHp: 3,
+      aiHp: 2,
+      maxHp: 3,
+      chamber: [true, false],
+      userItems: ['beer'],
+      aiItems: ['saw'],
+    },
+  };
+
+  const msgsAiTurn = [
+    activeGameAiTurn,
+    { id: 'u_shot', role: 'user', text: '轮到你了。' },
+  ];
+
+  const promptAiTurn = extractLatestUserInput(msgsAiTurn, { contactName: 'Seraphina', userName: '旅行者' });
+  assert(promptAiTurn.includes('[恶魔轮盘战局实况与对弈推进]'));
+  assert(promptAiTurn.includes('【回合方判定】：当前明确轮到【角色】行动！'));
+  assert(promptAiTurn.includes('角色必须在 JSON 顶层返回结构化动作指令'));
+  assert(promptAiTurn.includes('【<user>】(旅行者)'));
+  assert(promptAiTurn.includes('【角色】(Seraphina)'));
+  assert(!promptAiTurn.includes('当前轮到你行动'));
+
+  // 当处于 <user> 回合时
+  const activeGameUserTurn = {
+    ...activeGameAiTurn,
+    game: {
+      ...activeGameAiTurn.game,
+      turn: 'user',
+    },
+  };
+  const msgsUserTurn = [
+    activeGameUserTurn,
+    { id: 'a_react', role: 'assistant', text: '我看你敢不敢开枪。' },
+  ];
+  const promptUserTurn = extractLatestUserInput(msgsUserTurn, { contactName: 'Seraphina', userName: '旅行者' });
+  assert(promptUserTurn.includes('【回合方判定】：当前处于【<user>】的回合，等待【<user>】开枪或使用道具！'));
+  assert(promptUserTurn.includes('当前不是角色的回合，角色严禁在顶层返回 gameAction 动作指令'));
+
+  // 3. 对局完结后停止注入测试
+  const finishedGame = {
+    ...activeGameAiTurn,
+    game: {
+      ...activeGameAiTurn.game,
+      status: 'finished',
+      winner: 'user',
+    },
+  };
+  const msgsFinished = [
+    finishedGame,
+    { id: 'u_after', role: 'user', text: '我赢了，履行承诺吧。' },
+  ];
+  const promptFinished = extractLatestUserInput(msgsFinished, { contactName: 'Seraphina', userName: '旅行者' });
+  assert(!promptFinished.includes('[恶魔轮盘战局实况与对弈推进]'));
+  assert(!promptFinished.includes('【回合方判定】'));
+  assert.equal(promptFinished.trim(), '我赢了，履行承诺吧。');
+});

@@ -446,7 +446,10 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       if (phoneContext.userComment?.text) {
         latestUserInput = `用户在动态下的评论：${phoneContext.userComment.text}`;
       } else if (Array.isArray(phoneContext.history)) {
-        latestUserInput = extractLatestUserInput(phoneContext.history);
+        latestUserInput = extractLatestUserInput(phoneContext.history, {
+          contactName: phoneContext.contact?.name || '角色',
+          userName: phoneContext.user || '<user>',
+        });
       } else if (phoneContext.userInstruction) {
         latestUserInput = phoneContext.userInstruction;
       } else if (phoneContext.focusPreference && phoneContext.focusPreference !== '全部') {

@@ -243,18 +243,26 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (inChat()) {
       const convId = conversationId();
       const currentMsgs = state.conversations?.[convId] || [];
-      if (ui.activeGameMessageId) {
-        const found = currentMsgs.find(m => m.id === ui.activeGameMessageId);
-        if (found?.game?.state) {
-          ui.activeGame = found.game.state;
-        } else if (found?.game) {
-          ui.activeGame = found.game;
+      if (!ui.activeGame) {
+        if (ui.activeGameMessageId) {
+          const found = currentMsgs.find(m => m.id === ui.activeGameMessageId);
+          if (found?.game?.state) {
+            ui.activeGame = found.game.state;
+          } else if (found?.game) {
+            ui.activeGame = found.game;
+          }
+        } else {
+          const ongoing = [...currentMsgs].reverse().find(m => m.type === 'game' && m.game?.status === 'playing');
+          if (ongoing) {
+            ui.activeGame = ongoing.game.state || ongoing.game;
+            ui.activeGameMessageId = ongoing.id;
+          }
         }
-      } else {
-        const ongoing = [...currentMsgs].reverse().find(m => m.type === 'game' && m.game?.status === 'playing');
-        if (ongoing) {
-          ui.activeGame = ongoing.game.state || ongoing.game;
-          ui.activeGameMessageId = ongoing.id;
+      } else if (ui.activeGameMessageId) {
+        const found = currentMsgs.find(m => m.id === ui.activeGameMessageId);
+        const storeGame = found?.game?.state || found?.game;
+        if (storeGame && (storeGame.round > ui.activeGame.round || (storeGame.round === ui.activeGame.round && storeGame.turn !== ui.activeGame.turn && storeGame.turn === 'user') || storeGame.status !== ui.activeGame.status)) {
+          ui.activeGame = storeGame;
         }
       }
     }
@@ -726,32 +734,39 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const cardIndex = Number(gameActionEl.dataset.cardIndex);
         const res = userDrawCard(ui.activeGame, cardIndex, { userName, contactName });
         if (!res.error) {
-          ui.activeGame = res.game;
-          const batch = ui.batch;
-          const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
-          const sysMsg = res.game.lastAction?.description ? {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            role: 'system',
-            type: 'game-action',
-            text: res.game.lastAction.description,
-            timeLabel,
-            ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
-            ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
-          } : null;
+          const nextGame = res.game;
+          ui.activeGame = nextGame;
           const targetGameMsgId = ui.activeGameMessageId || (currentStore.conversations[id] || []).find(m => m.type === 'game' && m.game?.status === 'playing')?.id;
           if (targetGameMsgId && !ui.activeGameMessageId) {
             ui.activeGameMessageId = targetGameMsgId;
           }
+          const batch = ui.batch;
+          const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
+          const sysMsg = nextGame.lastAction?.description ? {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            role: 'system',
+            type: 'game-action',
+            text: nextGame.lastAction.description,
+            timeLabel,
+            ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+            ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+          } : null;
+
           void perform(`continue:${id}`, async () => {
             if (targetGameMsgId) {
-              await store.updateGameMessage(id, targetGameMsgId, ui.activeGame);
+              await store.updateGameMessage(id, targetGameMsgId, nextGame);
             }
             if (sysMsg) {
               await store.appendMessages(id, [sysMsg]);
             }
             // 用户抽完牌后自动调用 API 让角色出牌并推进对话，无缝交互
-            if ((ui.activeGame.status === 'playing' && ui.activeGame.turn === 'ai') || ui.activeGame.status === 'finished') {
+            if ((nextGame.status === 'playing' && nextGame.turn === 'ai') || nextGame.status === 'finished') {
               await service.continueChat(id);
+              const latestStore = store.read();
+              const updatedMsg = latestStore.conversations?.[id]?.find(m => m.id === targetGameMsgId);
+              if (updatedMsg?.game) {
+                ui.activeGame = updatedMsg.game.state || updatedMsg.game;
+              }
             }
           }, onContextChange);
         }

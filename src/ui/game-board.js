@@ -16,7 +16,7 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
     const isTarget = isUserTurn;
     return `<button type="button" class="playing-card card-back ${isTarget ? 'pickable' : ''}"
       ${isTarget ? `data-game-action="user-draw" data-card-index="${index}" aria-label="抽取第 ${index + 1} 张牌"` : 'disabled'}
-      ${busy.has(`game:${game.id}`) ? 'disabled' : ''}>
+      ${busy.has(`game:${game.id}`) || (contact?.id && busy.has(`continue:${contact.id}`)) ? 'disabled' : ''}>
       <img src="${escape(cardBackUrl)}" alt="扑克背面" draggable="false" loading="lazy">
     </button>`;
   }).join('');

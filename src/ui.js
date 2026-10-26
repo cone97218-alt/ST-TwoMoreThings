@@ -825,7 +825,6 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       }
       if (gAction === 'urge-wager') {
         const wager = ui.activeGame?.wager || '纯娱乐';
-        const text = `（把手中的对子牌放在桌上）承让啦，这局是我赢了！按照约定的赌注【${wager}】，快快兑现吧~`;
         if (ui.activeGame) {
           ui.activeGame.status = 'finished';
           ui.activeGame.winner = 'user';
@@ -834,20 +833,30 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             store.updateGameMessage(id, ui.activeGameMessageId, ui.activeGame);
           }
         }
+        const batch = ui.batch;
+        const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
+        const sysMsg = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          role: 'system',
+          type: 'game-action',
+          text: `【${userName}】提醒【${contactName}】兑现本局约定的赌注【${wager}】。`,
+          timeLabel,
+          ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+          ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+        };
         ui.activeGame = null;
         ui.activeGameMessageId = '';
         ui.gameBoardFolded = false;
         render();
         onContextChange();
         void perform(`send:${id}`, async () => {
-          await service.send(id, text);
+          await store.appendMessages(id, [sysMsg]);
           await service.continueChat(id);
         }, onContextChange);
         return;
       }
       if (gAction === 'admit-defeat') {
         const wager = ui.activeGame?.wager || '纯娱乐';
-        const text = `（无奈地亮出鬼牌）好吧，是我输了……赌注【${wager}】，你说吧，要我怎么做？`;
         if (ui.activeGame) {
           ui.activeGame.status = 'finished';
           ui.activeGame.winner = 'ai';
@@ -856,13 +865,24 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             store.updateGameMessage(id, ui.activeGameMessageId, ui.activeGame);
           }
         }
+        const batch = ui.batch;
+        const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
+        const sysMsg = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          role: 'system',
+          type: 'game-action',
+          text: `【${userName}】承认落败，等待【${contactName}】提出履行赌注【${wager}】的要求。`,
+          timeLabel,
+          ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+          ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+        };
         ui.activeGame = null;
         ui.activeGameMessageId = '';
         ui.gameBoardFolded = false;
         render();
         onContextChange();
         void perform(`send:${id}`, async () => {
-          await service.send(id, text);
+          await store.appendMessages(id, [sysMsg]);
           await service.continueChat(id);
         }, onContextChange);
         return;
@@ -923,9 +943,6 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           ui.gameBoardFolded = false;
           const batch = ui.batch;
           const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
-          const replyText = gInviteAction === 'accept-counter'
-            ? `没问题，就按你提议的新赌注【${game.wager}】，直接开牌吧！`
-            : `好啊，我接受抽鬼牌对决！赌注就按【${game.wager}】，看谁先抽到鬼牌！`;
           const sysMsg = game.lastAction?.description ? {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             role: 'system',
@@ -935,13 +952,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
             ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
           } : null;
-          void perform(`send:${id}`, async () => {
+          void perform(`game:${msgId}`, async () => {
             await store.updateGameMessage(id, msgId, game);
-            await service.send(id, replyText);
             if (sysMsg) {
               await store.appendMessages(id, [sysMsg]);
             }
-            await service.continueChat(id);
+            if (game.turn === 'ai') {
+              await service.continueChat(id);
+            }
           }, onContextChange);
         } else if (gInviteAction === 'counter') {
           const currentWager = message.game?.wager || '答应赢家一个要求';
@@ -955,7 +973,6 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             };
             const batch = ui.batch;
             const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
-            const replyText = `这赌注不太行，我们换成【${newWager}】怎么样？`;
             const sysMsg = {
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               role: 'system',
@@ -965,20 +982,30 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
               ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
               ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
             };
-            void perform(`send:${id}`, async () => {
+            void perform(`game:${msgId}`, async () => {
               await store.updateGameMessage(id, msgId, updatedInvite);
-              await service.send(id, replyText);
               await store.appendMessages(id, [sysMsg]);
               await service.continueChat(id);
             }, onContextChange);
           }
         } else if (gInviteAction === 'reject') {
           const game = rejectOldMaidGame(message.game.state || message.game, { contactName });
-          store.updateGameMessage(id, msgId, game);
+          const batch = ui.batch;
+          const timeLabel = ui.batch?.clock?.time || new Date().toTimeString().slice(0, 5);
+          const sysMsg = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            role: 'system',
+            type: 'game-action',
+            text: `【${userName}】婉拒了本次抽鬼牌对决邀请。`,
+            timeLabel,
+            ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+            ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+          };
           render();
           onContextChange();
-          void perform(`send:${id}`, async () => {
-            await service.send(id, `抽鬼牌就算了，我今天还有别的事呢。`);
+          void perform(`game:${msgId}`, async () => {
+            await store.updateGameMessage(id, msgId, game);
+            await store.appendMessages(id, [sysMsg]);
             await service.continueChat(id);
           }, onContextChange);
         }

@@ -69,7 +69,62 @@ export function messageText(message) {
   }
 }
 
-// 检查某条 game-action 消息是否属于已完结或已终止的小游戏
+// 计算某个对局结束后，后续经历的 AI 回复轮次（一轮指 AI 的一次完整回复批次，而不是消息条数）
+export function countAiTurnsAfterGame(gameCard, thread = []) {
+  if (!gameCard || !Array.isArray(thread) || !thread.length) return 0;
+  const gameIdx = thread.findIndex(m => m && m.id === gameCard.id);
+  if (gameIdx === -1) return 0;
+
+  // 找到此游戏卡片之后属于此对局的最后一条 game-action（或 gameCard 本身）
+  let lastActionIdx = gameIdx;
+  let lastActionMsg = thread[gameIdx];
+  for (let i = gameIdx + 1; i < thread.length; i++) {
+    const m = thread[i];
+    if (!m) continue;
+    if (m.type === 'game') break; // 遇到了下一局小游戏
+    if (m.type === 'game-action') {
+      lastActionIdx = i;
+      lastActionMsg = m;
+    }
+  }
+
+  const subsequent = thread.slice(lastActionIdx + 1);
+  if (!subsequent.length) return 0;
+
+  const finishBatchKey = lastActionMsg?.batch?.key;
+  const seenAiBatches = new Set();
+  if (finishBatchKey) seenAiBatches.add(finishBatchKey);
+
+  let aiTurns = 0;
+  let inAiTurn = false;
+
+  for (const m of subsequent) {
+    if (!m || m.withdrawn) continue;
+    const isAi = m.role === 'assistant' || (m.speakerId && m.speakerId !== '@user');
+    const isUser = m.role === 'user' || m.speakerId === '@user';
+
+    if (isAi) {
+      const bKey = m.batch?.key;
+      if (bKey) {
+        if (!seenAiBatches.has(bKey)) {
+          seenAiBatches.add(bKey);
+          aiTurns++;
+        }
+      } else {
+        if (!inAiTurn) {
+          aiTurns++;
+          inAiTurn = true;
+        }
+      }
+    } else if (isUser) {
+      inAiTurn = false;
+    }
+  }
+
+  return aiTurns;
+}
+
+// 检查某条 game-action 消息是否属于已完结或已终止的小游戏（用于 UI 折叠等场景）
 export function isFinishedGameAction(message, thread = []) {
   if (!message || message.type !== 'game-action') return false;
   const idx = Array.isArray(thread) ? thread.findIndex(item => item && item.id === message.id) : -1;
@@ -79,11 +134,23 @@ export function isFinishedGameAction(message, thread = []) {
   return gameCard.game?.status === 'finished' || gameCard.game?.status === 'rejected';
 }
 
-// 过滤掉已完结小游戏的中间过程动作，减少大模型上下文 Token 占用
-export function filterFinishedGameActions(messages = [], thread = []) {
+// 检查某条已完结小游戏的动作播报是否已经超过缓冲带轮次（超过才正式清除送模上下文）
+export function isGameActionExpired(message, thread = [], bufferTurns = 5) {
+  if (!isFinishedGameAction(message, thread)) return false;
+  if (bufferTurns <= 0) return true;
+  const idx = Array.isArray(thread) ? thread.findIndex(item => item && item.id === message.id) : -1;
+  const searchSlice = idx !== -1 ? thread.slice(0, idx + 1) : (Array.isArray(thread) ? thread : []);
+  const gameCard = [...searchSlice].reverse().find(item => item && item.type === 'game');
+  if (!gameCard) return false;
+  const elapsedTurns = countAiTurnsAfterGame(gameCard, thread);
+  return elapsedTurns > bufferTurns;
+}
+
+// 过滤掉已完结且超过缓冲轮次的小游戏动作播报，终局 5 轮内保留上下文注入，5 轮后自动清除以减少 Token 占用
+export function filterFinishedGameActions(messages = [], thread = [], bufferTurns = 5) {
   if (!Array.isArray(messages)) return messages;
   const fullThread = Array.isArray(thread) && thread.length ? thread : messages;
-  return messages.filter(m => !isFinishedGameAction(m, fullThread));
+  return messages.filter(m => !isGameActionExpired(m, fullThread, bufferTurns));
 }
 
 export function normalizeContent(item) {

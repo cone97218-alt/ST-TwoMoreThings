@@ -368,7 +368,7 @@ test('buckshot: multi-step AI turn resolves items and ultimately fires weapon', 
 });
 
 test('buckshot: filterFinishedGameActions and isFinishedGameAction filter only completed game actions', async () => {
-  const { isFinishedGameAction, filterFinishedGameActions } = await import('../src/content.js');
+  const { isFinishedGameAction, filterFinishedGameActions, countAiTurnsAfterGame, isGameActionExpired } = await import('../src/content.js');
 
   const thread = [
     { id: 'msg_1', role: 'user', text: '你好' },
@@ -388,7 +388,63 @@ test('buckshot: filterFinishedGameActions and isFinishedGameAction filter only c
   assert.equal(isFinishedGameAction(thread[5], thread), false); // 进行中游戏卡片
   assert.equal(isFinishedGameAction(thread[6], thread), false); // 属于进行中游戏 game_card_2，必须保留！
 
-  const filtered = filterFinishedGameActions(thread, thread);
-  assert.equal(filtered.length, 5);
-  assert.deepEqual(filtered.map(m => m.id), ['msg_1', 'game_card_1', 'msg_2', 'game_card_2', 'act_3']);
+  // bufferTurns = 0 时，立即过滤
+  const filteredImmediate = filterFinishedGameActions(thread, thread, 0);
+  assert.equal(filteredImmediate.length, 5);
+  assert.deepEqual(filteredImmediate.map(m => m.id), ['msg_1', 'game_card_1', 'msg_2', 'game_card_2', 'act_3']);
+
+  // 默认 bufferTurns = 5 时：当前终局后仅有 1 轮 AI 回复（msg_2），处于缓冲带内，中间播报继续保留注入！
+  const filteredWithBuffer = filterFinishedGameActions(thread, thread);
+  assert.equal(filteredWithBuffer.length, 7);
+  assert.equal(isGameActionExpired(thread[2], thread, 5), false);
+
+  // 模拟推进多轮对话：
+  // 轮次 2：用户发言 + AI 回复（多条消息算作 1 轮）
+  thread.push({ id: 'u_2', role: 'user', text: '愿赌服输吗？' });
+  thread.push({ id: 'a_2_1', role: 'assistant', text: '当然愿赌服输。' });
+  thread.push({ id: 'a_2_2', role: 'assistant', text: '你说吧，什么要求？' });
+  assert.equal(countAiTurnsAfterGame(thread[1], thread), 2);
+  assert.equal(isGameActionExpired(thread[2], thread, 5), false);
+
+  // 轮次 3
+  thread.push({ id: 'u_3', role: 'user', text: '陪我看场电影' });
+  thread.push({ id: 'a_3', role: 'assistant', text: '没问题，什么电影？' });
+  assert.equal(countAiTurnsAfterGame(thread[1], thread), 3);
+  assert.equal(isGameActionExpired(thread[2], thread, 5), false);
+
+  // 轮次 4
+  thread.push({ id: 'u_4', role: 'user', text: '科幻片' });
+  thread.push({ id: 'a_4', role: 'assistant', text: '行啊，周六去。' });
+  assert.equal(countAiTurnsAfterGame(thread[1], thread), 4);
+  assert.equal(isGameActionExpired(thread[2], thread, 5), false);
+
+  // 轮次 5（第 5 轮，依然处于缓冲带内，继续保留注入）
+  thread.push({ id: 'u_5', role: 'user', text: '好，不见不散' });
+  thread.push({ id: 'a_5', role: 'assistant', text: '不见不散！' });
+  assert.equal(countAiTurnsAfterGame(thread[1], thread), 5);
+  assert.equal(isGameActionExpired(thread[2], thread, 5), false);
+  assert.equal(filterFinishedGameActions(thread, thread).includes(thread[2]), true);
+
+  // 轮次 6（超过 5 轮缓冲带，正式过期并清除过滤！）
+  thread.push({ id: 'u_6', role: 'user', text: '今天天气真好' });
+  thread.push({ id: 'a_6', role: 'assistant', text: '确实很适合出门。' });
+  assert.equal(countAiTurnsAfterGame(thread[1], thread), 6);
+  assert.equal(isGameActionExpired(thread[2], thread, 5), true);
+  assert.equal(isGameActionExpired(thread[3], thread, 5), true);
+
+  // 测试带有 batch.key 的真实消息流场景：
+  const batchThread = [
+    { id: 'g1', type: 'game', game: { kind: 'buckshot_roulette', status: 'finished', winner: 'ai' } },
+    { id: 'a_act', type: 'game-action', text: '[恶魔轮盘：终结射击]', batch: { key: 'batch_0' } },
+    { id: 'a_speech', role: 'assistant', text: '我赢了！', batch: { key: 'batch_0' } }, // 同一批次终局台词，不计入后续轮次
+  ];
+  assert.equal(countAiTurnsAfterGame(batchThread[0], batchThread), 0);
+  assert.equal(isGameActionExpired(batchThread[1], batchThread, 5), false);
+
+  // 用户发言，AI 在新批次回信（第 1 轮）
+  batchThread.push({ id: 'u1', role: 'user', text: '好吧', batch: { key: 'batch_u1' } });
+  batchThread.push({ id: 'a1_1', role: 'assistant', text: '承认输了？', batch: { key: 'batch_1' } });
+  batchThread.push({ id: 'a1_2', role: 'assistant', text: '那来履行赌注。', batch: { key: 'batch_1' } });
+  assert.equal(countAiTurnsAfterGame(batchThread[0], batchThread), 1);
+  assert.equal(isGameActionExpired(batchThread[1], batchThread, 5), false);
 });

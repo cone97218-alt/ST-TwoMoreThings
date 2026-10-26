@@ -1,7 +1,7 @@
 import { action, avatar, empty, escape, icon, pageHeading, renderEmojiText, renderMentionText } from './shared.js';
 import { displayName } from '../profiles.js';
 import { partitionHistory } from '../timeline.js';
-import { messageText } from '../content.js';
+import { messageText, isFinishedGameAction } from '../content.js';
 import { renderAttachments, renderCardActions, renderCardBody } from './cards.js';
 import { renderGameBoard } from './game-board.js';
 import { chatBackgroundStyle } from '../backgrounds.js';
@@ -389,12 +389,60 @@ export function renderChat(state, { ui, busy }) {
       : displayName(isGroup ? (state.contacts.find(p => p.id === reply.speakerId) || { name: '群成员' }) : contact))
     : '';
   const replyPreview = reply && !observer ? `<div class="reply-preview"><div><small>引用${replySenderName ? ` ${escape(replySenderName)}` : ''}${reply.missing ? ' · 原消息已删除' : ''}</small><span>${reply.missing ? '原消息已删除' : escape(reply.messageText)}</span></div>${action('cancel-reply', '取消引用', 'close', 'icon-button')}</div>` : '';
-  const renderList = (items, readOnly = false) => items.map((message, index) => renderMessage(
-    message, items[index - 1], items[index + 1], {
-      ...messageView, readOnly,
-      contact,
-    },
-  )).join('');
+  const allThread = allMessages;
+  const renderList = (items, readOnly = false) => {
+    const rendered = [];
+    let i = 0;
+    while (i < items.length) {
+      const message = items[i];
+      if (isFinishedGameAction(message, allThread)) {
+        const group = [];
+        let j = i;
+        while (j < items.length && isFinishedGameAction(items[j], allThread)) {
+          group.push(items[j]);
+          j++;
+        }
+        const firstMsg = group[0];
+        const searchSlice = allThread.slice(0, allThread.findIndex(m => m && m.id === firstMsg.id) + 1);
+        const gameCard = [...(searchSlice.length ? searchSlice : allThread)].reverse().find(m => m && m.type === 'game');
+        const gameKind = gameCard?.game?.kind || firstMsg.gameKind || (/实弹|空弹|弹仓|枪口|扣动扳机|放大镜|手锯|啤酒|手铐|香烟/.test(firstMsg.text || '') ? 'buckshot_roulette' : 'old_maid');
+        const gameTitle = gameCard?.game?.title || (gameKind === 'buckshot_roulette' ? '恶魔轮盘' : '抽鬼牌');
+        const foldId = `${gameCard?.id || 'game'}_${firstMsg.id}`;
+        const isExpanded = Boolean(ui.expandedGameFolds && ui.expandedGameFolds.has(foldId));
+
+        const foldBar = `
+          <div class="message-row is-system is-game-fold-row">
+            <button type="button" class="game-action-fold-bar is-clickable ${isExpanded ? 'is-expanded' : ''}" data-action="toggle-game-fold" data-fold-id="${escape(foldId)}" title="点击${isExpanded ? '收起' : '展开'}战况明细">
+              <span class="fold-icon">${icon('gamepad')}</span>
+              <span class="fold-title">${escape(gameTitle)}对决结束</span>
+              <span class="fold-arrow">${isExpanded ? '▴' : '▾'}</span>
+            </button>
+          </div>
+        `;
+        rendered.push(foldBar);
+
+        if (isExpanded) {
+          for (let k = 0; k < group.length; k++) {
+            const m = group[k];
+            rendered.push(renderMessage(m, group[k - 1] || items[i - 1], group[k + 1] || items[j], {
+              ...messageView,
+              readOnly,
+              contact,
+            }));
+          }
+        }
+        i = j;
+      } else {
+        rendered.push(renderMessage(message, items[i - 1], items[i + 1], {
+          ...messageView,
+          readOnly,
+          contact,
+        }));
+        i++;
+      }
+    }
+    return rendered.join('');
+  };
   const historySections = [];
   let remaining = ui.visibleHistory;
   if (ui.historyOpen) for (let index = past.length - 1; index >= 0 && remaining > 0; index--) {
@@ -480,9 +528,9 @@ export function renderChat(state, { ui, busy }) {
     ${!ui.multiSelectMode ? replyPreview : ''}${composer}
     ${ui.activeGame ? (ui.gameBoardFolded
       ? `<button type="button" class="game-floating-pill" data-action="unfold-game-board" aria-label="展开对弈面板">
-          ${icon('gamepad')} ${escape(ui.activeGame.title || (ui.activeGame.kind === 'buckshot_roulette' ? '恶魔轮盘' : '抽鬼牌'))}进行中 · 第 ${ui.activeGame.round || 1} 轮
+          ${icon('gamepad')} ${escape(ui.activeGame.title || (ui.activeGame.kind === 'buckshot_roulette' ? '恶魔轮盘' : '抽鬼牌'))}进行中 · ${ui.activeGame.round || 1} 轮
         </button>`
-      : renderGameBoard(ui.activeGame, { contact, isGroup, busy })) : ''}
+      : renderGameBoard(ui.activeGame, { contact, isGroup, busy, guideOpen: !!ui.gameGuideOpen, guideTab: ui.gameGuideTab || 'guide' })) : ''}
     ${renderEditModal(state, ui, contact.id)}
     ${renderForwardModal(state, ui, contact.id)}
     ${renderFavoritesModal(state, ui, contact, user, isGroup)}`;

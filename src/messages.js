@@ -363,7 +363,7 @@ export function createMessageService({ target, store, contextReader, modelClient
         if (gameKind === 'buckshot_roulette') {
           // 恶魔轮盘行动分发：支持连续决策（如使用道具或开枪赌空弹保留回合）
           let loopCount = 0;
-          while (currentGameState.status === 'playing' && currentGameState.turn === 'ai' && loopCount < 3) {
+          while (currentGameState.status === 'playing' && currentGameState.turn === 'ai' && loopCount < 8) {
             loopCount++;
             let actionType = typeof rawGameAction === 'object' && loopCount === 1 ? (rawGameAction.action || '') : '';
             let itemKey = typeof rawGameAction === 'object' && loopCount === 1 ? (rawGameAction.item || '') : '';
@@ -371,9 +371,12 @@ export function createMessageService({ target, store, contextReader, modelClient
             // 如果非首轮循环或模型未给出合法动作，由 AI 算法自主决策兜底
             if (!actionType || (actionType === 'use_item' && !itemKey)) {
               const aiDecision = getAiBuckshotDecision(currentGameState);
-              if (!aiDecision) break;
-              actionType = aiDecision.action;
-              itemKey = aiDecision.item;
+              if (!aiDecision) {
+                actionType = 'shoot_opponent';
+              } else {
+                actionType = aiDecision.action;
+                itemKey = aiDecision.item;
+              }
             }
 
             let stepResult = null;
@@ -410,10 +413,74 @@ export function createMessageService({ target, store, contextReader, modelClient
                 messages.push({
                   ...record('system', currentGameState.lastAction.description, clock, '', context.batch),
                   type: 'game-action',
+                  gameKind: 'buckshot_roulette',
                 });
               }
+              if (currentGameState.reloadedNotice) {
+                messages.push({
+                  ...record('system', currentGameState.reloadedNotice, clock, '', context.batch),
+                  type: 'game-action',
+                  gameKind: 'buckshot_roulette',
+                });
+                delete currentGameState.reloadedNotice;
+              }
             } else {
+              // 道具使用异常或失败时，兜底执行射击对手，避免回合卡死
+              const fallbackShoot = buckshotShootOpponent(currentGameState, {
+                actor: 'ai',
+                userName,
+                contactName,
+              });
+              if (fallbackShoot && !fallbackShoot.error && fallbackShoot.game) {
+                currentGameState = fallbackShoot.game;
+                if (activeGameMsg.game.wager) currentGameState.wager = activeGameMsg.game.wager;
+                await store.updateGameMessage(id, activeGameMsg.id, currentGameState);
+                if (currentGameState.lastAction?.description) {
+                  messages.push({
+                    ...record('system', currentGameState.lastAction.description, clock, '', context.batch),
+                    type: 'game-action',
+                    gameKind: 'buckshot_roulette',
+                  });
+                }
+                if (currentGameState.reloadedNotice) {
+                  messages.push({
+                    ...record('system', currentGameState.reloadedNotice, clock, '', context.batch),
+                    type: 'game-action',
+                    gameKind: 'buckshot_roulette',
+                  });
+                  delete currentGameState.reloadedNotice;
+                }
+              }
               break;
+            }
+          }
+
+          // 绝对保底：若因道具耗尽或其他原因提前退出循环但回合仍停留在 AI，强制扣动扳机射击对手
+          if (currentGameState.status === 'playing' && currentGameState.turn === 'ai') {
+            const finalShoot = buckshotShootOpponent(currentGameState, {
+              actor: 'ai',
+              userName,
+              contactName,
+            });
+            if (finalShoot && !finalShoot.error && finalShoot.game) {
+              currentGameState = finalShoot.game;
+              if (activeGameMsg.game.wager) currentGameState.wager = activeGameMsg.game.wager;
+              await store.updateGameMessage(id, activeGameMsg.id, currentGameState);
+              if (currentGameState.lastAction?.description) {
+                messages.push({
+                  ...record('system', currentGameState.lastAction.description, clock, '', context.batch),
+                  type: 'game-action',
+                  gameKind: 'buckshot_roulette',
+                });
+              }
+              if (currentGameState.reloadedNotice) {
+                messages.push({
+                  ...record('system', currentGameState.reloadedNotice, clock, '', context.batch),
+                  type: 'game-action',
+                  gameKind: 'buckshot_roulette',
+                });
+                delete currentGameState.reloadedNotice;
+              }
             }
           }
         } else {

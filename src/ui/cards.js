@@ -125,8 +125,8 @@ export function renderAttachments(state, ui, busy, contact, isGroup) {
         <label class="attachment-field">
           <span>对决项目</span>
           <select name="gameKind" aria-label="对决项目">
-            <option value="buckshot_roulette" ${currentKind === 'buckshot_roulette' ? 'selected' : ''}>恶魔轮盘 (Buckshot Roulette)</option>
-            <option value="old_maid" ${currentKind === 'old_maid' ? 'selected' : ''}>抽鬼牌 (Old Maid)</option>
+            <option value="buckshot_roulette" ${currentKind === 'buckshot_roulette' ? 'selected' : ''}>恶魔轮盘</option>
+            <option value="old_maid" ${currentKind === 'old_maid' ? 'selected' : ''}>抽鬼牌</option>
           </select>
         </label>
         <label class="attachment-field">

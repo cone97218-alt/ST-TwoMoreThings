@@ -199,10 +199,25 @@ export function acceptBuckshotGame(inviteOrGame, {
     handcuffed: null,
     userItems,
     aiItems,
+    rounds: [
+      {
+        roundNumber: 1,
+        status: 'ongoing',
+        initialLive: liveCount,
+        initialBlank: blankCount,
+        firedLive: 0,
+        firedBlank: 0,
+        itemsDistributed: { user: [...userItems], ai: [...aiItems] },
+        itemsUsed: [],
+        actions: [
+          { summary: `装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）。双方各获 2 件道具。` },
+        ],
+      },
+    ],
     lastAction: {
       type: 'start',
       actor: starter,
-      description: `对决开始！装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）。双方各获 2 件道具。轮到【${starter === 'user' ? uName : cName}】行动。`,
+      description: `【恶魔轮盘 · 第 1 轮】生死对决开始！装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹），双方各获 2 件战术道具。当前轮到【${starter === 'user' ? uName : cName}】行动。`,
     },
     history: [
       {
@@ -254,6 +269,9 @@ export function checkGameStatus(game, { userName = '你', contactName = '对方'
     game.status = 'finished';
     game.winner = 'ai';
     game.loser = 'user';
+    ensureBuckshotRounds(game);
+    const lastR = game.rounds?.at(-1);
+    if (lastR) lastR.status = 'completed';
     game.lastAction = {
       type: 'game_over',
       actor: 'ai',
@@ -266,6 +284,9 @@ export function checkGameStatus(game, { userName = '你', contactName = '对方'
     game.status = 'finished';
     game.winner = 'user';
     game.loser = 'ai';
+    ensureBuckshotRounds(game);
+    const lastR = game.rounds?.at(-1);
+    if (lastR) lastR.status = 'completed';
     game.lastAction = {
       type: 'game_over',
       actor: 'user',
@@ -278,6 +299,9 @@ export function checkGameStatus(game, { userName = '你', contactName = '对方'
     game.status = 'finished';
     game.winner = null;
     game.loser = null;
+    ensureBuckshotRounds(game);
+    const lastR = game.rounds?.at(-1);
+    if (lastR) lastR.status = 'completed';
     game.lastAction = {
       type: 'game_over',
       actor: 'system',
@@ -295,6 +319,10 @@ export function reloadChamberIfNeeded(game, { userName = '你', contactName = '�
   if (game.chamber.length > 0) return game;
 
   const nextGame = JSON.parse(JSON.stringify(game));
+  ensureBuckshotRounds(nextGame);
+  const prevRound = nextGame.rounds.find(r => r.roundNumber === nextGame.round);
+  if (prevRound) prevRound.status = 'completed';
+
   nextGame.round += 1;
   const { chamber, liveCount, blankCount } = generateChamber(nextGame.round);
 
@@ -305,15 +333,37 @@ export function reloadChamberIfNeeded(game, { userName = '你', contactName = '�
   nextGame.aiKnownNext = null;
   nextGame.sawedOff = false;
 
-  // 双方补充道具（各补 1~2 件，上限 4 件）
+  const prevUserItemsCount = (nextGame.userItems || []).length;
+  const prevAiItemsCount = (nextGame.aiItems || []).length;
   nextGame.userItems = drawRandomItems(nextGame.userItems, 2, 4);
   nextGame.aiItems = drawRandomItems(nextGame.aiItems, 2, 4);
+  const userDealt = nextGame.userItems.slice(prevUserItemsCount);
+  const aiDealt = nextGame.aiItems.slice(prevAiItemsCount);
 
-  const reloadMsg = `弹仓打空，重新装填！装入 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹），双方补发道具。`;
+  const uName = cleanParticipantName(userName, '你');
+  const cName = cleanParticipantName(contactName, '对方');
+  const actorName = nextGame.turn === 'user' ? uName : cName;
+  const reloadMsg = `【恶魔轮盘 · 第 ${nextGame.round} 轮】弹药耗尽，重新装填 ${liveCount + blankCount} 发弹药（${liveCount} 实弹，${blankCount} 空弹）！双方补发战术道具。当前轮到【${actorName}】行动。`;
+
+  nextGame.reloadedNotice = reloadMsg;
   nextGame.history.push({
     round: nextGame.round,
     actor: 'system',
     text: reloadMsg,
+  });
+
+  nextGame.rounds.push({
+    roundNumber: nextGame.round,
+    status: 'ongoing',
+    initialLive: liveCount,
+    initialBlank: blankCount,
+    firedLive: 0,
+    firedBlank: 0,
+    itemsDistributed: { user: userDealt, ai: aiDealt },
+    itemsUsed: [],
+    actions: [
+      { summary: reloadMsg },
+    ],
   });
 
   return nextGame;
@@ -344,17 +394,23 @@ export function shootOpponent(game, {
   const shooterName = actor === 'user' ? uName : cName;
   const targetName = actor === 'user' ? cName : uName;
 
-  let desc = '';
+  let sysResult = '';
   if (isLive) {
     if (actor === 'user') {
       nextGame.aiHp = Math.max(0, nextGame.aiHp - damage);
     } else {
       nextGame.userHp = Math.max(0, nextGame.userHp - damage);
     }
-    desc = customNotice.trim() || `【${shooterName}】将枪口对准【${targetName}】扣动扳机……轰！是实弹！造成 ${damage} 点伤害！`;
+    const finalHp = actor === 'user' ? nextGame.aiHp : nextGame.userHp;
+    sysResult = `轰！是实弹！造成 ${damage} 点致命伤害！【${targetName}】生命值降至 ${finalHp}/${nextGame.maxHp}。`;
   } else {
-    desc = customNotice.trim() || `【${shooterName}】将枪口对准【${targetName}】扣动扳机……咔哒！是空弹！虚惊一场。`;
+    sysResult = `咔哒！是空弹！虚惊一场，未造成伤害，回合移交。`;
   }
+
+  const trimmedNotice = (customNotice || '').trim();
+  const desc = trimmedNotice
+    ? `${trimmedNotice}——${sysResult}`
+    : `【${shooterName}】将枪口对准【${targetName}】扣动扳机……${sysResult}`;
 
   nextGame.lastAction = {
     type: 'shoot_opponent',
@@ -364,6 +420,20 @@ export function shootOpponent(game, {
     wasSawed,
     description: desc,
   };
+
+  ensureBuckshotRounds(nextGame);
+  const curRound = nextGame.rounds.find(r => r.roundNumber === nextGame.round) || nextGame.rounds.at(-1);
+  if (curRound) {
+    if (isLive) curRound.firedLive = (curRound.firedLive || 0) + 1;
+    else curRound.firedBlank = (curRound.firedBlank || 0) + 1;
+    curRound.actions.push({
+      actor,
+      action: 'shoot_opponent',
+      isLive,
+      damage,
+      summary: desc,
+    });
+  }
 
   nextGame.history.push({
     round: nextGame.round,
@@ -425,17 +495,23 @@ export function shootSelf(game, {
   const opponent = actor === 'user' ? 'ai' : 'user';
   const targetName = actor === 'user' ? cName : uName;
 
-  let desc = '';
+  let sysResult = '';
   if (isLive) {
     if (actor === 'user') {
       nextGame.userHp = Math.max(0, nextGame.userHp - damage);
     } else {
       nextGame.aiHp = Math.max(0, nextGame.aiHp - damage);
     }
-    desc = customNotice.trim() || `【${shooterName}】咬牙朝自己开枪……砰！竟是实弹！自身受到 ${damage} 点伤害！`;
+    const finalHp = actor === 'user' ? nextGame.userHp : nextGame.aiHp;
+    sysResult = `砰！竟是实弹！自身受到 ${damage} 点伤害！剩余生命值：${finalHp}/${nextGame.maxHp}，回合移交。`;
   } else {
-    desc = customNotice.trim() || `【${shooterName}】心跳加速朝自己扣动扳机……咔哒！是空弹！赌赢了，获得额外行动机会！`;
+    sysResult = `咔哒！是空弹！赌赢了，获得额外行动机会！仍由【${shooterName}】继续出招。`;
   }
+
+  const trimmedNotice = (customNotice || '').trim();
+  const desc = trimmedNotice
+    ? `${trimmedNotice}——${sysResult}`
+    : `【${shooterName}】将枪口对准自己扣动扳机……${sysResult}`;
 
   nextGame.lastAction = {
     type: 'shoot_self',
@@ -446,6 +522,21 @@ export function shootSelf(game, {
     extraTurn: !isLive,
     description: desc,
   };
+
+  ensureBuckshotRounds(nextGame);
+  const curRound = nextGame.rounds.find(r => r.roundNumber === nextGame.round) || nextGame.rounds.at(-1);
+  if (curRound) {
+    if (isLive) curRound.firedLive = (curRound.firedLive || 0) + 1;
+    else curRound.firedBlank = (curRound.firedBlank || 0) + 1;
+    curRound.actions.push({
+      actor,
+      action: 'shoot_self',
+      isLive,
+      damage,
+      extraTurn: !isLive,
+      summary: desc,
+    });
+  }
 
   nextGame.history.push({
     round: nextGame.round,
@@ -525,15 +616,22 @@ export function useItem(game, {
         nextGame.aiKnownNext = isLive;
       }
       effectDetail = { isLive };
-      // 系统公告仅说明使用了放大镜，保持窥探私密性
-      desc = customNotice.trim() || `【${shooterName}】使用了【放大镜】，悄悄窥视了膛内第一发子弹。`;
+      const trimmedNotice = (customNotice || '').trim();
+      const sysResult = `窥视了膛内第一发子弹的情况（仅自身可见）。`;
+      desc = trimmedNotice
+        ? `${trimmedNotice}——【系统】${sysResult}`
+        : `【${shooterName}】使用了【放大镜】，悄悄窥视了膛内第一发子弹。`;
       break;
     }
 
     case BUCKSHOT_ITEMS.SAW: {
       nextGame.sawedOff = true;
       effectDetail = { sawedOff: true };
-      desc = customNotice.trim() || `【${shooterName}】使用了【手锯】，将霰弹枪枪管切短！下一发实弹将造成 2 点致命伤害！`;
+      const trimmedNotice = (customNotice || '').trim();
+      const sysResult = `枪管已被切短，下一发实弹将造成 2 点致命伤害！`;
+      desc = trimmedNotice
+        ? `${trimmedNotice}——【系统】${sysResult}`
+        : `【${shooterName}】使用了【手锯】，将霰弹枪枪管切短！下一发实弹将造成 2 点致命伤害！`;
       break;
     }
 
@@ -547,7 +645,11 @@ export function useItem(game, {
       nextGame.userKnownNext = null;
       nextGame.aiKnownNext = null;
       effectDetail = { discardedBullet: isLive };
-      desc = customNotice.trim() || `【${shooterName}】拉开一听【啤酒】大口饮下，随手退掉了膛内子弹——铛！退出来的是一发【${isLive ? '实弹' : '空弹'}】！`;
+      const trimmedNotice = (customNotice || '').trim();
+      const sysResult = `退弹生效！退出来的是一发【${isLive ? '实弹' : '空弹'}】！弹仓剩余 ${nextGame.chamber.length} 发。`;
+      desc = trimmedNotice
+        ? `${trimmedNotice}——【系统】${sysResult}`
+        : `【${shooterName}】拉开一听【啤酒】大口饮下，随手退掉了膛内子弹——${sysResult}`;
       break;
     }
 
@@ -557,22 +659,35 @@ export function useItem(game, {
       } else {
         nextGame.handcuffed = opponent;
         effectDetail = { handcuffed: opponent };
-        desc = customNotice.trim() || `【${shooterName}】甩出【手铐】，咔哒一声拷住了【${targetName}】！【${targetName}】将跳过下一个回合！`;
+        const trimmedNotice = (customNotice || '').trim();
+        const sysResult = `手铐锁定成功！【${targetName}】将跳过下一个回合！`;
+        desc = trimmedNotice
+          ? `${trimmedNotice}——【系统】${sysResult}`
+          : `【${shooterName}】甩出【手铐】，咔哒一声拷住了【${targetName}】！【${targetName}】将跳过下一个回合！`;
       }
       break;
     }
 
     case BUCKSHOT_ITEMS.CIGARETTE: {
       const currentHp = userRole ? nextGame.userHp : nextGame.aiHp;
+      let healed = false;
+      let finalHp = currentHp;
       if (currentHp < nextGame.maxHp) {
         if (userRole) nextGame.userHp += 1;
         else nextGame.aiHp += 1;
-        effectDetail = { healed: true };
-        desc = customNotice.trim() || `【${shooterName}】点燃了一根【香烟】深吸一口，舒缓了紧绷的神经，恢复了 1 点生命值。`;
-      } else {
-        effectDetail = { healed: false };
-        desc = customNotice.trim() || `【${shooterName}】点燃了一根【香烟】，但在充盈的体魄下仅作放松消遣（生命值已满）。`;
+        healed = true;
+        finalHp = userRole ? nextGame.userHp : nextGame.aiHp;
       }
+      effectDetail = { healed };
+      const trimmedNotice = (customNotice || '').trim();
+      const sysResult = healed
+        ? `香烟舒缓神经，恢复 1 点生命值！当前生命值：${finalHp}/${nextGame.maxHp}。`
+        : `香烟已吸尽，但生命值已达上限（${finalHp}/${nextGame.maxHp}），未恢复生命。`;
+      desc = trimmedNotice
+        ? `${trimmedNotice}——【系统】${sysResult}`
+        : (healed
+          ? `【${shooterName}】点燃了一根【香烟】深吸一口，舒缓了紧绷的神经，恢复了 1 点生命值（当前：${finalHp}/${nextGame.maxHp}）。`
+          : `【${shooterName}】点燃了一根【香烟】，但在充盈的体魄下仅作放松消遣（生命值已满：${finalHp}/${nextGame.maxHp}）。`);
       break;
     }
 
@@ -587,6 +702,23 @@ export function useItem(game, {
     effectDetail,
     description: desc,
   };
+
+  ensureBuckshotRounds(nextGame);
+  const curRound = nextGame.rounds.find(r => r.roundNumber === nextGame.round) || nextGame.rounds.at(-1);
+  if (curRound) {
+    if (!Array.isArray(curRound.itemsUsed)) curRound.itemsUsed = [];
+    curRound.itemsUsed.push({ actor, item: itemKey });
+    if (itemKey === BUCKSHOT_ITEMS.BEER && effectDetail.discardedBullet !== undefined) {
+      if (effectDetail.discardedBullet) curRound.firedLive = (curRound.firedLive || 0) + 1;
+      else curRound.firedBlank = (curRound.firedBlank || 0) + 1;
+    }
+    curRound.actions.push({
+      actor,
+      action: 'use_item',
+      item: itemKey,
+      summary: desc,
+    });
+  }
 
   nextGame.history.push({
     round: nextGame.round,
@@ -688,6 +820,88 @@ export function getAiBuckshotDecision(game) {
   return Math.random() < 0.6 ? { action: 'shoot_opponent' } : { action: 'shoot_self' };
 }
 
+// 确保战局轮次记录结构完整
+export function ensureBuckshotRounds(game) {
+  if (!game) return game;
+  if (!Array.isArray(game.rounds)) {
+    game.rounds = [];
+  }
+  if (game.rounds.length === 0 && game.round > 0) {
+    game.rounds.push({
+      roundNumber: game.round,
+      status: game.status === 'finished' ? 'completed' : 'ongoing',
+      initialLive: game.initialLive || 0,
+      initialBlank: game.initialBlank || 0,
+      firedLive: 0,
+      firedBlank: 0,
+      itemsDistributed: { user: [...(game.userItems || [])], ai: [...(game.aiItems || [])] },
+      itemsUsed: [],
+      actions: (game.history || []).map(h => ({
+        summary: typeof h === 'string' ? h : (h.text || ''),
+      })),
+    });
+  }
+  return game;
+}
+
+// 格式化输出恶魔轮盘战局全景档案（纯客观记录，帮助 AI 严格区分历史局与当前局）
+export function formatBuckshotChronicle(game, { userName = '你', contactName = '对方' } = {}) {
+  if (!game) return '';
+  ensureBuckshotRounds(game);
+
+  const uName = cleanParticipantName(userName, '你');
+  const cName = cleanParticipantName(contactName, '对方');
+  const currentRoundNum = game.round || 1;
+  const currentRound = game.rounds?.find(r => r.roundNumber === currentRoundNum) || game.rounds?.at(-1) || {
+    roundNumber: currentRoundNum,
+    initialLive: game.initialLive || 0,
+    initialBlank: game.initialBlank || 0,
+    firedLive: 0,
+    firedBlank: 0,
+    actions: [],
+  };
+
+  const chamber = game.chamber || [];
+  const { live: chamberLive, blank: chamberBlank } = getChamberCounts(chamber);
+
+  const formatItemList = items => {
+    if (!items || items.length === 0) return '无道具';
+    return items.map(k => (ITEM_INFO[k]?.name || k)).join('、');
+  };
+
+  const lines = [
+    `【恶魔轮盘 · 战局客观档案（请严格依据实时数据推进，不同轮次严禁混淆）】`,
+    `● 战况概览：`,
+    `  - 双方赌注：【${game.wager || '纯娱乐'}】`,
+    `  - 实时血量：【${uName}】${game.userHp}/${game.maxHp} HP | 【${cName}】${game.aiHp}/${game.maxHp} HP`,
+    `  - 当前行动权：【${game.turn === 'user' ? uName : cName}】`,
+    `  - 枪管状态：${game.sawedOff ? '手锯已锯短（下次实弹造成 2 点致命伤害！）' : '枪管正常（1点伤害）'}`,
+    `  - 手铐限制：${game.handcuffed ? `【${game.handcuffed === 'user' ? uName : cName}】被手铐锁住，本轮将跳过` : '无人被锁'}`,
+    `● 当前第 ${currentRound.roundNumber} 轮实时态势（仅当前轮次生效）：`,
+    `  - 本轮初始装填：${currentRound.initialLive} 实弹，${currentRound.initialBlank} 空弹（共 ${currentRound.initialLive + currentRound.initialBlank} 发）`,
+    `  - 本轮已射出/退出：${currentRound.firedLive || 0} 实弹，${currentRound.firedBlank || 0} 空弹`,
+    `  - 弹仓当前绝对剩余：${chamber.length} 发（内含 ${chamberLive} 实弹、${chamberBlank} 空弹，未知入膛顺序）`,
+    `  - 双方当前剩余可用道具：`,
+    `    * 【${uName}】：${formatItemList(game.userItems)}`,
+    `    * 【${cName}】：${formatItemList(game.aiItems)}`,
+  ];
+
+  if (game.rounds && game.rounds.length > 0) {
+    lines.push(`● 轮次演进纪要（明确区分各局，绝不能将已结束轮次的弹药算入当前局）：`);
+    for (const r of game.rounds) {
+      const isCur = r.roundNumber === currentRound.roundNumber;
+      const statusLabel = isCur ? '进行中' : '已完结';
+      const recentActions = (r.actions || []).slice(-4).map(a => `    * ${a.summary}`).join('\n');
+      lines.push(`  [第 ${r.roundNumber} 轮 · ${statusLabel}] 初始: ${r.initialLive}实${r.initialBlank}空 | 打出: ${r.firedLive || 0}实${r.firedBlank || 0}空`);
+      if (recentActions) {
+        lines.push(recentActions);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // 统计当前弹仓中实弹与空弹的已知数量（供界面与角色提示词呈现）
 export function getChamberCounts(chamber = []) {
   const live = chamber.filter(Boolean).length;
@@ -698,19 +912,27 @@ export function getChamberCounts(chamber = []) {
 // 系统提示词宏定义（供角色端和生成端引用）
 export const BUCKSHOT_SYSTEM_PROMPT = `[小游戏功能规范：恶魔轮盘 (Buckshot Roulette)]
 - 规则说明: 
-  * 霰弹枪装填确定数量的实弹与空弹（顺序未知）。双方各有生命充能点（默认 3 点），生命归零者落败。
+  * 霰弹枪装填已知总数及成分配比的实弹与空弹（序列打乱未知）。双方初始各有生命充能点（默认 3 点），生命归零者落败。
   * 回合行动:
     1. 射击对方: 若为实弹则造成伤害并换回合；若为空弹则无伤并换回合。
-    2. 朝自己开枪: 若为空弹则无伤且【额外获得一次行动机会（仍是自己回合）】；若为实弹则自身受到伤害并交出回合。
-    3. 战术道具: 放大镜(偷看膛内第一发)、手锯(下一发实弹伤害翻倍为2)、啤酒(退掉第一发并揭晓)、手铐(锁住对手跳过其一回合)、香烟(恢复1点生命)。
-- 角色端主动发起:
+    2. 朝自己开枪: 若为空弹则无伤且【额外获得一次行动机会（仍是自己回合继续行动）】；若为实弹则自身受到伤害并交出回合。
+    3. 战术道具: 放大镜(偷看膛内第一发)、手锯(下一发实弹伤害提升至2)、啤酒(退掉第一发并全场揭晓实空)、手铐(锁住对手跳过其一回合)、香烟(恢复1点生命)。
+- 角色端主动发起: 
   * 当觉得时机合适想找对方玩这场生死博弈时，可在 messages 中发送邀约卡: {"type":"game","game":{"kind":"buckshot_roulette","action":"invite","wager":"具体的赌注或惩罚"}}，并配以挑衅或邀约台词。
-- 响应邀请与协商赌注:
-  * 当收到玩家发来的恶魔轮盘邀请时，须在消息正文中表态是否接受；并在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。若想更换赌注，可在正文提出并在顶层返回 {"gameAction":"counter","wager":"新赌注"}。
-- 边玩边聊与纯对话规范:
-  * 纯对话规范: 对话正文（messages[].text）必须遵循手机私聊规范，为纯台词对话，严禁使用括号动作、心理或场景小说式旁白（如不要写“（双手颤抖地把枪管抵在下巴）”）。
-  * 情绪通过线上打字习惯（短句、标点、emoji、语气词、垃圾话或紧张感）表达。开枪结果、扣血与道具效果由系统公告播报。
-  * 当轮到你的回合行动时，在 JSON 顶层返回 gameAction 动作指令:
-    - 射击对方: {"gameAction": {"action": "shoot_opponent", "notice": "【角色名】眼神一凛，果断将黑洞洞的枪口对准了【玩家名】……"}}
-    - 朝自己开枪: {"gameAction": {"action": "shoot_self", "notice": "【角色名】深吸一口气，咬牙把枪口抵向了自己……"}}
-    - 使用道具: {"gameAction": {"action": "use_item", "item": "magnifier" | "saw" | "beer" | "handcuffs" | "cigarette", "notice": "【角色名】掏出……"}}`;
+- 响应邀请与协商赌注: 
+  * 当收到对战邀请时，须在消息正文中表态是否接受；并在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。若想更换赌注，可在正文提出并在顶层返回 {"gameAction":"counter","wager":"新赌注"}。
+  * 对弈进行中若想变更赌注，可在顶层 gameAction 中带上 wager 字段。
+- 边玩边聊与双轨表现规范（角色私聊反应 + 系统裁决播报）:
+  * 1. 角色私聊反应（messages[].text）:
+    - 必须严格遵循手机私聊规范，为纯台词对话，严禁在消息文本中使用括号动作、心理神态或场景小说式旁白（严禁写“（双手颤抖地将枪口抵住下巴）”）。
+    - 针对上一轮的对局变化（如自己或对方挨了一记实弹扣血、对方赌自己空弹成功继续扣扳机、双方血量差距等），角色必须在私聊台词中作出鲜活真实的情绪反应（挑衅、恐慌、痛哼咬牙、得意嘲弄或心理施压）。
+  * 2. 角色动作与系统播报（顶层 gameAction）:
+    - 轮到你的回合行动时，在 JSON 顶层返回结构化动作指令。
+    - notice 字段: 由你撰写以第三人称生动描摹角色扣动扳机或使用道具的动作与神态，必须使用双方具体姓名（如【角色名】眼神一凛，果断将黑洞洞的枪口对准了【玩家名】……）。
+    - 系统裁决播报: 系统规则引擎会自动在你的动作描摹后拼接实弹/空弹裁决、伤害计算、双方剩余生命值或道具具体生效通知，作为不可篡改的系统消息播报在对话流中。
+    - 动作指令格式:
+      * 射击对方: {"gameAction": {"action": "shoot_opponent", "notice": "【角色名】眼神一凛，果断将黑洞洞的枪口对准了【玩家名】……"}}
+      * 朝自己开枪: {"gameAction": {"action": "shoot_self", "notice": "【角色名】深吸一口气，咬牙把枪口抵向了自己……"}}
+      * 使用道具: {"gameAction": {"action": "use_item", "item": "magnifier"|"saw"|"beer"|"handcuffs"|"cigarette", "notice": "【角色名】掏出……"}}
+  * 3. 严禁代打与擅自判定:
+    - 严禁在对话正文中擅自宣判射击是实弹还是空弹、扣了多少血或擅自宣告终局胜负，所有判定均以底层系统播报为准。终局后输家须在后续对话中履行约定的赌注。`;

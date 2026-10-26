@@ -54,6 +54,11 @@ const icons = {
   'role-assistant': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><rect x="4" y="6" width="16" height="12" rx="3"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><path d="M12 2v4m-4 16v-2m8 2v-2"/></g>',
   clock: '<path fill="currentColor" fill-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm.75 5a.75.75 0 0 0-1.5 0v5c0 .26.13.5.35.64l3.5 2.25a.75.75 0 1 0 .8-1.28l-3.15-2.02V7z" clip-rule="evenodd"/>',
   'chevron-right': '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 6l6 6-6 6"/>',
+  magnifier: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></g>',
+  saw: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M4 16v-4a2 2 0 0 1 2-2h2l11-4v10l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-3 1.5z"/><circle cx="6" cy="13" r="1"/></g>',
+  beer: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M6 9v9a2 2 0 0 0 2 2h5a2 2 0 0 0 2-2V9"/><path d="M15 11h2.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M6 9c0-1.5 1-2.5 2-2.5s1.5.5 2.5.5 1.5-.5 2.5-.5 2 1 2 2.5"/><path d="M9 13v4m3-4v4"/></g>',
+  handcuffs: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><circle cx="7" cy="14" r="4"/><circle cx="17" cy="10" r="4"/><path d="M10.5 12.5l3-1.5M7 10V7a2 2 0 0 1 2-2h1M17 14v3a2 2 0 0 1-2 2h-1"/></g>',
+  cigarette: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><rect x="3" y="14" width="18" height="5" rx="1.5"/><path d="M8 14v5"/><path d="M16.5 11c0-1.8 1.5-1.8 1.5-3.5S16.5 5.7 16.5 4m-4 7c0-1.8 1.5-1.8 1.5-3.5s-1.5-1.8-1.5-3.5"/></g>',
 };
 export const asset = name => new URL(`../../assets/${name}`, import.meta.url).href;
 export const icon = name => ['messages', 'forum'].includes(name)

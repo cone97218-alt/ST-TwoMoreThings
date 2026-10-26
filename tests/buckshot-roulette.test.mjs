@@ -14,9 +14,11 @@ import {
   useItem,
   getAiBuckshotDecision,
   getChamberCounts,
+  formatBuckshotChronicle,
 } from '../src/games/buckshot-roulette.js';
 import { renderGameBoard } from '../src/ui/game-board.js';
 import { renderCardBody, renderCardActions } from '../src/ui/cards.js';
+import { messageText } from '../src/content.js';
 
 test('buckshot: generateChamber generates valid chamber with live and blank bullets', () => {
   const c1 = generateChamber(1);
@@ -234,10 +236,38 @@ test('buckshot: renderGameBoard renders buckshot UI correctly', () => {
   assert.ok(html.includes('buckshot-drawer'));
   assert.ok(html.includes('恶魔轮盘'));
   assert.ok(html.includes('惩罚真心话'));
+  assert.ok(html.includes('<span class="game-round-pill">1 轮</span>'));
+  assert.ok(!html.includes('shoot-sub'));
+  assert.ok(!html.includes('实弹造成伤害，空弹虚惊一场'));
+  assert.ok(!html.includes('点击立即使用'));
+  assert.ok(!html.includes('<small>'));
+  assert.ok(html.includes('data-action="toggle-game-guide"'));
   assert.ok(html.includes('data-buckshot-action="shoot-opponent"'));
   assert.ok(html.includes('data-buckshot-action="shoot-self"'));
   assert.ok(html.includes('放大镜'));
   assert.ok(html.includes('啤酒'));
+
+  const guideHtml = renderGameBoard(game, {
+    contact: { id: 'alice', name: '爱丽丝' },
+    isGroup: false,
+    busy: new Set(),
+    guideOpen: true,
+  });
+  assert.ok(guideHtml.includes('game-guide-view'));
+  assert.ok(guideHtml.includes('规则图鉴'));
+  assert.ok(guideHtml.includes('手锯'));
+  assert.ok(guideHtml.includes('香烟'));
+  assert.ok(guideHtml.includes('手铐'));
+
+  const chronicleHtml = renderGameBoard(game, {
+    contact: { id: 'alice', name: '爱丽丝' },
+    isGroup: false,
+    busy: new Set(),
+    guideOpen: true,
+    guideTab: 'chronicle',
+  });
+  assert.ok(chronicleHtml.includes('game-chronicle-view'));
+  assert.ok(chronicleHtml.includes('第 1 轮'));
 });
 
 test('buckshot: renderCardBody and renderCardActions render game invitation correctly', () => {
@@ -269,4 +299,96 @@ test('buckshot: renderCardBody and renderCardActions render game invitation corr
   });
   assert.ok(actionsHtml.includes('接受对决'));
   assert.ok(actionsHtml.includes('拒绝'));
+});
+
+test('buckshot: formatBuckshotChronicle creates structured battle record', () => {
+  const game = createBuckshotGame({ wager: '俯卧撑20个', userName: '指挥官', contactName: '爱丽丝' });
+  shootSelf(game, { actor: 'user', userName: '指挥官', contactName: '爱丽丝' });
+  const chronicle = formatBuckshotChronicle(game, { userName: '指挥官', contactName: '爱丽丝' });
+
+  assert.ok(chronicle.includes('恶魔轮盘 · 战局客观档案'));
+  assert.ok(chronicle.includes('俯卧撑20个'));
+  assert.ok(chronicle.includes('第 1 轮'));
+  assert.ok(chronicle.includes('初始:'));
+});
+
+test('buckshot: messageText outputs [恶魔轮盘：...] instead of [抽鬼牌：...]', () => {
+  const gameActionMsg = {
+    id: 'ga_1',
+    type: 'game-action',
+    gameKind: 'buckshot_roulette',
+    text: '【爱丽丝】心跳加速朝自己扣动扳机……咔哒！是空弹！赌赢了，获得额外行动机会！',
+  };
+  const txt = messageText(gameActionMsg);
+  assert.ok(txt.startsWith('[恶魔轮盘：'));
+  assert.ok(!txt.includes('[抽鬼牌：'));
+});
+
+test('buckshot: reloadChamberIfNeeded generates reloadedNotice when chamber empties', () => {
+  const game = createBuckshotGame({ maxHp: 4, starter: 'user', userName: '指挥官', contactName: '爱丽丝' });
+  game.chamber = [false]; // 仅剩 1 发空弹
+  game.round = 1;
+
+  const res = shootOpponent(game, { actor: 'user', userName: '指挥官', contactName: '爱丽丝' });
+  assert.equal(res.game.round, 2);
+  assert.ok(res.game.chamber.length > 0);
+  assert.ok(res.game.reloadedNotice);
+  assert.ok(res.game.reloadedNotice.includes('【恶魔轮盘 · 第 2 轮】'));
+  assert.ok(res.game.reloadedNotice.includes('重新装填'));
+  assert.ok(res.game.reloadedNotice.includes('爱丽丝'));
+});
+
+test('buckshot: multi-step AI turn resolves items and ultimately fires weapon', () => {
+  const game = createBuckshotGame({ maxHp: 3, starter: 'ai', userName: '你', contactName: 'Seraphina' });
+  game.chamber = [true, false]; // 实弹，空弹
+  game.aiItems = [BUCKSHOT_ITEMS.MAGNIFIER, BUCKSHOT_ITEMS.SAW];
+  game.turn = 'ai';
+
+  let currentGameState = game;
+  let loopCount = 0;
+  while (currentGameState.status === 'playing' && currentGameState.turn === 'ai' && loopCount < 8) {
+    loopCount++;
+    const aiDecision = getAiBuckshotDecision(currentGameState) || { action: 'shoot_opponent' };
+    if (aiDecision.action === 'use_item') {
+      const res = useItem(currentGameState, { actor: 'ai', itemKey: aiDecision.item, userName: '你', contactName: 'Seraphina' });
+      currentGameState = res.game;
+    } else if (aiDecision.action === 'shoot_self') {
+      const res = shootSelf(currentGameState, { actor: 'ai', userName: '你', contactName: 'Seraphina' });
+      currentGameState = res.game;
+    } else {
+      const res = shootOpponent(currentGameState, { actor: 'ai', userName: '你', contactName: 'Seraphina' });
+      currentGameState = res.game;
+    }
+  }
+
+  // 验证 AI 成功连续使用放大镜、手锯，并最终开火射击对手，回合顺利移交
+  assert.equal(currentGameState.turn, 'user');
+  assert.equal(currentGameState.userHp, 1); // 3 - 2 伤害 = 1
+  assert.equal(loopCount, 3); // 1.放大镜 -> 2.手锯 -> 3.射击
+});
+
+test('buckshot: filterFinishedGameActions and isFinishedGameAction filter only completed game actions', async () => {
+  const { isFinishedGameAction, filterFinishedGameActions } = await import('../src/content.js');
+
+  const thread = [
+    { id: 'msg_1', role: 'user', text: '你好' },
+    { id: 'game_card_1', type: 'game', game: { kind: 'buckshot_roulette', status: 'finished', winner: 'user' } },
+    { id: 'act_1', type: 'game-action', text: '[恶魔轮盘：【你】扣动扳机……轰！是实弹！]' },
+    { id: 'act_2', type: 'game-action', text: '[恶魔轮盘：【Seraphina】倒下！]' },
+    { id: 'msg_2', role: 'assistant', text: '哈哈我输了' },
+    { id: 'game_card_2', type: 'game', game: { kind: 'buckshot_roulette', status: 'playing' } },
+    { id: 'act_3', type: 'game-action', text: '[恶魔轮盘：【你】使用了【手锯】]' },
+  ];
+
+  assert.equal(isFinishedGameAction(thread[0], thread), false); // 普通消息不属于 action
+  assert.equal(isFinishedGameAction(thread[1], thread), false); // 游戏卡片不属于 action
+  assert.equal(isFinishedGameAction(thread[2], thread), true);  // 属于已完结游戏 game_card_1
+  assert.equal(isFinishedGameAction(thread[3], thread), true);  // 属于已完结游戏 game_card_1
+  assert.equal(isFinishedGameAction(thread[4], thread), false); // 助手普通消息
+  assert.equal(isFinishedGameAction(thread[5], thread), false); // 进行中游戏卡片
+  assert.equal(isFinishedGameAction(thread[6], thread), false); // 属于进行中游戏 game_card_2，必须保留！
+
+  const filtered = filterFinishedGameActions(thread, thread);
+  assert.equal(filtered.length, 5);
+  assert.deepEqual(filtered.map(m => m.id), ['msg_1', 'game_card_1', 'msg_2', 'game_card_2', 'act_3']);
 });

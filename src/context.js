@@ -3,7 +3,7 @@ import { parseJsonObject } from './api.js';
 import { getPrompt, SUMMARY_PROMPT } from './prompts.js';
 import { latestAiFloor } from './time.js';
 import { readTimeline, currentMessages } from './timeline.js';
-import { contextMessage, messageText } from './content.js';
+import { contextMessage, messageText, filterFinishedGameActions } from './content.js';
 import { stickerChoices } from './stickers.js';
 import { emojiChoices } from './emojis.js';
 import { createCalendarReader } from './calendar.js';
@@ -160,8 +160,9 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const state = store.read(), contact = state.contacts.find(x => x.id === id);
       if (!contact) throw new Error('这个联系人已不存在，请返回短信重新选择。');
       const current = base(layers);
-      const history = phoneHistory(state, id, current.batch);
-      const previousMessages = recentPhoneHistory(state, id, current.batch.key);
+      const thread = state.conversations[id] || [];
+      const history = filterFinishedGameActions(phoneHistory(state, id, current.batch), thread);
+      const previousMessages = filterFinishedGameActions(recentPhoneHistory(state, id, current.batch.key), thread);
       const todos = relevantTodos(state, [id]);
       const social = publicSocialContext(state);
       const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'));
@@ -235,8 +236,9 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const state = store.read(), group = state.groups?.find(item => item.id === id);
       if (!group) throw new Error('这个群聊已不存在，请返回短信重新选择。');
       const current = base(layers);
-      const history = phoneHistory(state, id, current.batch);
-      const previousMessages = recentPhoneHistory(state, id, current.batch.key);
+      const thread = state.conversations[id] || [];
+      const history = filterFinishedGameActions(phoneHistory(state, id, current.batch), thread);
+      const previousMessages = filterFinishedGameActions(recentPhoneHistory(state, id, current.batch.key), thread);
       const todos = relevantTodos(state, group.memberIds);
       const social = publicSocialContext(state);
       const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'));
@@ -308,9 +310,9 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
           return floor === null || floor < beforeIndex;
         });
         for (const person of [...state.contacts, ...(state.groups || []).filter(group => group.userIsMember)]) {
-          const messages = phoneHistory(state, person.id, batch);
-          if (!messages.length) continue;
           const thread = state.conversations[person.id] || [];
+          const messages = filterFinishedGameActions(phoneHistory(state, person.id, batch), thread);
+          if (!messages.length) continue;
           conversations.push({ id: person.id, name: person.name, kind: person.memberIds ? 'group' : 'private', knownToIds: person.memberIds ? ['@user', ...person.memberIds] : ['@user', person.id], messages: messages.map(message => {
             const replyTo = replyContext(message, thread);
             return { id: message.id,

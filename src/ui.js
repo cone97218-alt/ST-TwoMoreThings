@@ -122,7 +122,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     calendarAiSetting: '', calendarAiCount: 3, calendarAiDays: 3, calendarAiFocus: '全部',
     calendarAiFestivals: [], calendarAiSchedules: [], calendarAiBusy: false,
     todoEditing: new Set(), todoDrafts: new Map(),
-    activeGame: null, activeGameMessageId: '', gameBoardFolded: false,
+    activeGame: null, activeGameMessageId: '', gameBoardFolded: false, gameGuideOpen: false, gameGuideTab: 'guide',
     replyToId: '',
     reactionMoreMessageId: '',
     thoughtMessageId: '',
@@ -772,6 +772,19 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const contact = currentStore.contacts?.find(p => p.id === id);
       const contactName = displayName(contact) || '对方';
 
+      if (bAction === 'ai-turn-continue') {
+        const targetGameMsgId = ui.activeGameMessageId || (currentStore.conversations[id] || []).find(m => m.type === 'game' && m.game?.status === 'playing')?.id;
+        void perform(`continue:${id}`, async () => {
+          await service.continueChat(id);
+          const latestStore = store.read();
+          const updatedMsg = latestStore.conversations?.[id]?.find(m => m.id === targetGameMsgId);
+          if (updatedMsg?.game) {
+            ui.activeGame = updatedMsg.game.state || updatedMsg.game;
+          }
+        }, onContextChange);
+        return;
+      }
+
       let stepResult = null;
       if (bAction === 'shoot-opponent') {
         stepResult = buckshotShootOpponent(ui.activeGame, { actor: 'user', userName, contactName });
@@ -795,18 +808,32 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           role: 'system',
           type: 'game-action',
+          gameKind: nextGame.kind,
           text: nextGame.lastAction.description,
           timeLabel,
           ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
           ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
         } : null;
 
+        const reloadSysMsg = nextGame.reloadedNotice ? {
+          id: `${Date.now() + 1}-${Math.random().toString(36).slice(2, 7)}`,
+          role: 'system',
+          type: 'game-action',
+          gameKind: nextGame.kind,
+          text: nextGame.reloadedNotice,
+          timeLabel,
+          ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
+          ...(batch?.clock?.source === 'story' ? { storyDate: batch.clock.date, storyWeekday: batch.clock.weekday } : {}),
+        } : null;
+        delete nextGame.reloadedNotice;
+
         void perform(`continue:${id}`, async () => {
           if (targetGameMsgId) {
             await store.updateGameMessage(id, targetGameMsgId, nextGame);
           }
-          if (sysMsg) {
-            await store.appendMessages(id, [sysMsg]);
+          const msgsToAppend = [sysMsg, reloadSysMsg].filter(Boolean);
+          if (msgsToAppend.length > 0) {
+            await store.appendMessages(id, msgsToAppend);
           }
           // 当轮到 AI 行动，或游戏终局结算时，自动唤醒模型回话对决
           if ((nextGame.status === 'playing' && nextGame.turn === 'ai') || nextGame.status === 'finished') {
@@ -1525,11 +1552,38 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'choose-location': ui.attachment = 'location'; ui.attachmentDraft = {}; render(); break;
       case 'choose-transfer': ui.attachment = 'transfer'; ui.attachmentDraft = { currency: 'CNY' }; render(); break;
       case 'choose-games': ui.attachment = 'games'; ui.attachmentDraft = { wager: '答应赢家一个要求' }; render(); break;
-      case 'fold-game-board': ui.gameBoardFolded = true; render(); break;
+      case 'fold-game-board': ui.gameBoardFolded = true; ui.gameGuideOpen = false; render(); break;
       case 'unfold-game-board': ui.gameBoardFolded = false; render(); break;
-      case 'close-game-board': ui.activeGame = null; ui.activeGameMessageId = ''; render(); break;
+      case 'close-game-board': {
+        if (ui.activeGame?.status === 'playing') {
+          ui.gameBoardFolded = true;
+          ui.gameGuideOpen = false;
+        } else {
+          ui.activeGame = null;
+          ui.activeGameMessageId = '';
+          ui.gameBoardFolded = false;
+          ui.gameGuideOpen = false;
+        }
+        render();
+        break;
+      }
+      case 'close-game-guide': ui.gameGuideOpen = false; render(); break;
+      case 'toggle-game-guide': ui.gameGuideOpen = !ui.gameGuideOpen; render(); break;
+      case 'switch-game-guide-tab': ui.gameGuideTab = button.dataset.guideTab || 'guide'; render(); break;
+      case 'toggle-game-fold': {
+        const foldId = button.dataset.foldId;
+        if (!ui.expandedGameFolds) ui.expandedGameFolds = new Set();
+        if (ui.expandedGameFolds.has(foldId)) {
+          ui.expandedGameFolds.delete(foldId);
+        } else {
+          ui.expandedGameFolds.add(foldId);
+        }
+        render();
+        break;
+      }
       case 'surrender-game': {
         if (ui.activeGame && ui.activeGame.status === 'playing') {
+          const gameKind = ui.activeGame.kind;
           ui.activeGame.status = 'finished';
           ui.activeGame.winner = 'ai';
           ui.activeGame.loser = 'user';
@@ -1541,6 +1595,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             role: 'system',
             type: 'game-action',
+            gameKind,
             text: '你选择提前认输，对方获得了胜利！',
             timeLabel,
             ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),

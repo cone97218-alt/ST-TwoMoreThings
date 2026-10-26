@@ -1,5 +1,6 @@
 import { findSticker } from './stickers.js';
 import { replyContext } from './replies.js';
+import { formatBuckshotChronicle } from './games/buckshot-roulette.js';
 
 const text = value => typeof value === 'string' ? value.trim() : '';
 const states = { pending: '待收款', accepted: '已收下', returned: '已退回' };
@@ -29,8 +30,21 @@ export function messageText(message) {
     case 'poke': return `[拍一拍：${message.poke?.actorName || '对方'}拍了拍${message.poke?.targetName || '你'}${message.poke?.suffix || '的头像'}]`;
     case 'game-action': {
       const txt = message.gameAction?.text || message.text || '';
-      const inner = txt.startsWith('[抽鬼牌：') && txt.endsWith(']') ? txt.slice(5, -1) : (txt.startsWith('[') && txt.endsWith(']') ? txt.slice(1, -1) : txt);
-      return `[抽鬼牌：${inner || '牌局变动'}]`;
+      const prefixMatch = txt.match(/^\[(抽鬼牌|恶魔轮盘|小游戏动作|小游戏)：(.*)\]$/);
+      const inner = prefixMatch ? prefixMatch[2] : (txt.startsWith('[') && txt.endsWith(']') ? txt.slice(1, -1) : txt);
+      let gameTitle = '小游戏动作';
+      if (message.gameKind === 'buckshot_roulette' || message.gameAction?.gameKind === 'buckshot_roulette') {
+        gameTitle = '恶魔轮盘';
+      } else if (message.gameKind === 'old_maid' || message.gameAction?.gameKind === 'old_maid') {
+        gameTitle = '抽鬼牌';
+      } else if (prefixMatch) {
+        gameTitle = prefixMatch[1];
+      } else if (/实弹|空弹|弹仓|枪口|扣动扳机|放大镜|手锯|啤酒|手铐|香烟/.test(inner)) {
+        gameTitle = '恶魔轮盘';
+      } else if (/抽牌|摸牌|鬼牌|配对|手牌/.test(inner)) {
+        gameTitle = '抽鬼牌';
+      }
+      return `[${gameTitle}：${inner || '战局变动'}]`;
     }
     case 'game': {
       const g = message.game || {};
@@ -53,6 +67,23 @@ export function messageText(message) {
     }
     default: return message.text || '';
   }
+}
+
+// 检查某条 game-action 消息是否属于已完结或已终止的小游戏
+export function isFinishedGameAction(message, thread = []) {
+  if (!message || message.type !== 'game-action') return false;
+  const idx = Array.isArray(thread) ? thread.findIndex(item => item && item.id === message.id) : -1;
+  const searchSlice = idx !== -1 ? thread.slice(0, idx + 1) : (Array.isArray(thread) ? thread : []);
+  const gameCard = [...searchSlice].reverse().find(item => item && item.type === 'game');
+  if (!gameCard) return false;
+  return gameCard.game?.status === 'finished' || gameCard.game?.status === 'rejected';
+}
+
+// 过滤掉已完结小游戏的中间过程动作，减少大模型上下文 Token 占用
+export function filterFinishedGameActions(messages = [], thread = []) {
+  if (!Array.isArray(messages)) return messages;
+  const fullThread = Array.isArray(thread) && thread.length ? thread : messages;
+  return messages.filter(m => !isFinishedGameAction(m, fullThread));
 }
 
 export function normalizeContent(item) {
@@ -119,10 +150,13 @@ export function normalizeContent(item) {
   if (item.type === 'game-action') {
     const raw = text(item.gameAction?.text ?? item.text);
     const inner = (raw.startsWith('[') && raw.endsWith(']')) ? raw.slice(1, -1).replace(/^抽鬼牌：|^小游戏动作：|^恶魔轮盘：/, '') : raw;
+    const inferredKind = item.gameKind || item.gameAction?.gameKind || (/实弹|空弹|弹仓|枪口|扣动扳机|放大镜|手锯|啤酒|手铐|香烟/.test(inner) ? 'buckshot_roulette' : 'old_maid');
     content = {
       type: 'game-action',
+      gameKind: inferredKind,
       gameAction: {
         text: inner,
+        gameKind: inferredKind,
       },
     };
   }
@@ -194,9 +228,14 @@ export function extractLatestUserInput(messages) {
   const hasRecentGameAction = postAssistantMessages.some(m => m && !m.withdrawn && (m.type === 'game-action' || m.game?.action === 'draw' || m.game?.action === 'shoot'));
 
   const isBuckshot = activeGame?.game?.kind === 'buckshot_roulette';
-  const gameActionPrompt = isBuckshot
-    ? '[恶魔轮盘对弈推进] 玩家已完成行动，当前轮到你使用道具或开枪博弈，并发表日常/紧张台词。'
-    : '[小游戏对弈推进] 玩家已完成摸牌（手牌已变动消除），当前轮到你从玩家手牌中抽牌并发表对弈反应与日常台词。';
+  let gameActionPrompt = '';
+  if (isBuckshot) {
+    const rawGameState = activeGame?.game?.state || activeGame?.game;
+    const chronicle = formatBuckshotChronicle(rawGameState, { userName: '你', contactName: contact?.name || '对方' });
+    gameActionPrompt = `[恶魔轮盘战局实况与对弈推进]\n${chronicle}\n当前轮到你行动，请在 JSON 顶层返回结构化动作指令（gameAction），并配以纯私聊台词。`;
+  } else {
+    gameActionPrompt = '[小游戏对弈推进] 玩家已完成摸牌（手牌已变动消除），当前轮到你从玩家手牌中抽牌并发表对弈反应与日常台词。';
+  }
 
   // 情况 1: 角色已经回复过最后的文本发言 (lastAssistantIdx > lastUserIdx)
   if (lastAssistantIdx !== -1 && lastAssistantIdx > lastUserIdx) {

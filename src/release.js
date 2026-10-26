@@ -1,6 +1,6 @@
 export const RELEASE_URL = 'https://raw.githubusercontent.com/cone97218-alt/ST-TwoMoreThings/main/release.json';
 export const STABLE_CORE_URL = 'https://cdn.jsdelivr.net/gh/cone97218-alt/ST-TwoMoreThings@56a6614198bd177f967a9406f7b6f425f9a810af/embed.js';
-export const UPDATE_NOTICE_PATH = 'docs/updates-0.4.0.md';
+export const UPDATE_NOTICE_PATH = 'docs/updates-0.4.6.md';
 
 // 导出启动器会嵌入此函数；保持自包含，公共请求不携带酒馆请求头或凭证。
 export async function readRelease({ url = 'https://raw.githubusercontent.com/cone97218-alt/ST-TwoMoreThings/main/release.json', fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {

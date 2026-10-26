@@ -958,7 +958,7 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .prompt-summary-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--pp-muted); padding: 0 2px; min-height: 22px; }
 .prompt-reset-all-btn { font-size: 10.5px; color: var(--pp-error); padding: 2px 7px; border: 1px solid var(--pp-error); border-radius: 6px; background: transparent; cursor: pointer; transition: all .15s ease; }
 .prompt-reset-all-btn:hover { background: var(--pp-error); color: var(--pp-paper); }
-.prompt-cards-list { display: flex; flex-direction: column; gap: 10px; max-height: 650px; overflow-y: auto; padding-right: 2px; scrollbar-width: thin; }
+.prompt-cards-list { display: flex; flex-direction: column; gap: 10px; max-height: 650px; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; scrollbar-width: thin; }
 .prompt-card { border: 1px solid var(--pp-divider-soft); border-radius: 10px; padding: 9px 10px; background: var(--pp-surface); display: flex; flex-direction: column; gap: 6px; }
 .prompt-card-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; background: transparent; border: none; padding: 0; margin: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }
 .prompt-card-header:hover .prompt-card-title { color: var(--pp-active); }

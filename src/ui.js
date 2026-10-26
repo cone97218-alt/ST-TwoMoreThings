@@ -271,7 +271,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       end: previousExcludeWorldSearch.selectionEnd,
     };
     const scrollTop = inChat() ? root.querySelector('.message-feed')?.scrollTop : undefined;
-    const settingsScroll = root.querySelector('.view-settings')?.scrollTop;
+    const settingsScroll = ui.savedSettingsScroll !== undefined ? ui.savedSettingsScroll : root.querySelector('.view-settings')?.scrollTop;
+    const promptCardsScroll = ui.savedPromptCardsScroll !== undefined ? ui.savedPromptCardsScroll : root.querySelector('.prompt-cards-list')?.scrollTop;
     const socialScroll = ['social', 'social-profile'].includes(ui.view) ? root.querySelector(`.view-${ui.view}`)?.scrollTop : undefined;
     const calendarScroll = ['calendar', 'todos'].includes(ui.view) ? root.querySelector(`.view-${ui.view}`)?.scrollTop : undefined;
     let state = store.read();
@@ -379,11 +380,54 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       }
     }
     chatScroll.attach();
-    if (settingsScroll !== undefined && ui.view === 'settings') root.querySelector('.view-settings').scrollTop = settingsScroll;
+    if (settingsScroll !== undefined && ui.view === 'settings') {
+      const viewEl = root.querySelector('.view-settings');
+      if (viewEl) viewEl.scrollTop = settingsScroll;
+    }
+    if (promptCardsScroll !== undefined) {
+      const listEl = root.querySelector('.prompt-cards-list');
+      if (listEl) listEl.scrollTop = promptCardsScroll;
+    }
     if (socialScroll !== undefined && ['social', 'social-profile'].includes(ui.view)) root.querySelector('.phone-main').scrollTop = socialScroll;
     if (calendarScroll !== undefined && ['calendar', 'todos'].includes(ui.view)) {
       ui.calendarScroll = calendarScroll;
       root.querySelector('.phone-main').scrollTop = calendarScroll;
+    }
+    if (ui.pinnedPromptId) {
+      const card = root.querySelector(`[data-prompt-id="${CSS.escape(ui.pinnedPromptId)}"]`);
+      if (card) {
+        card.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+    const pinnedPromptId = ui.pinnedPromptId;
+    const targetSettingsScroll = settingsScroll;
+    const targetPromptCardsScroll = promptCardsScroll;
+    if (!busy.has('prompt-save') && !busy.has('prompt-reset')) {
+      delete ui.pinnedPromptId;
+      delete ui.savedSettingsScroll;
+      delete ui.savedPromptCardsScroll;
+    }
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        if (targetSettingsScroll !== undefined && ui.view === 'settings') {
+          const viewEl = root.querySelector('.view-settings');
+          if (viewEl && Math.abs(viewEl.scrollTop - targetSettingsScroll) > 1) {
+            viewEl.scrollTop = targetSettingsScroll;
+          }
+        }
+        if (targetPromptCardsScroll !== undefined) {
+          const listEl = root.querySelector('.prompt-cards-list');
+          if (listEl && Math.abs(listEl.scrollTop - targetPromptCardsScroll) > 1) {
+            listEl.scrollTop = targetPromptCardsScroll;
+          }
+        }
+        if (pinnedPromptId) {
+          const card = root.querySelector(`[data-prompt-id="${CSS.escape(pinnedPromptId)}"]`);
+          if (card) {
+            card.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          }
+        }
+      });
     }
     if (bottom) {
       const feed = root.querySelector('.message-feed');
@@ -2275,6 +2319,9 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const promptId = button.dataset.promptId;
         const textarea = root.querySelector(`textarea[data-prompt-textarea="${promptId}"]`);
         const text = textarea ? textarea.value : (ui.promptDrafts?.[promptId] ?? '');
+        ui.pinnedPromptId = promptId;
+        ui.savedSettingsScroll = root.querySelector('.view-settings')?.scrollTop;
+        ui.savedPromptCardsScroll = root.querySelector('.prompt-cards-list')?.scrollTop;
         void perform('prompt-save', () => store.savePrompt(promptId, text), () => {
           if (ui.promptDrafts) delete ui.promptDrafts[promptId];
           ui.feedback = { text: '提示词已保存。' };
@@ -2285,6 +2332,9 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const promptId = button.dataset.promptId;
         if (!promptId) break;
         if (!confirm('确定要将该功能提示词恢复为默认内容吗？未保存的自定义修改将会丢失。')) break;
+        ui.pinnedPromptId = promptId;
+        ui.savedSettingsScroll = root.querySelector('.view-settings')?.scrollTop;
+        ui.savedPromptCardsScroll = root.querySelector('.prompt-cards-list')?.scrollTop;
         void perform('prompt-reset', () => store.resetPrompt(promptId), () => {
           if (ui.promptDrafts) delete ui.promptDrafts[promptId];
           ui.feedback = { text: '已恢复默认提示词。' };

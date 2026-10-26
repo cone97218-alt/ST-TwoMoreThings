@@ -750,7 +750,20 @@ test('latest_user_input macro: slot, default entry and compilation across scopes
   assert.ok(compiledChat[0].content.includes('最后一条用户提问'));
   assert.ok(compiledChat[0].content.includes('（译文：译文）'));
 
-  // 5b. 从动态 userComment 中提取
+  // 5b. 从连续多条 user 消息（例如：你、好、吗）中完整提取所有连续输入
+  const consecutiveChatContext = {
+    history: [
+      { role: 'assistant', text: '你好呀' },
+      { role: 'user', text: '你' },
+      { role: 'user', text: '好' },
+      { role: 'user', text: '吗' },
+    ],
+  };
+  const compiledConsecutive = compilePromptPreset(preset, { phoneContext: consecutiveChatContext });
+  assert.equal(compiledConsecutive.length, 2);
+  assert.ok(compiledConsecutive[0].content.includes('你\n好\n吗'), '多条连续发言应完整保留并自然换行呈现');
+
+  // 5c. 从动态 userComment 中提取
   const socialContext = {
     userComment: { name: '我', text: '动态评论内容' },
   };

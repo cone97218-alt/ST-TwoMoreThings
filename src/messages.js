@@ -1,7 +1,7 @@
 import { parsePayload, parseJsonObject, extractReasoning } from './api.js';
 import { getPrompt, CONTACTS_PROMPT, MESSAGES_PROMPT, TODO_SUGGESTIONS_PROMPT, THOUGHT_PROMPT } from './prompts.js';
 import { readTimeline } from './timeline.js';
-import { normalizeContent, messageText, formatForwardedContextText, generateMessageId, shortenMessageId, RICH_MESSAGES_PROMPT } from './content.js';
+import { normalizeContent, messageText, formatForwardedContextText, generateMessageId, shortenMessageId, extractLatestUserInput, RICH_MESSAGES_PROMPT } from './content.js';
 import { CALENDAR_PROMPT } from './calendar.js';
 import { parseTodoCandidates } from './todos.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
@@ -151,12 +151,8 @@ export function createMessageService({ target, store, contextReader, modelClient
       const state = store.read();
       const activePreset = getActivePreset(state);
 
-      const lastUserMsg = [...(context.history || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user')
-        || [...(state.conversations[id] || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user');
-      let latestUserInput = lastUserMsg ? (lastUserMsg.forwarded ? formatForwardedContextText(lastUserMsg) : messageText(lastUserMsg)) : '';
-      if (lastUserMsg?.translation && !lastUserMsg.withdrawn) {
-        latestUserInput += `（译文：${lastUserMsg.translation}）`;
-      }
+      const historySources = (context.history && context.history.length) ? context.history : (state.conversations[id] || []);
+      const latestUserInput = extractLatestUserInput(historySources);
 
       const storyHistoryText = (context.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
       const phoneContextData = sanitizePhoneContext(context);

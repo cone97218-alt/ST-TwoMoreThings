@@ -339,4 +339,22 @@ test('native chain-of-thought: extracts reasoning from model and renders collaps
   assert.ok(expandedHtml.includes(thinkingCoT), '展开时应显示模型原生思考过程文本');
 });
 
+test('consecutive user inputs: captures multiple burst messages (你/好/吗) joined with newlines', async () => {
+  const { h, service } = await serviceHarness({
+    completion: {
+      choices: [{ message: { content: '{"messages":[{"text":"我很好！"}]}' } }],
+    },
+  });
+
+  await service.send('lin', '你');
+  await service.send('lin', '好');
+  await service.send('lin', '吗');
+  await service.continueChat('lin');
+
+  assert.equal(h.modelRequests.length, 1);
+  const sentMessages = h.modelRequests[0].body.messages || [];
+  const promptText = sentMessages.map(m => m.content).join('\n\n');
+  assert.ok(promptText.includes('你\n好\n吗'), '多条连续发言应完整呈现在最新输入宏中');
+});
+
 

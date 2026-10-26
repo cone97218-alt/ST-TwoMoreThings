@@ -108,6 +108,43 @@ export function formatForwardedContextText(message) {
   return `[${prefix}｜原发言人：${sourceDesc}] ${rawText}`;
 }
 
+export function formatSingleUserInput(message) {
+  if (!message) return '';
+  let line = message.forwarded ? formatForwardedContextText(message) : messageText(message);
+  if (message.translation && !message.withdrawn) {
+    line += `（译文：${message.translation}）`;
+  }
+  return line;
+}
+
+export function extractLatestUserInput(messages) {
+  if (!Array.isArray(messages) || !messages.length) return '';
+  let lastUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && !m.withdrawn && (m.role === 'user' || m.speakerId === '@user')) {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx === -1) return '';
+
+  const userMessages = [];
+  for (let i = lastUserIdx; i >= 0; i--) {
+    const m = messages[i];
+    if (!m) continue;
+    if (m.withdrawn) continue;
+    const isUser = m.role === 'user' || m.speakerId === '@user';
+    if (isUser) {
+      userMessages.unshift(m);
+    } else {
+      break;
+    }
+  }
+
+  return userMessages.map(formatSingleUserInput).filter(Boolean).join('\n');
+}
+
 export function contextMessage(message, thread) {
   const replyTo = replyContext(message, thread);
   const textForModel = message.forwarded ? formatForwardedContextText(message) : messageText(message);

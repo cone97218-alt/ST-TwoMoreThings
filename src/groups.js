@@ -1,7 +1,7 @@
 import { parseJsonObject } from './api.js';
 import { record } from './messages.js';
 import { readTimeline } from './timeline.js';
-import { normalizeContent, messageText, formatForwardedContextText, shortenMessageId, RICH_MESSAGES_PROMPT } from './content.js';
+import { normalizeContent, messageText, formatForwardedContextText, shortenMessageId, extractLatestUserInput, RICH_MESSAGES_PROMPT } from './content.js';
 import { CALENDAR_PROMPT } from './calendar.js';
 import { getPrompt, GROUP_PROMPT, LANGUAGE_RULE, STORY_MEMORY_RULE, TODO_SUGGESTIONS_PROMPT } from './prompts.js';
 import { parseTodoCandidates } from './todos.js';
@@ -43,12 +43,8 @@ export function createGroupService({ target, store, contextReader, modelClient }
       const state = store.read();
       const activePreset = getActivePreset(state);
 
-      const lastUserMsg = [...(context.history || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user')
-        || [...(state.conversations[id] || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user');
-      let latestUserInput = lastUserMsg ? (lastUserMsg.forwarded ? formatForwardedContextText(lastUserMsg) : messageText(lastUserMsg)) : '';
-      if (lastUserMsg?.translation && !lastUserMsg.withdrawn) {
-        latestUserInput += `（译文：${lastUserMsg.translation}）`;
-      }
+      const historySources = (context.history && context.history.length) ? context.history : (state.conversations[id] || []);
+      const latestUserInput = extractLatestUserInput(historySources);
 
       const storyHistoryText = (context.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
       const phoneContextData = sanitizePhoneContext(context);

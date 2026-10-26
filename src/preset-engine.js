@@ -20,14 +20,14 @@ import {
   STORY_MEMORY_RULE,
   IMAGE_PROMPT,
 } from './prompts.js';
-import { shortenMessageId } from './content.js';
+import { shortenMessageId, extractLatestUserInput } from './content.js';
 
 export const PRESET_SLOTS = [
   { macro: '{{worldbook}}', name: '世界书', desc: '蓝灯常驻条目必定注入 + 绿灯关键字动态激活' },
   { macro: '{{story_history}}', name: '主聊天历史', desc: '主聊天最近 n 层的正文对白与动作' },
   { macro: '{{story_memory}}', name: '柏宝书记忆', desc: '若开启柏宝书，注入其长线剧情记忆摘要' },
   { macro: '{{phone_context}}', name: '手机内部数据', desc: '包含待办事项、日历节日、短信往来记录、公开动态等' },
-  { macro: '{{latest_user_input}}', name: '最新用户输入', desc: '单聊/群聊最新一条用户发言、动态用户评论、或日历节日/日程推演的用户要求' },
+  { macro: '{{latest_user_input}}', name: '最新用户输入', desc: '单聊/群聊中用户最新发出的连续发言、动态用户评论、或日历推演要求' },
   { macro: '{{char_personality}}', name: '角色线上表达', desc: '角色的线上文字风格、习惯与人设' },
   { macro: '{{messages_prompt}}', name: '私聊短信生成', desc: '仅私聊：短信回复与主动发信规则' },
   { macro: '{{thought_prompt}}', name: '角色隐秘心声推演', desc: '仅心声：推演角色发信时的隐秘心理与潜台词' },
@@ -426,13 +426,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       if (phoneContext.userComment?.text) {
         latestUserInput = `用户在动态下的评论：${phoneContext.userComment.text}`;
       } else if (Array.isArray(phoneContext.history)) {
-        const lastUser = [...phoneContext.history].reverse().find(m => m?.role === 'user' || m?.speakerId === '@user');
-        if (lastUser) {
-          latestUserInput = lastUser.text || '';
-          if (lastUser.translation && !lastUser.withdrawn) {
-            latestUserInput += `（译文：${lastUser.translation}）`;
-          }
-        }
+        latestUserInput = extractLatestUserInput(phoneContext.history);
       } else if (phoneContext.userInstruction) {
         latestUserInput = phoneContext.userInstruction;
       } else if (phoneContext.focusPreference && phoneContext.focusPreference !== '全部') {

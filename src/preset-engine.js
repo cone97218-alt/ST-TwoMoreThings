@@ -20,12 +20,14 @@ import {
   STORY_MEMORY_RULE,
   IMAGE_PROMPT,
 } from './prompts.js';
+import { shortenMessageId } from './content.js';
 
 export const PRESET_SLOTS = [
   { macro: '{{worldbook}}', name: '世界书', desc: '蓝灯常驻条目必定注入 + 绿灯关键字动态激活' },
   { macro: '{{story_history}}', name: '主聊天历史', desc: '主聊天最近 n 层的正文对白与动作' },
   { macro: '{{story_memory}}', name: '柏宝书记忆', desc: '若开启柏宝书，注入其长线剧情记忆摘要' },
   { macro: '{{phone_context}}', name: '手机内部数据', desc: '包含待办事项、日历节日、短信往来记录、公开动态等' },
+  { macro: '{{latest_user_input}}', name: '最新用户输入', desc: '单聊/群聊最新一条用户发言、动态用户评论、或日历节日/日程推演的用户要求' },
   { macro: '{{char_personality}}', name: '角色线上表达', desc: '角色的线上文字风格、习惯与人设' },
   { macro: '{{messages_prompt}}', name: '私聊短信生成', desc: '仅私聊：短信回复与主动发信规则' },
   { macro: '{{thought_prompt}}', name: '角色隐秘心声推演', desc: '仅心声：推演角色发信时的隐秘心理与潜台词' },
@@ -232,6 +234,14 @@ export const DEFAULT_PRESET_ENTRIES = [
     content: `[主聊天最近正文历史：\n{{story_history}}\n]`,
   },
   {
+    id: 'entry_latest_user_input',
+    name: '最新用户输入强调',
+    scope: '通用',
+    role: 'system',
+    enabled: true,
+    content: `[用户最新发言/当前诉求：\n{{latest_user_input}}\n]`,
+  },
+  {
     id: 'entry_phone_data',
     name: '手机上下文与任务数据',
     scope: '通用',
@@ -241,7 +251,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 3;
+export const PRESET_SCHEMA_VERSION = 4;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -277,6 +287,26 @@ export function sanitizePhoneContext(phoneContext) {
   if (typeof rest.character === 'string') {
     delete rest.character;
   }
+
+  const cleanMsg = msg => {
+    if (!msg || typeof msg !== 'object') return msg;
+    const item = { ...msg };
+    if (item.id) item.id = shortenMessageId(item.id);
+    if (item.transferId) item.transferId = shortenMessageId(item.transferId);
+    if (item.replyTo && typeof item.replyTo === 'object' && item.replyTo.messageId) {
+      item.replyTo = { ...item.replyTo, messageId: shortenMessageId(item.replyTo.messageId) };
+    }
+    return item;
+  };
+  if (Array.isArray(rest.history)) rest.history = rest.history.map(cleanMsg);
+  if (Array.isArray(rest.previousMessages)) rest.previousMessages = rest.previousMessages.map(cleanMsg);
+  if (Array.isArray(rest.privateHistories)) {
+    rest.privateHistories = rest.privateHistories.map(entry => ({
+      ...entry,
+      messages: Array.isArray(entry?.messages) ? entry.messages.map(cleanMsg) : entry?.messages,
+    }));
+  }
+
   return rest;
 }
 
@@ -374,6 +404,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     storyMemory = '',
     phoneContext = '',
     charPersonality = '',
+    latestUserInput = '',
   } = contextData;
 
   if (phoneContext && typeof phoneContext === 'object' && !Array.isArray(phoneContext)) {
@@ -390,6 +421,23 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     }
     if (!worldbook && typeof (phoneContext.worldbook || phoneContext.worldInfo) === 'string') {
       worldbook = phoneContext.worldbook || phoneContext.worldInfo;
+    }
+    if (!latestUserInput) {
+      if (phoneContext.userComment?.text) {
+        latestUserInput = `用户在动态下的评论：${phoneContext.userComment.text}`;
+      } else if (Array.isArray(phoneContext.history)) {
+        const lastUser = [...phoneContext.history].reverse().find(m => m?.role === 'user' || m?.speakerId === '@user');
+        if (lastUser) {
+          latestUserInput = lastUser.text || '';
+          if (lastUser.translation && !lastUser.withdrawn) {
+            latestUserInput += `（译文：${lastUser.translation}）`;
+          }
+        }
+      } else if (phoneContext.userInstruction) {
+        latestUserInput = phoneContext.userInstruction;
+      } else if (phoneContext.focusPreference && phoneContext.focusPreference !== '全部') {
+        latestUserInput = `日程推演天数：${phoneContext.deduceDays || 3}天；重点关注/侧重要求：${phoneContext.focusPreference}`;
+      }
     }
   }
 
@@ -448,6 +496,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const hasPhoneContext = content.includes('{{phone_context}}');
     const hasCharPersonality = content.includes('{{char_personality}}');
     const hasCalendarMacro = content.includes('{{calendar_prompt}}');
+    const hasLatestUserInput = content.includes('{{latest_user_input}}');
     const hasCalendar = Boolean(contextData.calendar || cleanedPhoneContext?.calendar);
 
     // 如果日历插槽在当前批次无日历数据，且无其他文本包装，安全跳过
@@ -531,6 +580,14 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       const isPlain = content.trim() === '{{phone_context}}';
       const serialized = typeof cleanedPhoneContext === 'object' ? JSON.stringify(cleanedPhoneContext) : String(cleanedPhoneContext);
       content = isPlain ? serialized : content.replace(/\{\{phone_context\}\}/g, serialized);
+    }
+
+    if (hasLatestUserInput && !latestUserInput.trim()) {
+      content = content.replace(/\{\{latest_user_input\}\}/g, '').trim();
+      if (!content || /^\[[^\]]*\]\s*$/s.test(content) || /^(?:用户最新(?:输入|发言|诉求)|当前诉求)[：:]\s*$/s.test(content)) continue;
+    } else if (hasLatestUserInput) {
+      const isPlain = content.trim() === '{{latest_user_input}}';
+      content = isPlain ? latestUserInput.trim() : content.replace(/\{\{latest_user_input\}\}/g, latestUserInput.trim());
     }
 
     const trimmed = content.trim();

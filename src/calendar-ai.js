@@ -16,11 +16,13 @@ export function createCalendarAiService({ contextReader, modelClient, target, st
       const activePreset = getActivePreset(state);
 
       const storyHistoryText = (sources.story || []).map(item => `${item.speaker || ''}：${item.text}`).join('\n\n');
+      const latestUserInput = setting ? `节日构想要求/世界观设定：${setting}` : '';
       const messagesPayload = compilePromptPreset(activePreset, {
         worldbook: sources.worldbook || '',
         storyHistory: storyHistoryText,
         storyMemory: sources.storyMemory || '',
         phoneContext: payload,
+        latestUserInput,
       }, 'festival_conceive', state);
 
       const collapsed = collapseMessages(messagesPayload);
@@ -70,11 +72,14 @@ export function createCalendarAiService({ contextReader, modelClient, target, st
       const activePreset = getActivePreset(state);
 
       const storyHistoryText = (sources.story || []).map(item => `${item.speaker || ''}：${item.text}`).join('\n\n');
+      const hasFocus = focus && focus !== '全部';
+      const latestUserInput = hasFocus ? `日程推演天数：${days}天；重点关注/侧重要求：${focus}` : `日程推演天数：${days}天`;
       const messagesPayload = compilePromptPreset(activePreset, {
         worldbook: sources.worldbook || '',
         storyHistory: storyHistoryText,
         storyMemory: sources.storyMemory || '',
         phoneContext: payload,
+        latestUserInput,
       }, 'schedule_deduce', state);
 
       const collapsed = collapseMessages(messagesPayload);

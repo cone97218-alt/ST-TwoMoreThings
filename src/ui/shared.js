@@ -48,6 +48,8 @@ const icons = {
   'role-system': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/></g>',
   'role-user': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></g>',
   'role-assistant': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><rect x="4" y="6" width="16" height="12" rx="3"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><path d="M12 2v4m-4 16v-2m8 2v-2"/></g>',
+  clock: '<path fill="currentColor" fill-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm.75 5a.75.75 0 0 0-1.5 0v5c0 .26.13.5.35.64l3.5 2.25a.75.75 0 1 0 .8-1.28l-3.15-2.02V7z" clip-rule="evenodd"/>',
+  'chevron-right': '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 6l6 6-6 6"/>',
 };
 export const asset = name => new URL(`../../assets/${name}`, import.meta.url).href;
 export const icon = name => ['messages', 'forum'].includes(name)

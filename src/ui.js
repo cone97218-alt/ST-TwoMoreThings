@@ -115,6 +115,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     replyToId: '',
     reactionMoreMessageId: '',
     thoughtMessageId: '',
+    openReasoningIds: new Set(),
     editingMessageId: '',
     editingMessageDraft: undefined,
     multiSelectMode: false,
@@ -1431,6 +1432,18 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const msgId = button.dataset.messageId;
         if (!msgId) break;
         ui.thoughtMessageId = ui.thoughtMessageId === msgId ? '' : msgId;
+        render();
+        break;
+      }
+      case 'toggle-reasoning': {
+        const msgId = button.dataset.messageId;
+        if (!msgId) break;
+        if (!ui.openReasoningIds) ui.openReasoningIds = new Set();
+        if (ui.openReasoningIds.has(msgId)) {
+          ui.openReasoningIds.delete(msgId);
+        } else {
+          ui.openReasoningIds.add(msgId);
+        }
         render();
         break;
       }

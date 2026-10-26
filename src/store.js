@@ -1,6 +1,6 @@
 import { cleanProfile } from './profiles.js';
 import { createCameoAvatar } from './cameo-avatar.js';
-import { messageText } from './content.js';
+import { messageText, generateMessageId } from './content.js';
 import { cleanBackground } from './backgrounds.js';
 import { contentImagePaths, imagePath } from './image-files.js';
 import { readTodos, todoSourceMessageIds } from './todos.js';
@@ -558,7 +558,7 @@ export function createPhoneStore({
         };
         const clock = batch?.clock || { time: new Date().toTimeString().slice(0, 5) };
         const baseMeta = () => ({
-          id: globalThis.crypto.randomUUID(),
+          id: generateMessageId(),
           role: 'user',
           createdAt: new Date().toISOString(),
           timeLabel: clock.time || '',

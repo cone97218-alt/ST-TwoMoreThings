@@ -1097,6 +1097,95 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   background: var(--pp-pale);
 }
 
+/* 模型原生思维链思考过程 */
+.message-reasoning-wrap {
+  margin-bottom: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 280px;
+}
+.is-mine .message-reasoning-wrap {
+  align-items: flex-end;
+}
+.message-reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 2px;
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--pp-muted, #87878c);
+  cursor: pointer;
+  user-select: none;
+  opacity: .88;
+  transition: opacity .15s ease, color .15s ease;
+}
+.message-reasoning-toggle:hover {
+  opacity: 1;
+  color: var(--pp-ink, #4b5563);
+}
+.message-reasoning-toggle.is-open {
+  color: var(--pp-muted, #87878c);
+  opacity: 1;
+}
+.message-reasoning-toggle .reasoning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.message-reasoning-toggle .reasoning-icon svg {
+  width: 13px;
+  height: 13px;
+}
+.message-reasoning-toggle .reasoning-label {
+  font-size: 11px;
+  letter-spacing: .2px;
+}
+.message-reasoning-toggle .reasoning-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  transition: transform .18s ease;
+}
+.message-reasoning-toggle .reasoning-arrow svg {
+  width: 12px;
+  height: 12px;
+}
+.message-reasoning-toggle.is-open .reasoning-arrow {
+  transform: rotate(90deg);
+}
+.message-reasoning-card {
+  margin-top: 3px;
+  margin-bottom: 3px;
+  margin-left: 2px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  border-left: 2px solid var(--pp-divider-soft, rgba(120, 120, 128, 0.28));
+  box-shadow: none;
+  max-width: 100%;
+}
+.message-reasoning-content {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--pp-muted, #737373);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
 /* 角色隐秘心声便签卡 */
 .chat-avatar-thought {
   position: relative;

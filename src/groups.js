@@ -1,7 +1,7 @@
 import { parseJsonObject } from './api.js';
 import { record } from './messages.js';
 import { readTimeline } from './timeline.js';
-import { normalizeContent, messageText, RICH_MESSAGES_PROMPT } from './content.js';
+import { normalizeContent, messageText, formatForwardedContextText, shortenMessageId, RICH_MESSAGES_PROMPT } from './content.js';
 import { CALENDAR_PROMPT } from './calendar.js';
 import { getPrompt, GROUP_PROMPT, LANGUAGE_RULE, STORY_MEMORY_RULE, TODO_SUGGESTIONS_PROMPT } from './prompts.js';
 import { parseTodoCandidates } from './todos.js';
@@ -43,6 +43,13 @@ export function createGroupService({ target, store, contextReader, modelClient }
       const state = store.read();
       const activePreset = getActivePreset(state);
 
+      const lastUserMsg = [...(context.history || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user')
+        || [...(state.conversations[id] || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user');
+      let latestUserInput = lastUserMsg ? (lastUserMsg.forwarded ? formatForwardedContextText(lastUserMsg) : messageText(lastUserMsg)) : '';
+      if (lastUserMsg?.translation && !lastUserMsg.withdrawn) {
+        latestUserInput += `（译文：${lastUserMsg.translation}）`;
+      }
+
       const storyHistoryText = (context.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
       const phoneContextData = sanitizePhoneContext(context);
       const messagesPayload = compilePromptPreset(activePreset, {
@@ -52,6 +59,7 @@ export function createGroupService({ target, store, contextReader, modelClient }
         calendar: context.calendar,
         phoneContext: phoneContextData,
         charPersonality: (context.group?.members || []).map(m => `${m.name}：${m.personality || ''}（风格：${m.expression || ''}）`).join('\n'),
+        latestUserInput,
       }, 'group-chat', state);
 
       const collapsed = collapseMessages(messagesPayload);
@@ -75,6 +83,9 @@ export function createGroupService({ target, store, contextReader, modelClient }
       const resolveReplyId = rawId => {
         if (!rawId) return '';
         if (existingIds.has(rawId)) return rawId;
+        const shortRaw = shortenMessageId(rawId);
+        const byPrefix = existingThread.find(m => m.id && (m.id.startsWith(shortRaw) || shortRaw.startsWith(shortenMessageId(m.id))));
+        if (byPrefix) return byPrefix.id;
         const byText = [...existingThread].reverse().find(m => m.text === rawId || messageText(m) === rawId);
         return byText ? byText.id : '';
       };
@@ -101,7 +112,8 @@ export function createGroupService({ target, store, contextReader, modelClient }
       const todoCandidates = parseTodoCandidates(answer.todoSuggestions ?? answer.todos, { conversationId: id, messages: indexedMessages, participantIds: roster });
       for (const item of Array.isArray(answer.transferActions) ? answer.transferActions : []) {
         if (!speakers.includes(item.speakerId)) throw new Error('转账回复无法对应本轮发言者。');
-        await store.respondTransfer(id, item.transferId, item.status, item.speakerId, context.batch);
+        const targetTransferId = resolveReplyId(item.transferId) || item.transferId;
+        await store.respondTransfer(id, targetTransferId, item.status, item.speakerId, context.batch);
       }
       const rawMsgActions = [
         ...(Array.isArray(answer.messageActions) ? answer.messageActions : []),

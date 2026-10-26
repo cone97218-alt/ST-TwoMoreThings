@@ -2,7 +2,7 @@ import { parseJsonObject } from './api.js';
 import { createCameoAvatar } from './cameo-avatar.js';
 import { getPrompt, SOCIAL_PROMPT, COMMENT_PROMPT, LANGUAGE_RULE, STORY_MEMORY_RULE, TODO_SUGGESTIONS_PROMPT } from './prompts.js';
 import { hasPublicationDate, publicationLabel, publicationValue, sortSocialPosts } from './social-time.js';
-import { normalizeContent } from './content.js';
+import { normalizeContent, generateMessageId } from './content.js';
 import { record } from './messages.js';
 import { parseTodoCandidates } from './todos.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
@@ -271,7 +271,7 @@ export function createSocialService({ store, contextReader, modelClient, random 
       const commenters = (post.comments || []).map(item => item.authorId).filter(Boolean).map(id => getSocialAuthor(state, id)).filter(Boolean);
       const authors = [...new Map([author, ...commenters].map(item => [item.id, item])).values()];
       const userName = text(state.userProfile?.nickname || state.userProfile?.name || defaultUser) || '我';
-      const userComment = { id: globalThis.crypto.randomUUID(), role: 'user', name: userName, text: content, createdAt: new Date().toISOString() };
+      const userComment = { id: generateMessageId(), role: 'user', name: userName, text: content, createdAt: new Date().toISOString() };
       await store.updateSocial(social => {
         const currentPost = social.posts.find(item => item.id === postId);
         if (!currentPost) throw new Error('这条动态已不存在，请返回动态列表。');
@@ -305,6 +305,7 @@ export function createSocialService({ store, contextReader, modelClient, random 
           storyHistory: storyHistoryText,
           storyMemory: context.storyMemory || '',
           phoneContext: phoneContextData,
+          latestUserInput: content ? `用户在动态下的评论：${content}` : '',
         }, 'social-comment', state);
 
         const collapsed = collapseMessages(messagesPayload);
@@ -330,7 +331,7 @@ export function createSocialService({ store, contextReader, modelClient, random 
         if (!currentPost) throw new Error('这条动态已不存在，请返回动态列表。');
         const activeIds = new Set([...(current.contacts || []), ...(current.social?.npcs || [])].map(item => item.id));
         const read = Boolean(isReadingPost(postId)), createdAt = new Date().toISOString();
-        const validReplies = replies.filter(reply => !reply.authorId || activeIds.has(reply.authorId)).map(reply => ({ ...reply, id: globalThis.crypto.randomUUID(), replyToId: userComment.id, createdAt, read }));
+        const validReplies = replies.filter(reply => !reply.authorId || activeIds.has(reply.authorId)).map(reply => ({ ...reply, id: generateMessageId(), replyToId: userComment.id, createdAt, read }));
         saved = validReplies.length ? { ...currentPost, comments: [...(currentPost.comments || []), ...validReplies], commentsCount: Math.max(count(currentPost.commentsCount), (currentPost.comments || []).length) + validReplies.length } : currentPost;
         if (saved === currentPost) return social;
         return { ...social, posts: social.posts.map(item => item.id === postId ? saved : item) };

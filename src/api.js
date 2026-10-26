@@ -238,8 +238,17 @@ export function createModelClient({ host, sourceProvider, onBusyChange = () => {
         const choice = data.choices?.[0];
         const content = choice?.message?.content ?? choice?.text ?? choice?.message?.text ?? data.text ?? data.response;
         let text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter(x => x.type === 'text').map(x => x.text).join('\n') : '';
-        if (!text.trim() && choice?.message?.reasoning_content) {
-          text = choice.message.reasoning_content;
+        const reasoning = String(
+          choice?.message?.reasoning_content ??
+          choice?.message?.reasoning ??
+          choice?.reasoning_content ??
+          data?.reasoning_content ??
+          ''
+        ).trim();
+        if (reasoning && !text.includes('<think>')) {
+          text = `<think>${reasoning}</think>\n${text}`;
+        } else if (!text.trim() && reasoning) {
+          text = reasoning;
         }
         if (!text.trim()) {
           if (choice?.finish_reason === 'length') {
@@ -320,4 +329,11 @@ export function parseJsonObject(text) {
     } catch { /* 正式JSON可被代码块或说明文字包裹。 */ }
   }
   throw new Error('回答中的JSON无法读取，请重新生成。');
+}
+
+export function extractReasoning(text) {
+  if (!text) return '';
+  const match = String(text).match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
+    || String(text).match(/<thought>([\s\S]*?)(?:<\/thought>|$)/i);
+  return match ? match[1].trim() : '';
 }

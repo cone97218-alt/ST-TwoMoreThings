@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compilePromptPreset, collapseMessages, PRESET_SLOTS, PRESET_SCOPES, toggleScopeSelection, DEFAULT_PROMPT_PRESETS, DEFAULT_PRESET_ENTRIES, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload } from '../src/preset-engine.js';
+import { compilePromptPreset, collapseMessages, sanitizePhoneContext, PRESET_SLOTS, PRESET_SCOPES, toggleScopeSelection, DEFAULT_PROMPT_PRESETS, DEFAULT_PRESET_ENTRIES, normalizePromptPresets, exportPresetToPayload, createPresetFromPayload } from '../src/preset-engine.js';
+import { shortenMessageId, generateMessageId } from '../src/content.js';
 import { createPhoneStore } from '../src/store.js';
 
 test('preset engine: compiles entries and replaces macros with slots', () => {
@@ -666,6 +667,113 @@ test('preset scopes: toggleScopeSelection handles single, multi-select A+B forma
   assert.equal(toggleScopeSelection(null, '心声'), '心声');
   assert.equal(toggleScopeSelection('短信', ''), '通用');
 });
+
+test('message id optimization: generates 8-char hex ids and shortens legacy UUIDs', () => {
+  const generated = generateMessageId();
+  assert.equal(generated.length, 8);
+  assert.match(generated, /^[0-9a-f]{8}$/i);
+
+  // 36位 UUID 缩短为 8 位
+  const legacyUuid = 'b09f699c-5bca-4159-95f7-cf1a096e403b';
+  assert.equal(shortenMessageId(legacyUuid), 'b09f699c');
+
+  // 原生短 id 保持不变
+  assert.equal(shortenMessageId('m1'), 'm1');
+  assert.equal(shortenMessageId('location'), 'location');
+  assert.equal(shortenMessageId(''), '');
+
+  // sanitizePhoneContext 自动净化历史消息中的 UUID
+  const dirtyContext = {
+    history: [
+      { id: 'b09f699c-5bca-4159-95f7-cf1a096e403b', role: 'user', text: '怒火' },
+      { id: 'e288e288-fb84-46eb-9945-7d1fbcef7d9e', role: 'assistant', text: 'Anger?', replyTo: { messageId: 'b09f699c-5bca-4159-95f7-cf1a096e403b' } },
+    ],
+    previousMessages: [
+      { id: 'dc16442d-2b7f-4eae-b60c-4b2e32bad962', role: 'assistant', text: 'Drink some tea' },
+    ],
+  };
+
+  const sanitized = sanitizePhoneContext(dirtyContext);
+  assert.equal(sanitized.history[0].id, 'b09f699c');
+  assert.equal(sanitized.history[1].id, 'e288e288');
+  assert.equal(sanitized.history[1].replyTo.messageId, 'b09f699c');
+  assert.equal(sanitized.previousMessages[0].id, 'dc16442d');
+});
+
+test('latest_user_input macro: slot, default entry and compilation across scopes', () => {
+  // 1. 验证 PRESET_SLOTS 包含宏
+  const slot = PRESET_SLOTS.find(s => s.macro === '{{latest_user_input}}');
+  assert.ok(slot, 'PRESET_SLOTS 必须包含 {{latest_user_input}} 插槽');
+  assert.equal(slot.name, '最新用户输入');
+
+  // 2. 验证 DEFAULT_PRESET_ENTRIES 包含条目
+  const defEntry = DEFAULT_PRESET_ENTRIES.find(e => e.id === 'entry_latest_user_input');
+  assert.ok(defEntry, 'DEFAULT_PRESET_ENTRIES 必须包含 entry_latest_user_input 条目');
+  assert.ok(defEntry.content.includes('{{latest_user_input}}'));
+
+  // 3. 显式提供 latestUserInput 编译测试
+  const preset = {
+    id: 'test_latest',
+    name: '测试',
+    entries: [
+      { id: 'e_user_msg', name: '用户最新输入', scope: '通用', role: 'system', enabled: true, content: '[用户最新发言/当前诉求：\n{{latest_user_input}}\n]' },
+      { id: 'e_data', name: '数据', scope: '通用', role: 'user', enabled: true, content: '{{phone_context}}' },
+    ],
+  };
+
+  const compiledWithUser = compilePromptPreset(preset, {
+    phoneContext: { time: '12:00' },
+    latestUserInput: '不虚弱，我很强！',
+  });
+  assert.equal(compiledWithUser.length, 2);
+  assert.ok(compiledWithUser[0].content.includes('不虚弱，我很强！'));
+
+  // 4. 当没有用户输入时，包装条目自动安全跳过
+  const compiledWithoutUser = compilePromptPreset(preset, {
+    phoneContext: { time: '12:00' },
+    latestUserInput: '',
+  });
+  assert.equal(compiledWithoutUser.length, 1);
+  assert.equal(compiledWithoutUser[0].id, 'e_data');
+
+  // 5. 自动从 phoneContext 回退提取用户输入
+  // 5a. 从 history 中提取最后一条 user 消息
+  const chatContext = {
+    history: [
+      { role: 'user', text: '最初的问题' },
+      { role: 'assistant', text: '回答' },
+      { role: 'user', text: '最后一条用户提问', translation: '译文' },
+    ],
+  };
+  const compiledChat = compilePromptPreset(preset, { phoneContext: chatContext });
+  assert.equal(compiledChat.length, 2);
+  assert.ok(compiledChat[0].content.includes('最后一条用户提问'));
+  assert.ok(compiledChat[0].content.includes('（译文：译文）'));
+
+  // 5b. 从动态 userComment 中提取
+  const socialContext = {
+    userComment: { name: '我', text: '动态评论内容' },
+  };
+  const compiledSocial = compilePromptPreset(preset, { phoneContext: socialContext });
+  assert.ok(compiledSocial[0].content.includes('动态评论内容'));
+
+  // 5c. 从节日构想 userInstruction 中提取
+  const festivalContext = {
+    userInstruction: '需要赛博朋克风格节日',
+  };
+  const compiledFest = compilePromptPreset(preset, { phoneContext: festivalContext });
+  assert.ok(compiledFest[0].content.includes('需要赛博朋克风格节日'));
+
+  // 5d. 从日程推演 focusPreference 中提取
+  const scheduleContext = {
+    deduceDays: 5,
+    focusPreference: '调查秘密工坊',
+  };
+  const compiledSched = compilePromptPreset(preset, { phoneContext: scheduleContext });
+  assert.ok(compiledSched[0].content.includes('调查秘密工坊'));
+  assert.ok(compiledSched[0].content.includes('5天'));
+});
+
 
 
 

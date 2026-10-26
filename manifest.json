@@ -5,8 +5,8 @@
   "optional": [],
   "js": "index.js",
   "author": "两三事",
-  "version": "0.4.4",
-  "update_notice": "docs/updates-0.4.0.md",
+  "version": "0.4.5",
+  "update_notice": "docs/updates-0.4.5.md",
   "homePage": "https://github.com/cone97218-alt/ST-TwoMoreThings",
   "auto_update": false
 }

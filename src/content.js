@@ -4,6 +4,20 @@ import { replyContext } from './replies.js';
 const text = value => typeof value === 'string' ? value.trim() : '';
 const states = { pending: '待收款', accepted: '已收下', returned: '已退回' };
 
+export function shortenMessageId(id) {
+  if (typeof id !== 'string') return '';
+  const trimmed = id.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+    return trimmed.slice(0, 8);
+  }
+  return trimmed;
+}
+
+export function generateMessageId() {
+  const uuid = globalThis.crypto?.randomUUID?.() || (Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2));
+  return uuid.replace(/-/g, '').slice(0, 8);
+}
+
 export function messageText(message) {
   if (!message) return '';
   if (message.withdrawn) return '[消息已撤回]';
@@ -23,6 +37,7 @@ export function normalizeContent(item) {
   const plain = text(item.text ?? item.content ?? item.message), translation = text(item.translation ?? item.translatedText);
   const rawReplyTo = text(item.replyToId ?? item.replyTo?.messageId ?? item.replyTo?.id ?? (typeof item.replyTo === 'string' ? item.replyTo : ''));
   const thought = text(item.thought ?? item.innerThought);
+  const reasoning = text(item.reasoning ?? item.reasoningContent ?? item.thoughtChain);
   const edited = Boolean(item.edited || item.editedAt);
 
   // 转发元数据归一化
@@ -51,6 +66,7 @@ export function normalizeContent(item) {
   const extraMeta = {
     ...(rawReplyTo ? { replyToId: rawReplyTo } : {}),
     ...(thought ? { thought } : {}),
+    ...(reasoning ? { reasoning } : {}),
     ...(edited ? { editedAt: typeof item.editedAt === 'string' ? item.editedAt : new Date().toISOString() } : {}),
     ...(isForwarded ? { forwarded: true, forwardedFrom: forwardedFromObj || { senderName: '他人' } } : {}),
   };
@@ -95,13 +111,14 @@ export function formatForwardedContextText(message) {
 export function contextMessage(message, thread) {
   const replyTo = replyContext(message, thread);
   const textForModel = message.forwarded ? formatForwardedContextText(message) : messageText(message);
+  const shortId = message.id ? shortenMessageId(message.id) : undefined;
   return {
-    ...(message.id ? { id: message.id } : {}),
+    ...(shortId ? { id: shortId } : {}),
     ...(message.speakerId ? { speakerId: message.speakerId } : { role: message.role }),
     text: textForModel,
     ...(message.type === 'sticker' ? { type: 'sticker', stickerId: message.stickerId } : {}),
     ...(message.translation && !message.withdrawn ? { translation: message.translation } : {}),
-    ...(message.type === 'transfer' ? { transferId: message.id, recipientId: message.transfer.recipientId, status: message.transfer.status } : {}),
+    ...(message.type === 'transfer' ? { transferId: shortId, recipientId: message.transfer.recipientId, status: message.transfer.status } : {}),
     ...(message.withdrawn ? { withdrawn: true } : {}),
     ...(message.editedAt ? { edited: true } : {}),
     ...(Array.isArray(message.reactions) && message.reactions.length ? { reactions: message.reactions } : {}),

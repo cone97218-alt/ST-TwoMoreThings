@@ -1,7 +1,7 @@
-import { parsePayload, parseJsonObject } from './api.js';
+import { parsePayload, parseJsonObject, extractReasoning } from './api.js';
 import { getPrompt, CONTACTS_PROMPT, MESSAGES_PROMPT, TODO_SUGGESTIONS_PROMPT, THOUGHT_PROMPT } from './prompts.js';
 import { readTimeline } from './timeline.js';
-import { normalizeContent, messageText, RICH_MESSAGES_PROMPT } from './content.js';
+import { normalizeContent, messageText, formatForwardedContextText, generateMessageId, shortenMessageId, RICH_MESSAGES_PROMPT } from './content.js';
 import { CALENDAR_PROMPT } from './calendar.js';
 import { parseTodoCandidates } from './todos.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
@@ -10,7 +10,7 @@ import { replyToMessage } from './replies.js';
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
   // createdAt 记录消息创建时间，供通知排序；可见时间和剧情日期在创建时确定，之后不追改历史短信。
-  return { id: globalThis.crypto.randomUUID(), role, text, createdAt: now.toISOString(), timeLabel: clock.time,
+  return { id: generateMessageId(), role, text, createdAt: now.toISOString(), timeLabel: clock.time,
     ...(translation ? { translation } : {}),
     ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
     ...(clock.source === 'story' ? { storyDate: clock.date, storyWeekday: clock.weekday } : {}),
@@ -79,7 +79,8 @@ export function createMessageService({ target, store, contextReader, modelClient
     async generateThought(id, messageId, speakerId = '') {
       const state = store.read();
       const thread = state.conversations[id] || [];
-      const targetMsg = thread.find(item => item.id === messageId);
+      const shortTargetId = shortenMessageId(messageId);
+      const targetMsg = thread.find(item => item.id === messageId || (item.id && shortenMessageId(item.id) === shortTargetId) || (item.id && (item.id.startsWith(messageId) || messageId.startsWith(item.id))));
       if (!targetMsg || targetMsg.role !== 'assistant') throw new Error('只能查看对方发出的消息心声。');
       const isGroup = state.groups?.some(group => group.id === id);
       const resolvedSpeakerId = speakerId || targetMsg.speakerId || id;
@@ -89,7 +90,7 @@ export function createMessageService({ target, store, contextReader, modelClient
       const context = isGroup
         ? await contextReader.readForGroup(id)
         : await contextReader.readForContact(id);
-      const msgIndex = thread.findIndex(item => item.id === messageId);
+      const msgIndex = thread.findIndex(item => item === targetMsg);
       const sliceStart = Math.max(0, msgIndex - 7);
       const recentMessages = thread.slice(sliceStart, msgIndex + 1).map(item => ({
         role: item.role,
@@ -150,6 +151,13 @@ export function createMessageService({ target, store, contextReader, modelClient
       const state = store.read();
       const activePreset = getActivePreset(state);
 
+      const lastUserMsg = [...(context.history || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user')
+        || [...(state.conversations[id] || [])].reverse().find(m => m.role === 'user' || m.speakerId === '@user');
+      let latestUserInput = lastUserMsg ? (lastUserMsg.forwarded ? formatForwardedContextText(lastUserMsg) : messageText(lastUserMsg)) : '';
+      if (lastUserMsg?.translation && !lastUserMsg.withdrawn) {
+        latestUserInput += `（译文：${lastUserMsg.translation}）`;
+      }
+
       const storyHistoryText = (context.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
       const phoneContextData = sanitizePhoneContext(context);
       const messagesPayload = compilePromptPreset(activePreset, {
@@ -159,6 +167,7 @@ export function createMessageService({ target, store, contextReader, modelClient
         calendar: context.calendar,
         phoneContext: phoneContextData,
         charPersonality: `${context.contact?.name || ''}：${context.contact?.personality || ''}\n线上风格：${context.contact?.expression || ''}`,
+        latestUserInput,
       }, 'chat', state);
 
       const collapsed = collapseMessages(messagesPayload);
@@ -173,6 +182,7 @@ export function createMessageService({ target, store, contextReader, modelClient
         entries: messagesPayload,
         collapsedMessages: collapsed,
       });
+      const reasoning = extractReasoning(reply);
       const answer = parseJsonObject(reply);
       const actions = Array.isArray(answer.transferActions) ? answer.transferActions : [];
       const rawMsgActions = [
@@ -184,9 +194,13 @@ export function createMessageService({ target, store, contextReader, modelClient
       const resolveReplyId = rawId => {
         if (!rawId) return '';
         if (existingIds.has(rawId)) return rawId;
+        const shortRaw = shortenMessageId(rawId);
+        const byPrefix = existingThread.find(m => m.id && (m.id.startsWith(shortRaw) || shortRaw.startsWith(shortenMessageId(m.id))));
+        if (byPrefix) return byPrefix.id;
         const byText = [...existingThread].reverse().find(m => m.text === rawId || messageText(m) === rawId);
         return byText ? byText.id : '';
       };
+      let reasoningAssigned = false;
       const indexedMessages = parsePayload(reply, 'messages', { allowEmpty: actions.length > 0 || rawMsgActions.length > 0, indexed: true }).map(content => {
         if (!content) return null;
         if (content.type === 'transfer') content.transfer.recipientId = '@user';
@@ -202,11 +216,16 @@ export function createMessageService({ target, store, contextReader, modelClient
           if (resolved) content.replyToId = resolved;
           else delete content.replyToId;
         }
-        return { ...record('assistant', content.text, clock, content.translation, context.batch), ...content };
+        const reasoningData = (!reasoningAssigned && reasoning) ? { reasoning } : {};
+        reasoningAssigned = true;
+        return { ...record('assistant', content.text, clock, content.translation, context.batch), ...content, ...reasoningData };
       });
       const messages = indexedMessages.filter(Boolean);
       const todoCandidates = parseTodoCandidates(answer.todoSuggestions ?? answer.todos, { conversationId: id, messages: indexedMessages, participantIds: (context.todoPeople || []).map(person => person.id) });
-      for (const item of actions) await store.respondTransfer(id, item.transferId, item.status, id, context.batch);
+      for (const item of actions) {
+        const targetTransferId = resolveReplyId(item.transferId) || item.transferId;
+        await store.respondTransfer(id, targetTransferId, item.status, id, context.batch);
+      }
       for (const item of rawMsgActions) {
         if (!item || typeof item !== 'object') continue;
         const kind = String(item.action ?? item.type ?? '').trim();

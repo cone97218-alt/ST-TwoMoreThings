@@ -106,6 +106,18 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
     <p class="chat-avatar-thought__body">${thoughtBusy ? '正在倾听TA发这条消息时的潜台词…' : escape(message.thought || '点击右上角「推演心声」，窥探TA发这条消息时的真实想法。')}</p>
   </div>` : '';
 
+  const reasoningOpen = Boolean(ui.openReasoningIds?.has(message.id));
+  const reasoningBlock = message.reasoning ? `<div class="message-reasoning-wrap">
+    <button type="button" class="message-reasoning-toggle${reasoningOpen ? ' is-open' : ''}" data-action="toggle-reasoning" data-message-id="${escape(message.id)}" aria-expanded="${reasoningOpen}">
+      <span class="reasoning-icon">${icon('clock')}</span>
+      <span class="reasoning-label">思考过程</span>
+      <span class="reasoning-arrow">${icon('chevron-right')}</span>
+    </button>
+    ${reasoningOpen ? `<div class="message-reasoning-card" role="region" aria-label="模型思考过程">
+      <div class="message-reasoning-content">${escape(message.reasoning)}</div>
+    </div>` : ''}
+  </div>` : '';
+
   if (message.withdrawn) {
     return `<div class="message-row is-system is-withdrawn" data-withdrawn-id="${escape(message.id)}" data-message-row-id="${escape(message.id)}">
       <div class="withdrawn-notice" role="status">
@@ -212,6 +224,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
     <div class="message-body">
       <div class="message-copy">
         ${isGroup && !mine && !hasPrev ? `<span class="message-sender">${escape(displayName(sender || contact))}</span>` : ''}
+        ${reasoningBlock}
         ${thoughtCard}
         <div class="bubble-line">
           ${reactionBar}

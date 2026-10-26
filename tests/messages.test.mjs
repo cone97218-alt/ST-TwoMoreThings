@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHarness } from './harness.mjs';
 import { createPhoneStore } from '../src/store.js';
-import { createApiSettings, createModelClient } from '../src/api.js';
+import { createApiSettings, createModelClient, extractReasoning } from '../src/api.js';
 import { createContextReader } from '../src/context.js';
 import { createMessageService } from '../src/messages.js';
 import { renderChat } from '../src/ui/messages.js';
@@ -285,4 +285,58 @@ test('renderChat: quote preview truncates to first line preview and supports jum
   assert.ok(replyMatch[1].includes('这是一条很长很长的第一行内容超过二十个字…'));
   assert.ok(!replyMatch[1].includes('第二行额外剧情'), '引用预览不应显示多余行数内容');
 });
+
+test('native chain-of-thought: extracts reasoning from model and renders collapsible indicator above message', async () => {
+  // 1. extractReasoning 单元测试
+  assert.equal(extractReasoning('<think>分析用户的意图...</think>\n{"messages":[{"text":"你好"}]}'), '分析用户的意图...');
+  assert.equal(extractReasoning('<thought>深层思考...</thought>\n{}'), '深层思考...');
+  assert.equal(extractReasoning('没有思考标签'), '');
+
+  // 2. 模拟包含 reasoning_content 的接口返回
+  const thinkingCoT = '用户刚刚问了晚餐的事情。我应该回复一个轻松的问候。';
+  const replyJson = JSON.stringify({ messages: [{ text: '好啊，那我们去吃拉面吧。' }] });
+  const { h, store, service } = await serviceHarness({
+    completion: {
+      choices: [
+        {
+          message: {
+            reasoning_content: thinkingCoT,
+            content: replyJson,
+          },
+        },
+      ],
+    },
+  });
+
+  await service.send('lin', '晚上吃什么？');
+  await service.continueChat('lin');
+
+  const thread = store.read().conversations.lin;
+  const assistantMsg = thread.find(m => m.role === 'assistant');
+  assert.ok(assistantMsg, '应保存对方回复消息');
+  assert.equal(assistantMsg.text, '好啊，那我们去吃拉面吧。');
+  assert.equal(assistantMsg.reasoning, thinkingCoT, '消息对象应记录原生思考过程');
+
+  // 3. UI 渲染验证：折叠状态显示“思考过程”小字按钮
+  const state = store.read();
+  const collapsedHtml = renderChat(state, {
+    ui: { view: 'chat', contactId: 'lin', drafts: new Map(), batch: assistantMsg.batch, visibleMessages: 60, visibleHistory: 60, openReasoningIds: new Set() },
+    busy: new Set(),
+    entries: {},
+  });
+  assert.ok(collapsedHtml.includes('class="message-reasoning-wrap"'), '应渲染思考过程包装容器');
+  assert.ok(collapsedHtml.includes('data-action="toggle-reasoning"'), '应具备展开/折叠交互行为');
+  assert.ok(collapsedHtml.includes('思考过程'), '应显示思考过程提示');
+  assert.ok(!collapsedHtml.includes('message-reasoning-card'), '折叠时默认不展开完整内容');
+
+  // 4. UI 渲染验证：展开状态显示完整思考内容
+  const expandedHtml = renderChat(state, {
+    ui: { view: 'chat', contactId: 'lin', drafts: new Map(), batch: assistantMsg.batch, visibleMessages: 60, visibleHistory: 60, openReasoningIds: new Set([assistantMsg.id]) },
+    busy: new Set(),
+    entries: {},
+  });
+  assert.ok(expandedHtml.includes('class="message-reasoning-card"'), '展开时应渲染思考卡片');
+  assert.ok(expandedHtml.includes(thinkingCoT), '展开时应显示模型原生思考过程文本');
+});
+
 

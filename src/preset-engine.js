@@ -261,7 +261,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 4;
+export const PRESET_SCHEMA_VERSION = 5;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -446,6 +446,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
   }
 
   const cleanedPhoneContext = sanitizePhoneContext(phoneContext);
+  const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
 
   for (const entry of entries) {
     if (!entry.enabled) continue;
@@ -530,6 +531,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const calPrompt = getPrompt('calendar_context', state) || CALENDAR_PROMPT;
     const sumPrompt = getPrompt('summary', state) || SUMMARY_PROMPT;
     const imgPrompt = getPrompt('image_prompt', state) || IMAGE_PROMPT;
+    const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
 
     content = content
       .replace(/\{\{messages_prompt\}\}/g, msgPrompt)
@@ -542,6 +544,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{schedule_deduce_prompt\}\}/g, schPrompt)
       .replace(/\{\{todo_suggestions_prompt\}\}/g, todoPrompt)
       .replace(/\{\{rich_messages_prompt\}\}/g, richPrompt)
+      .replace(/\{\{old_maid_prompt\}\}/g, oldMaidPrompt)
       .replace(/\{\{language_rule\}\}/g, langPrompt)
       .replace(/\{\{story_memory_rule\}\}/g, storyMemPrompt)
       .replace(/\{\{contacts_prompt\}\}/g, contactsPrompt)

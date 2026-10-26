@@ -1,6 +1,6 @@
 // 抽鬼牌对弈面板（In-Chat Game Board Drawer）
 import { action, escape, icon, asset } from './shared.js';
-import { getAiMicroExpression, cardDisplayName } from '../games/old-maid.js';
+import { cardDisplayName } from '../games/old-maid.js';
 import { displayName } from '../profiles.js';
 
 export function renderGameBoard(game, { contact, isGroup, busy }) {
@@ -9,7 +9,6 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
   const isFinished = game.status === 'finished';
   const isUserTurn = game.turn === 'user' && !isFinished;
   const isAiTurn = game.turn === 'ai' && !isFinished;
-  const expr = getAiMicroExpression(game);
   const cardBackUrl = asset('cards/BACK.svg');
 
   // 对手手牌区（背面牌按钮）
@@ -53,24 +52,7 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
   } else {
     statusBanner = `<div class="game-turn-banner ai-turn">
       <span class="turn-dot ai"></span>
-      <span class="turn-desc">对方回合：对方正在观察你的手牌</span>
-      <button type="button" class="ai-draw-trigger-button" data-game-action="ai-draw" ${busy.has(`game:${game.id}`) ? 'disabled' : ''}>
-        让对方抽牌
-      </button>
-    </div>`;
-  }
-
-  // 心理战操作
-  let psychoTools = '';
-  if (!isFinished) {
-    psychoTools = `<div class="game-psycho-bar">
-      ${isUserTurn ? `
-        <button type="button" class="psycho-button" data-game-action="peek-expression">
-          察言观色
-        </button>
-      ` : `
-        <span class="psycho-hint">点击手牌可微抽一截诱导对方</span>
-      `}
+      <span class="turn-desc">对方回合：对方正在抽牌与回应…</span>
     </div>`;
   }
 
@@ -104,6 +86,7 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
         <span class="game-wager-pill">赌注：${escape(game.wager || '纯娱乐')}</span>
       </div>
       <div class="game-board-controls">
+        ${!isFinished ? `<button type="button" class="game-surrender-inline-btn" data-action="surrender-game" title="认输结算">认输</button>` : ''}
         ${action('fold-game-board', '折叠牌桌', 'arrow-down', 'icon-button game-ctrl-btn')}
         ${action('close-game-board', '关闭牌桌', 'close', 'icon-button game-ctrl-btn')}
       </div>
@@ -115,7 +98,6 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
         <div class="player-header">
           <span class="player-label">${escape(displayName(contact))} 的手牌 · ${game.aiCards.length} 张</span>
         </div>
-        ${expr.text ? `<div class="micro-expression-box">${escape(expr.text)}</div>` : ''}
         <div class="cards-fan ai-cards-fan">
           ${aiHand}
         </div>
@@ -125,7 +107,6 @@ export function renderGameBoard(game, { contact, isGroup, busy }) {
       <div class="game-section table-section">
         ${statusBanner}
         ${lastActionText ? `<div class="last-action-feed">${escape(lastActionText)}</div>` : ''}
-        ${psychoTools}
       </div>
 
       <!-- 玩家区域 -->

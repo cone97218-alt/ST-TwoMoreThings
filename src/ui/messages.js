@@ -33,7 +33,7 @@ export function renderInbox(state, { ui, busy }) {
   const groupRows = groups.map(group => {
     const last = state.conversations[group.id]?.at(-1), sender = state.contacts.find(person => person.id === last?.speakerId);
     const preview = last
-      ? (last.type === 'poke' || last.withdrawn
+      ? (last.type === 'poke' || last.type === 'game-action' || last.withdrawn
         ? messageText(last)
         : `${last.role === 'user' ? '我' : displayName(sender || { name: '群成员' })}：${messageText(last)}`)
       : `${group.memberIds.length + Number(group.userIsMember)} 位成员`;
@@ -93,6 +93,18 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
     </div>`;
   }
 
+  if (message.type === 'game-action') {
+    const raw = message.gameAction?.text || message.text || '';
+    const displayText = raw.startsWith('[抽鬼牌：') && raw.endsWith(']') ? raw.slice(5, -1) : raw;
+    return `<div class="message-row is-system is-game-action" data-game-action-msg-id="${escape(message.id)}" data-message-row-id="${escape(message.id)}">
+      <div class="game-action-notice" role="status">
+        <span class="game-action-icon" aria-hidden="true">${icon('cards')}</span>
+        <span class="game-action-text">${escape(displayText)}</span>
+        ${!readOnly ? `<button type="button" class="system-notice-delete" data-action="delete-system-message" data-message-id="${escape(message.id)}" aria-label="删除对局记录">×</button>` : ''}
+      </div>
+    </div>`;
+  }
+
   const thoughtOpen = !mine && ui.thoughtMessageId === message.id;
   const thoughtBusy = busy.has(`thought:${message.id}`);
   const thoughtCard = thoughtOpen ? `<div class="chat-avatar-thought" role="region" aria-label="角色心声">
@@ -131,7 +143,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
     </div>`;
   }
 
-  const party = item => item && !item.withdrawn && item.type !== 'poke' && (item.speakerId || item.role);
+  const party = item => item && !item.withdrawn && item.type !== 'poke' && item.type !== 'game-action' && (item.speakerId || item.role);
   const hasPrev = party(previous) === party(message), hasNext = party(next) === party(message);
   const grouped = `${hasPrev ? ' grouped-top' : ''}${hasNext ? ' grouped-bottom' : ''}${previous && !hasPrev ? ' group-start' : ''}`;
   const multiSelect = Boolean(ui.multiSelectMode && !readOnly);
@@ -414,11 +426,7 @@ export function renderChat(state, { ui, busy }) {
     </div>
   </div>`;
 
-  const isPlayingGame = Boolean(ui.activeGame && ui.activeGame.status === 'playing');
-  const composer = ui.multiSelectMode ? multiToolbar : isPlayingGame ? `<div class="composer game-locked-composer">
-    <span class="game-locked-hint">抽鬼牌对决中 · 请在牌桌操作</span>
-    <button type="button" class="game-surrender-btn" data-action="surrender-game">认输结算</button>
-  </div>` : observer ? `<div class="composer observer-composer">
+  const composer = ui.multiSelectMode ? multiToolbar : observer ? `<div class="composer observer-composer">
     <span>旁观群聊</span>
     ${action('continue', '继续', 'refresh', 'continue-button', generating)}
   </div>` : `<form class="composer">

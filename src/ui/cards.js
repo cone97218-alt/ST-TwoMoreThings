@@ -31,6 +31,8 @@ export function renderCardBody(message, generating = false) {
     let statusPill = '';
     if (game.status === 'invited') {
       statusPill = `<small class="game-card-status pending">${isUserSender ? '等待邀请结果' : '收到对决邀请'}</small>`;
+    } else if (game.status === 'countered') {
+      statusPill = `<small class="game-card-status active">对方提议新赌注</small>`;
     } else if (game.status === 'rejected') {
       statusPill = `<small class="game-card-status lose">已拒绝邀请</small>`;
     } else if (game.status === 'finished') {
@@ -67,6 +69,9 @@ export function renderCardActions(message, { readOnly, busy }) {
         gameAction = `<button type="button" class="game-open-action" data-game-invite-id="${escape(message.id)}" data-game-invite-action="accept">接受对决</button>
           <button type="button" class="game-open-action secondary" data-game-invite-id="${escape(message.id)}" data-game-invite-action="reject">拒绝</button>`;
       }
+    } else if (game.status === 'countered') {
+      gameAction = `<button type="button" class="game-open-action" data-game-invite-id="${escape(message.id)}" data-game-invite-action="accept-counter">接受新赌注</button>
+        <button type="button" class="game-open-action secondary" data-game-invite-id="${escape(message.id)}" data-game-invite-action="reject">拒绝</button>`;
     } else if (game.status === 'playing') {
       gameAction = `<button type="button" class="game-open-action" data-open-game-id="${escape(message.id)}" aria-label="进入牌桌">进入牌桌</button>`;
     } else if (game.status === 'finished') {

@@ -371,7 +371,7 @@ h3 { font-size: 14px; font-weight: 600; }
 .game-surrender-btn:hover { color: #c5221f; border-color: #c5221f; }
 
 /* 浮动牌桌展开胶囊 */
-.game-floating-pill { position: absolute; right: 14px; bottom: 62px; z-index: 4; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; background: var(--pp-active); color: #fff; font-size: 11px; font-weight: 500; box-shadow: 0 3px 10px rgba(0,0,0,0.18); border: none; cursor: pointer; }
+.game-floating-pill { position: absolute; right: 14px; bottom: 84px; z-index: 4; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; background: var(--pp-active); color: #fff; font-size: 11px; font-weight: 500; box-shadow: 0 3px 10px rgba(0,0,0,0.18); border: none; cursor: pointer; }
 .game-floating-pill svg { width: 15px; height: 15px; }
 
 /* 抽鬼牌半屏抽屉面板 */
@@ -385,6 +385,8 @@ h3 { font-size: 14px; font-weight: 600; }
 
 /* 顶部控制按钮统一尺寸与对齐 */
 .game-board-controls { display: flex; align-items: center; gap: 4px; }
+.game-surrender-inline-btn { font-size: 11px; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--pp-divider-soft); background: transparent; color: var(--pp-muted); cursor: pointer; transition: all .15s; margin-right: 2px; }
+.game-surrender-inline-btn:hover { color: #c5221f; border-color: #c5221f; background: var(--pp-pale); }
 .game-board-controls .game-ctrl-btn { width: 26px !important; height: 26px !important; min-height: 26px !important; padding: 0 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; border-radius: 6px !important; background: transparent !important; color: var(--pp-muted) !important; border: none !important; cursor: pointer !important; transition: background .15s, color .15s !important; }
 .game-board-controls .game-ctrl-btn:hover { background: var(--pp-pale) !important; color: var(--pp-text) !important; }
 .game-board-controls .game-ctrl-btn svg { width: 16px !important; height: 16px !important; }
@@ -1354,7 +1356,8 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   animation: locate-bubble-flash 1.6s ease-out;
 }
 .poke-notice,
-.withdrawn-notice {
+.withdrawn-notice,
+.game-action-notice {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1372,8 +1375,21 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .poke-icon {
   font-size: 11px;
 }
+.game-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.game-action-icon svg {
+  width: 13px;
+  height: 13px;
+  color: var(--pp-muted);
+  vertical-align: -1px;
+}
 .poke-actor,
-.poke-target {
+.poke-target,
+.game-action-text {
   font-weight: 500;
   color: var(--pp-ink);
 }

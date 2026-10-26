@@ -346,9 +346,6 @@ export const RICH_MESSAGES_PROMPT = `[表情包与多媒体消息规则]
           - 手机转账: {"type":"transfer","transfer":{"amount":"金额数字","currency":"CNY等币种","note":"简短备注","recipientId":"私聊填@user，群聊填收款成员id"}}。
           - 发送照片: {"type":"image","image":{"description":"真实发来照片的可绘制画面描述，写清画面人物、动作、物品和环境"}}。照片按场景需要发送，不要求每轮发；只给描述，用户点开才生图，不生成图片地址或绘图标签。
           - 拍一拍: {"type":"poke","poke":{"actorName":"发起人姓名","targetId":"@user或成员id","targetName":"被拍对象姓名","suffix":"的头像"}}。
-          - 发起抽鬼牌小游戏: 觉得时机契合想找对方玩纸牌时，可在 messages 中发送: {"type":"game","game":{"kind":"old_maid","action":"invite","wager":"具体的赌注或惩罚"}}，并附带邀约台词。
-          - 抽鬼牌响应与协商赌注: 收到对方发来的抽鬼牌邀请时，在正文中表态并协商赌注，并在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。
-          - 纯对弈模式 (游戏中禁止无关闲聊): 牌局进行中双方专心摸牌打牌，你的每次输出须围绕手牌变动、虚实试探、心虚掩饰或挑衅垃圾话展开短精动作描写与台词，严禁进行无关日常闲聊；终局后输家履行赌注。
       - 角色主动线上交互:
           - 主动引用: 在消息对象中附带 "replyToId":"history或previousMessages中目标消息的id"，针对特定某句消息进行引用回复。
           - 主动转发: {"text":"被转发的原话","forwarded":true,"forwardedFrom":{"senderName":"原发言人姓名","chatName":"可选群名","isGroup":false}}，用于向对方转述或分享他人/群聊发过的消息。
@@ -384,8 +381,13 @@ export const THOUGHT_PROMPT = `[角色内心独白]
 export const OLD_MAID_PROMPT = `[小游戏功能规范：抽鬼牌 (Old Maid)]
 - 规则说明: 采用精简 17 张牌二人对决（A到8各两张成对，加一张 Joker 鬼牌）。轮流抽取对方手牌，相同点数成对丢弃，最后手握鬼牌者输。
 - 角色端主动发起: 当觉得时机合适想找对方玩纸牌对决时，可在 messages 中发送邀约卡: {"type":"game","game":{"kind":"old_maid","action":"invite","wager":"具体的赌注或惩罚"}}，并配以挑衅或邀约台词。
-- 响应玩家邀请与协商赌注: 当收到玩家发来的抽鬼牌对战邀请时，须在消息正文中根据角色性格明确表态是否接受，并协商赌注；同时在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。
-- 纯对弈模式 (游戏中禁止无关闲聊): 牌局进行中双方专心摸牌打牌，你的每次输出须围绕手牌变动、虚实试探、心虚掩饰或挑衅垃圾话展开短精心理动作描写与台词，严禁进行无关日常闲聊。终局后输家履行赛前约定的赌注。`;
+- 响应玩家邀请与协商赌注: 当收到玩家发来的抽鬼牌对战邀请时，须在消息正文中根据角色性格明确表态是否接受，并协商赌注；同时在顶层返回 {"gameAction":"accept","wager":"确认的赌注"} 或 {"gameAction":"reject","reason":"拒绝理由"}。如果想更换赌注，可在正文中提出并在顶层返回 {"gameAction":"counter","wager":"新赌注"}。
+- 边玩边聊与回合抽牌规范: 牌局进行中双方可以边打游戏边正常聊天吐槽、心理试探或发垃圾话。
+  * 当轮到你的回合抽牌时，你必须在 JSON 顶层返回 gameAction 动作指令:
+    {"gameAction": {"action": "draw", "drawIndex": 0, "notice": "【角色名】狡黠一笑，果断抽走了【玩家名】最左边的一张手牌……"}}
+    - drawIndex: 你选择抽取的对方手牌索引数字（从 0 开始）。
+    - notice: 由你亲自撰写的本轮抽牌系统公告。以第三人称结合人设动作生动描写你的抽牌举动与神态细节，并必须使用双方具体姓名（如【A】抽走了【B】的……），该公告会直接作为系统动作消息呈现于对话流中。
+  * 严禁仅在普通对话文本中口头描述抽牌或自行宣布游戏推进，严禁未经系统指令擅自结算胜负。终局后输家须在后续对话中履行约定的赌注。`;
 
 export const PROMPT_DEFINITIONS = [
   {
@@ -399,7 +401,7 @@ export const PROMPT_DEFINITIONS = [
     id: 'old_maid',
     title: '抽鬼牌小游戏',
     category: '小游戏',
-    description: '指导角色理解抽鬼牌规则、主动发起纸牌邀约、协商赌注并在纯对弈模式中输出生动心理战台词。',
+    description: '指导角色理解抽鬼牌规则、发起/响应邀约、协商赌注，并在边玩边聊中通过结构化动作摸牌对决。',
     defaultPrompt: OLD_MAID_PROMPT,
   },
   {

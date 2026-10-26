@@ -27,7 +27,30 @@ export function messageText(message) {
     case 'transfer': return `[转账：${message.transfer.amount} ${message.transfer.currency || 'CNY'}${message.transfer.note ? `，${message.transfer.note}` : ''}；${states[message.transfer.status] || states.pending}]`;
     case 'image': return `[图片：${message.image.description}]`;
     case 'poke': return `[拍一拍：${message.poke?.actorName || '对方'}拍了拍${message.poke?.targetName || '你'}${message.poke?.suffix || '的头像'}]`;
-    case 'game': return `[小游戏：${message.game?.title || (message.game?.kind === 'old_maid' ? '抽鬼牌' : '游戏')}${message.game?.wager ? `，赌注：${message.game.wager}` : ''}；${message.game?.status === 'finished' ? (message.game.winner === 'user' ? '玩家获胜' : '对方获胜') : `进行中(第${message.game?.round || 1}轮)`}]`;
+    case 'game-action': {
+      const txt = message.gameAction?.text || message.text || '';
+      const inner = txt.startsWith('[抽鬼牌：') && txt.endsWith(']') ? txt.slice(5, -1) : txt;
+      return `[抽鬼牌：${inner || '牌局变动'}]`;
+    }
+    case 'game': {
+      const g = message.game || {};
+      const title = g.title || (g.kind === 'old_maid' ? '抽鬼牌' : '小游戏');
+      const wager = g.wager ? `，赌注：${g.wager}` : '';
+      if (g.status === 'invited') {
+        const inviter = g.sender === 'user' ? '玩家向你发起' : '你向玩家发起';
+        return `[小游戏邀约：${inviter}${title}对决${wager}；等待回应：可接受并确认赌注、可协商更换赌注、或拒绝]`;
+      }
+      if (g.status === 'countered') {
+        return `[小游戏邀约：对方提议更换赌注为【${g.wager}】；等待确认]`;
+      }
+      if (g.status === 'rejected') {
+        return `[小游戏邀约：${title}对决已被拒绝]`;
+      }
+      if (g.status === 'finished') {
+        return `[小游戏：${title}${wager}；对决结束(${g.winner === 'user' ? '玩家获胜' : '对方获胜'})]`;
+      }
+      return `[小游戏：${title}${wager}；牌局进行中(第${g.round || 1}轮，轮到${g.turn === 'user' ? '玩家' : '你'}摸牌)]`;
+    }
     default: return message.text || '';
   }
 }
@@ -90,6 +113,16 @@ export function normalizeContent(item) {
         targetId: text(item.poke?.targetId) || '@user',
         targetName: text(item.poke?.targetName) || '你',
         suffix: rawSuffix.startsWith('的') ? rawSuffix : `的${rawSuffix}`,
+      },
+    };
+  }
+  if (item.type === 'game-action') {
+    const raw = text(item.gameAction?.text ?? item.text);
+    const inner = raw.startsWith('[抽鬼牌：') && raw.endsWith(']') ? raw.slice(5, -1) : raw;
+    content = {
+      type: 'game-action',
+      gameAction: {
+        text: inner,
       },
     };
   }

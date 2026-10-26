@@ -59,7 +59,7 @@ export function discardPairs(hand) {
 }
 
 // 创建对战邀请（尚未正式发牌，等待对方接受或协商赌注）
-export function createOldMaidInvitation({ sender = 'user', wager = '' } = {}) {
+export function createOldMaidInvitation({ sender = 'user', wager = '', userName = '你', contactName = '对方' } = {}) {
   return {
     id: `om_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     kind: 'old_maid',
@@ -78,14 +78,14 @@ export function createOldMaidInvitation({ sender = 'user', wager = '' } = {}) {
     lastAction: {
       type: 'invite',
       actor: sender,
-      description: sender === 'user' ? '你发起了抽鬼牌对决邀请，等待对方响应。' : '对方发起了抽鬼牌对决邀请。',
+      description: sender === 'user' ? `【${userName}】发起了抽鬼牌对决邀请，等待【${contactName}】响应。` : `【${contactName}】发起了抽鬼牌对决邀请。`,
     },
     history: [],
   };
 }
 
 // 接受邀请，正式开局发牌
-export function acceptOldMaidGame(gameOrInvite, { wager, starter = 'user' } = {}) {
+export function acceptOldMaidGame(gameOrInvite, { wager, starter = 'user', userName = '你', contactName = '对方' } = {}) {
   const deck = shuffle(createDeck());
   const userInitial = starter === 'user' ? deck.slice(0, 9) : deck.slice(0, 8);
   const aiInitial = starter === 'user' ? deck.slice(9) : deck.slice(8);
@@ -107,40 +107,40 @@ export function acceptOldMaidGame(gameOrInvite, { wager, starter = 'user' } = {}
     lastAction: {
       type: 'start',
       actor: starter,
-      description: `对决正式开始！已消除 ${initialDiscarded.length} 对初始手牌，轮到${starter === 'user' ? '你' : '对方'}抽牌。`,
+      description: `对决正式开始！已消除 ${initialDiscarded.length} 对初始手牌，轮到【${starter === 'user' ? userName : contactName}】抽牌。`,
     },
     history: [
       {
         round: 1,
         actor: 'system',
-        text: `对局开始，已消除 ${initialDiscarded.length} 对手牌。轮到${starter === 'user' ? '玩家' : '角色'}行动。`,
+        text: `对局开始，已消除 ${initialDiscarded.length} 对手牌。轮到【${starter === 'user' ? userName : contactName}】行动。`,
       }
     ],
   };
 
-  return checkGameStatus(game);
+  return checkGameStatus(game, { userName, contactName });
 }
 
 // 拒绝邀请
-export function rejectOldMaidGame(gameOrInvite, { reason = '' } = {}) {
+export function rejectOldMaidGame(gameOrInvite, { reason = '', contactName = '对方' } = {}) {
   return {
     ...gameOrInvite,
     status: 'rejected',
     lastAction: {
       type: 'reject',
-      description: reason || '对方婉拒了本次对决邀请。',
+      description: reason || `【${contactName}】婉拒了本次对决邀请。`,
     },
   };
 }
 
 // 直接创建一局已开局的游戏（快捷开局兼容）
-export function createOldMaidGame({ wager = '', starter = 'user' } = {}) {
-  const invite = createOldMaidInvitation({ sender: starter, wager });
-  return acceptOldMaidGame(invite, { starter });
+export function createOldMaidGame({ wager = '', starter = 'user', userName = '你', contactName = '对方' } = {}) {
+  const invite = createOldMaidInvitation({ sender: starter, wager, userName, contactName });
+  return acceptOldMaidGame(invite, { starter, userName, contactName });
 }
 
 // 检查胜负
-export function checkGameStatus(game) {
+export function checkGameStatus(game, { userName = '你', contactName = '对方' } = {}) {
   if (game.status !== 'playing') return game;
 
   const userCount = game.userCards.length;
@@ -153,7 +153,7 @@ export function checkGameStatus(game) {
     game.lastAction = {
       type: 'game_over',
       actor: 'user',
-      description: '你出完了所有手牌获得胜利！对方持有鬼牌落败！',
+      description: `【${userName}】出完了所有手牌获得胜利！【${contactName}】持有鬼牌落败！`,
     };
     return game;
   }
@@ -165,7 +165,7 @@ export function checkGameStatus(game) {
     game.lastAction = {
       type: 'game_over',
       actor: 'ai',
-      description: '对方出完了所有手牌获得胜利！你持有鬼牌落败！',
+      description: `【${contactName}】出完了所有手牌获得胜利！【${userName}】持有鬼牌落败！`,
     };
     return game;
   }
@@ -178,7 +178,7 @@ export function checkGameStatus(game) {
       game.lastAction = {
         type: 'game_over',
         actor: 'ai',
-        description: '对子消除完毕，你手握最后的鬼牌落败！',
+        description: `对子消除完毕，【${userName}】手握最后的鬼牌落败！`,
       };
     } else {
       game.winner = 'user';
@@ -186,7 +186,7 @@ export function checkGameStatus(game) {
       game.lastAction = {
         type: 'game_over',
         actor: 'user',
-        description: '对子消除完毕，对方手握最后的鬼牌落败！',
+        description: `对子消除完毕，【${contactName}】手握最后的鬼牌落败！`,
       };
     }
   }
@@ -195,7 +195,7 @@ export function checkGameStatus(game) {
 }
 
 // 玩家回合：抽取 AI 的一张牌
-export function userDrawCard(game, aiCardIndex) {
+export function userDrawCard(game, aiCardIndex, { userName = '你', contactName = '对方' } = {}) {
   if (game.status !== 'playing') return { game, error: '游戏未处于进行中状态' };
   if (game.turn !== 'user') return { game, error: '当前不是你的回合' };
   if (aiCardIndex < 0 || aiCardIndex >= game.aiCards.length) return { game, error: '无效的手牌索引' };
@@ -220,7 +220,7 @@ export function userDrawCard(game, aiCardIndex) {
       actor: 'user',
       drawnCard,
       matchedCard,
-      description: `你抽中对方的【${cardDisplayName(drawnCard)}】，与自己的【${cardDisplayName(matchedCard)}】成对消除！`,
+      description: `【${userName}】抽中了【${contactName}】的【${cardDisplayName(drawnCard)}】，与自己的【${cardDisplayName(matchedCard)}】成对消除！`,
     };
   } else {
     nextGame.userCards.push(drawnCard);
@@ -229,8 +229,8 @@ export function userDrawCard(game, aiCardIndex) {
       actor: 'user',
       drawnCard,
       description: drawnCard.isJoker
-        ? '抽中了鬼牌 Joker！小心藏好别被识破！'
-        : `你抽中了对方的【${cardDisplayName(drawnCard)}】并加入手牌。`,
+        ? `【${userName}】抽中了【${contactName}】的鬼牌 Joker！小心藏好别被识破！`
+        : `【${userName}】抽中了【${contactName}】的【${cardDisplayName(drawnCard)}】并加入手牌。`,
     };
   }
 
@@ -240,7 +240,7 @@ export function userDrawCard(game, aiCardIndex) {
     text: nextGame.lastAction.description,
   });
 
-  checkGameStatus(nextGame);
+  checkGameStatus(nextGame, { userName, contactName });
 
   if (nextGame.status === 'playing') {
     nextGame.turn = 'ai';
@@ -250,7 +250,7 @@ export function userDrawCard(game, aiCardIndex) {
 }
 
 // AI 回合：从玩家手牌中抽取一张牌
-export function aiDrawCard(game) {
+export function aiDrawCard(game, chosenIndex = undefined, { userName = '你', contactName = '对方', customNotice = '' } = {}) {
   if (game.status !== 'playing') return { game, error: '游戏未处于进行中状态' };
   if (game.turn !== 'ai') return { game, error: '当前不是对方的回合' };
   if (!game.userCards.length) return { game, error: '玩家已无手牌' };
@@ -259,7 +259,9 @@ export function aiDrawCard(game) {
   const userCount = nextGame.userCards.length;
   let targetIndex;
 
-  if (nextGame.bluffCardIndex >= 0 && nextGame.bluffCardIndex < userCount && userCount > 1) {
+  if (typeof chosenIndex === 'number' && chosenIndex >= 0 && chosenIndex < userCount) {
+    targetIndex = chosenIndex;
+  } else if (nextGame.bluffCardIndex >= 0 && nextGame.bluffCardIndex < userCount && userCount > 1) {
     if (Math.random() < 0.6) {
       const remaining = [...Array(userCount).keys()].filter(i => i !== nextGame.bluffCardIndex);
       targetIndex = remaining[Math.floor(Math.random() * remaining.length)];
@@ -290,7 +292,7 @@ export function aiDrawCard(game) {
       actor: 'ai',
       drawnCard,
       targetIndex,
-      description: `对方抽走了你的一张牌，并与自己的手牌配对消除！`,
+      description: customNotice.trim() || `【${contactName}】抽走了【${userName}】的一张牌，并与自己的手牌配对消除！`,
     };
   } else {
     nextGame.aiCards.push(drawnCard);
@@ -299,9 +301,9 @@ export function aiDrawCard(game) {
       actor: 'ai',
       drawnCard,
       targetIndex,
-      description: drawnCard.isJoker
-        ? '对方抽走了你的鬼牌！'
-        : '对方抽走了你的一张手牌。',
+      description: customNotice.trim() || (drawnCard.isJoker
+        ? `【${contactName}】抽走了【${userName}】的鬼牌！`
+        : `【${contactName}】抽走了【${userName}】的一张手牌。`),
     };
   }
 
@@ -311,7 +313,7 @@ export function aiDrawCard(game) {
     text: nextGame.lastAction.description,
   });
 
-  checkGameStatus(nextGame);
+  checkGameStatus(nextGame, { userName, contactName });
 
   if (nextGame.status === 'playing') {
     nextGame.turn = 'user';
@@ -370,7 +372,7 @@ export function getAiMicroExpression(game) {
 // 格式化卡牌显示
 export function cardDisplayName(card) {
   if (!card) return '';
-  if (card.isJoker) return '鬼牌 🃏';
+  if (card.isJoker) return 'Joker 鬼牌';
   const suitSymbol = card.suit === 'S' ? '♠' : '♥';
   return `${suitSymbol} ${card.rank}`;
 }

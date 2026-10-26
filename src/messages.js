@@ -6,7 +6,7 @@ import { CALENDAR_PROMPT } from './calendar.js';
 import { parseTodoCandidates } from './todos.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
 import { replyToMessage } from './replies.js';
-import { createOldMaidInvitation, acceptOldMaidGame, rejectOldMaidGame } from './games/old-maid.js';
+import { createOldMaidInvitation, acceptOldMaidGame, rejectOldMaidGame, aiDrawCard } from './games/old-maid.js';
 
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
@@ -197,13 +197,26 @@ export function createMessageService({ target, store, contextReader, modelClient
         const byText = [...existingThread].reverse().find(m => m.text === rawId || messageText(m) === rawId);
         return byText ? byText.id : '';
       };
+
+      const pendingInvite = [...existingThread].reverse().find(m => m.type === 'game' && m.game?.status === 'invited');
+      const activeGameMsg = [...existingThread].reverse().find(m => m.type === 'game' && m.game?.status === 'playing');
+      const rawGameAction = answer.gameAction;
+      const gameActionKind = typeof rawGameAction === 'string'
+        ? rawGameAction
+        : String(rawGameAction?.action || rawGameAction?.status || '').trim();
+      const isGameTurn = Boolean(activeGameMsg && activeGameMsg.game?.turn === 'ai');
+      const hasGameAction = Boolean(rawGameAction);
+      const contactName = context.contact?.name || '对方';
+      const userName = context.userProfile?.name || context.userName || '你';
+
       let reasoningAssigned = false;
-      const indexedMessages = parsePayload(reply, 'messages', { allowEmpty: actions.length > 0 || rawMsgActions.length > 0, indexed: true }).map(content => {
+      const allowEmpty = actions.length > 0 || rawMsgActions.length > 0 || hasGameAction || isGameTurn;
+      const indexedMessages = parsePayload(reply, 'messages', { allowEmpty, indexed: true }).map(content => {
         if (!content) return null;
         if (content.type === 'transfer') content.transfer.recipientId = '@user';
         if (content.type === 'game') {
           const wager = String(content.game?.wager || '').trim() || '纯娱乐';
-          const invite = createOldMaidInvitation({ sender: 'ai', wager });
+          const invite = createOldMaidInvitation({ sender: 'ai', wager, userName, contactName });
           content.game = {
             kind: 'old_maid',
             title: '抽鬼牌',
@@ -233,24 +246,75 @@ export function createMessageService({ target, store, contextReader, modelClient
         return { ...record('assistant', content.text, clock, content.translation, context.batch), ...content, ...reasoningData };
       });
       const messages = indexedMessages.filter(Boolean);
+
+      if (messages.filter(m => m.role === 'assistant').length === 0 && (isGameTurn || hasGameAction)) {
+        const extraText = String(answer.reply || answer.text || (typeof rawGameAction === 'object' && (rawGameAction.message || rawGameAction.talk)) || '').trim();
+        if (extraText) {
+          messages.unshift({
+            ...record('assistant', extraText, clock, '', context.batch),
+            text: extraText,
+          });
+        } else if (isGameTurn) {
+          const cleanReply = String(reply || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+          if (cleanReply && !cleanReply.includes('{') && !cleanReply.includes('}')) {
+            messages.unshift({
+              ...record('assistant', cleanReply, clock, '', context.batch),
+              text: cleanReply,
+            });
+          }
+        }
+      }
+
       const todoCandidates = parseTodoCandidates(answer.todoSuggestions ?? answer.todos, { conversationId: id, messages: indexedMessages, participantIds: (context.todoPeople || []).map(person => person.id) });
       for (const item of actions) {
         const targetTransferId = resolveReplyId(item.transferId) || item.transferId;
         await store.respondTransfer(id, targetTransferId, item.status, id, context.batch);
       }
-      const rawGameAction = answer.gameAction;
-      if (rawGameAction) {
-        const gameActionKind = typeof rawGameAction === 'string' ? rawGameAction : String(rawGameAction.action || rawGameAction.status || '').trim();
-        const pendingInvite = [...existingThread].reverse().find(m => m.type === 'game' && m.game?.status === 'invited');
-        if (pendingInvite) {
-          if (gameActionKind === 'accept' || gameActionKind === 'accepted') {
-            const wager = String(typeof rawGameAction === 'object' && rawGameAction.wager ? rawGameAction.wager : pendingInvite.game.wager || '纯娱乐').trim();
-            const startedGame = acceptOldMaidGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user' });
-            await store.updateGameMessage(id, pendingInvite.id, startedGame);
-          } else if (gameActionKind === 'reject' || gameActionKind === 'rejected') {
-            const reason = String(typeof rawGameAction === 'object' && rawGameAction.reason ? rawGameAction.reason : '').trim();
-            const rejectedGame = rejectOldMaidGame(pendingInvite.game.state || pendingInvite.game, { reason });
-            await store.updateGameMessage(id, pendingInvite.id, rejectedGame);
+
+      if (pendingInvite && rawGameAction) {
+        if (gameActionKind === 'accept' || gameActionKind === 'accepted') {
+          const wager = String(typeof rawGameAction === 'object' && rawGameAction.wager ? rawGameAction.wager : pendingInvite.game.wager || '纯娱乐').trim();
+          const startedGame = acceptOldMaidGame(pendingInvite.game.state || pendingInvite.game, { wager, starter: 'user', userName, contactName });
+          await store.updateGameMessage(id, pendingInvite.id, startedGame);
+          if (startedGame.lastAction?.description) {
+            messages.push({
+              ...record('system', startedGame.lastAction.description, clock, '', context.batch),
+              type: 'game-action',
+            });
+          }
+        } else if (gameActionKind === 'counter' || gameActionKind === 'negotiate') {
+          const newWager = String(typeof rawGameAction === 'object' && rawGameAction.wager ? rawGameAction.wager : '').trim();
+          if (newWager) {
+            const updatedInvite = {
+              ...pendingInvite.game,
+              wager: newWager,
+              status: 'countered',
+              state: { ...(pendingInvite.game.state || pendingInvite.game), wager: newWager, status: 'countered' },
+            };
+            await store.updateGameMessage(id, pendingInvite.id, updatedInvite);
+          }
+        } else if (gameActionKind === 'reject' || gameActionKind === 'rejected') {
+          const reason = String(typeof rawGameAction === 'object' && rawGameAction.reason ? rawGameAction.reason : '').trim();
+          const rejectedGame = rejectOldMaidGame(pendingInvite.game.state || pendingInvite.game, { reason, contactName });
+          await store.updateGameMessage(id, pendingInvite.id, rejectedGame);
+        }
+      }
+
+      // 进行中的牌局：若轮到对方摸牌，自动出牌推进回合
+      if (activeGameMsg && activeGameMsg.game?.turn === 'ai') {
+        const drawIndex = typeof rawGameAction === 'object' && rawGameAction.drawIndex !== undefined
+          ? Number(rawGameAction.drawIndex)
+          : undefined;
+        const customNotice = String(typeof rawGameAction === 'object' && (rawGameAction.notice || rawGameAction.text) ? (rawGameAction.notice || rawGameAction.text) : '').trim();
+        const gameState = activeGameMsg.game.state || activeGameMsg.game;
+        const result = aiDrawCard(gameState, drawIndex, { userName, contactName, customNotice });
+        if (!result.error) {
+          await store.updateGameMessage(id, activeGameMsg.id, result.game);
+          if (result.game.lastAction?.description) {
+            messages.push({
+              ...record('system', result.game.lastAction.description, clock, '', context.batch),
+              type: 'game-action',
+            });
           }
         }
       }

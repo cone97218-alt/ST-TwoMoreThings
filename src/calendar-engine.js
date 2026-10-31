@@ -346,7 +346,7 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
 export function defaultWorkdayConfig() {
   return {
     enabled: false,
-    injectStory: false,
+    injectStory: true,
     workdays: [1, 2, 3, 4, 5],
     holidayOverlapStrategy: 'festival_overrides',
     workdayPrompt: '【工作日状态】当前为工作日，角色处于日常工作/上学作息状态，精力集中，言谈举止贴合平日生活节奏。',

@@ -175,21 +175,12 @@ export function renderCalendar(state, { ui, calendar }) {
 
   const workdayTabContent = `
     <div class="calendar-ai-inputs">
-      <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px dashed var(--pp-divider-soft);">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <div>
-            <span style="font-size: 13px; font-weight: 500;">启用作息提示</span>
-            <small style="color: var(--pp-muted); display: block; font-size: 11px;">结合剧情时间与24h时段感知忙闲状态</small>
-          </div>
-          <input id="cal-w-enabled" type="checkbox" ${workdayConfig.enabled ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--pp-bronze); cursor: pointer; flex-shrink: 0;">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px dashed var(--pp-divider-soft); gap: 8px;">
+        <div>
+          <span style="font-size: 13px; font-weight: 500;">启用作息提示</span>
+          <small style="color: var(--pp-muted); display: block; font-size: 11px;">结合剧情时间与24h时段感知忙闲状态</small>
         </div>
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <div>
-            <span style="font-size: 13px; font-weight: 500;">带入正文主模型</span>
-            <small style="color: var(--pp-muted); display: block; font-size: 11px;">正文生成时向主模型注入当前作息状态</small>
-          </div>
-          <input id="cal-w-inject-story" type="checkbox" ${workdayConfig.injectStory ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--pp-bronze); cursor: pointer; flex-shrink: 0;">
-        </div>
+        <input id="cal-w-enabled" type="checkbox" ${workdayConfig.enabled ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--pp-bronze); cursor: pointer; flex-shrink: 0;">
       </div>
 
       <div style="margin-top: 10px;">

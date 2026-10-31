@@ -535,9 +535,9 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
     </span>
   </label>
   <label class="compact-switch-row">
-    <span>工作日/作息带入提示词</span>
+    <span>工作日/作息带入正文</span>
     <span class="switch">
-      <input id="workday-enabled" type="checkbox" role="switch" aria-label="工作日/作息带入提示词" ${state.calendar?.workdayConfig?.enabled ? 'checked' : ''}>
+      <input id="workday-enabled" type="checkbox" role="switch" aria-label="工作日/作息带入正文" ${state.calendar?.workdayConfig?.injectStory ? 'checked' : ''}>
       <span></span>
     </span>
   </label>

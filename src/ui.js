@@ -1666,7 +1666,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       }
       case 'save-workday-config': {
         const enabled = root.querySelector('#cal-w-enabled')?.checked === true;
-        const injectStory = root.querySelector('#cal-w-inject-story')?.checked === true;
+        const prevConfig = store.read()?.calendar?.workdayConfig || defaultWorkdayConfig();
+        const injectStory = prevConfig.injectStory ?? true;
         const activeDayPills = Array.from(root.querySelectorAll('.workday-day-pill.is-active'));
         const checkedDays = activeDayPills.map(el => Number(el.dataset.day));
         const overlap = root.querySelector('#cal-w-overlap')?.value || 'festival_overrides';
@@ -2767,7 +2768,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const enabled = event.target.checked;
       const current = store.read()?.calendar?.workdayConfig || defaultWorkdayConfig();
       void perform('calendar-workday', async () => {
-        await store.setCalendarWorkdayConfig({ ...current, enabled });
+        await store.setCalendarWorkdayConfig({ ...current, injectStory: enabled });
         onContextChange();
       });
     }

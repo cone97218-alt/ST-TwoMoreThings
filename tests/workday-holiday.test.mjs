@@ -11,6 +11,7 @@ import {
 } from '../src/calendar-engine.js';
 import { createCalendarReader } from '../src/calendar.js';
 import { compilePromptPreset } from '../src/preset-engine.js';
+import { createBackflowService } from '../src/context.js';
 
 test('workday-holiday engine: timeToMinutes and matchesTimeSlot 24h ranges', () => {
   assert.equal(timeToMinutes('09:30'), 570);
@@ -329,4 +330,39 @@ test('workday-holiday: authoring export and import preserves workdayConfig', asy
   assert.equal(restored.calendar.workdayConfig.enabled, true);
   assert.deepEqual(restored.calendar.workdayConfig.workdays, [1, 2, 3, 4]);
   assert.equal(restored.calendar.workdayConfig.workdayPrompt, 'Custom Workday');
+});
+
+test('backflow: workday & holiday prompt injection into story main context', async () => {
+  const harness = createHarness({
+    characterName: 'Hero',
+    messages: [
+      { is_user: false, mes: '在王都旅店休整。<!-- SDC-end date=2026-11-04 | weekday=周三 | time=14:00 -->' },
+    ],
+  });
+  const target = harness.host.captureChat();
+  const store = createPhoneStore({ target });
+  const calendar = createCalendarReader({ store, target });
+
+  // 1. 未开启 injectStory 时不带入正文
+  await store.setCalendarWorkdayConfig({
+    enabled: true,
+    injectStory: false,
+    workdays: [1, 2, 3, 4, 5],
+    workdayPrompt: '【工作日】正在商会办公。',
+  });
+  const backflowDisabled = createBackflowService({ target, store, calendar });
+  const resultDisabled = await backflowDisabled.prepare('normal');
+  assert.equal(resultDisabled, '');
+
+  // 2. 开启 injectStory 后成功带入正文
+  await store.setCalendarWorkdayConfig({
+    enabled: true,
+    injectStory: true,
+    workdays: [1, 2, 3, 4, 5],
+    workdayPrompt: '【工作日】正在商会办公。',
+  });
+  const backflowEnabled = createBackflowService({ target, store, calendar });
+  const resultEnabled = await backflowEnabled.prepare('normal');
+  assert.ok(resultEnabled.includes('[当前作息：'));
+  assert.ok(resultEnabled.includes('【工作日】正在商会办公。'));
 });

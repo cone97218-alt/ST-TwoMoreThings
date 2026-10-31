@@ -1656,9 +1656,19 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         void perform('calendar-workday', () => store.setCalendarWorkdayConfig({ timeSlots: slots }), render);
         break;
       }
+      case 'toggle-workday-day': {
+        button.classList.toggle('is-active');
+        const isActive = button.classList.contains('is-active');
+        button.style.borderColor = isActive ? 'var(--pp-bronze)' : 'var(--pp-divider-soft)';
+        button.style.backgroundColor = isActive ? 'var(--pp-bronze)' : 'var(--pp-control-surface)';
+        button.style.color = isActive ? '#fff' : 'var(--pp-text)';
+        break;
+      }
       case 'save-workday-config': {
         const enabled = root.querySelector('#cal-w-enabled')?.checked === true;
-        const checkedDays = Array.from(root.querySelectorAll('input[name="workday-day"]:checked')).map(el => Number(el.value));
+        const injectStory = root.querySelector('#cal-w-inject-story')?.checked === true;
+        const activeDayPills = Array.from(root.querySelectorAll('.workday-day-pill.is-active'));
+        const checkedDays = activeDayPills.map(el => Number(el.dataset.day));
         const overlap = root.querySelector('#cal-w-overlap')?.value || 'festival_overrides';
         const workdayPrompt = root.querySelector('#cal-w-workday-prompt')?.value || '';
         const holidayPrompt = root.querySelector('#cal-w-holiday-prompt')?.value || '';
@@ -1672,6 +1682,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         });
         void perform('calendar-workday', () => store.setCalendarWorkdayConfig({
           enabled,
+          injectStory,
           workdays: checkedDays,
           holidayOverlapStrategy: overlap,
           workdayPrompt,

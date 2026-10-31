@@ -283,12 +283,25 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
       const state = store.read();
       const injectSms = Boolean(state.injectEnabled);
       const injectCal = Boolean(state.injectCalendarEnabled);
-      if (!isEnabled() || (!injectSms && !injectCal)) return '';
+      const workdayConfig = state.calendar?.workdayConfig;
+      const injectWorkday = Boolean(workdayConfig?.enabled && workdayConfig?.injectStory);
+      if (!isEnabled() || (!injectSms && !injectCal && !injectWorkday)) return '';
       // 重生成事件发生时旧回答可能尚未移除；参考取自该回答之前的短信卡口。
       const last = target.messages.at(-1);
       const replacing = ['regenerate', 'swipe'].includes(type) && last && !last.is_user && !last.is_system && !['user', 'system'].includes(last.role);
       const beforeIndex = target.messages.length - Number(Boolean(replacing));
       const batch = readTimeline(target.messages, beforeIndex);
+
+      // 作息提示（若开启工作日/节假日带入正文）
+      let workdayLines = '';
+      if (injectWorkday && calendar?.workdayPrompt) {
+        try {
+          const workdayInfo = calendar.workdayPrompt(target.messages.slice(0, beforeIndex));
+          if (workdayInfo?.prompt) {
+            workdayLines = `[当前作息：\n${workdayInfo.prompt}\n]`;
+          }
+        } catch {}
+      }
 
       // 日历线索（若开启日历带入正文）
       let calendarContext = null;
@@ -329,8 +342,9 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
         }
       }
 
-      if (!conversations.length && !todos.length && !calendarLines) return '';
+      if (!conversations.length && !todos.length && !calendarLines && !workdayLines) return '';
       const parts = [];
+      if (workdayLines) parts.push(workdayLines);
       if (calendarLines) parts.push(calendarLines);
       if (conversations.length) {
         parts.push(conversations.map(conversation => {
@@ -368,7 +382,7 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
       const summary = value.trim();
       if (!summary) return '';
       const current = store.read();
-      if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled)) return '';
+      if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled && !Boolean(current.calendar?.workdayConfig?.enabled && current.calendar?.workdayConfig?.injectStory))) return '';
       for (const conversation of conversations) {
         const saved = new Map((current.conversations[conversation.id] || []).map(message => [message.id, message]));
         if (conversation.messages.some(message => !saved.has(message.id))) throw new Error('参考中的短信已被删除，本次正文未带入手机消息。');
@@ -378,6 +392,7 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
         if (JSON.stringify(readTodos(current).find(item => item.id === todo.id)) !== JSON.stringify(todo)) throw new Error('参考中的待办已修改或删除，请重新生成正文。');
       }
       const summaryParts = [];
+      if (workdayLines) summaryParts.push(workdayLines);
       if (calendarLines) summaryParts.push(calendarLines);
       if (summary) summaryParts.push(summary);
       return summaryParts.join('\n\n');

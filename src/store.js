@@ -5,7 +5,7 @@ import { cleanBackground } from './backgrounds.js';
 import { contentImagePaths, imagePath } from './image-files.js';
 import { readTodos, todoSourceMessageIds } from './todos.js';
 import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
-import { defaultGregorianCalendar } from './calendar-engine.js';
+import { defaultGregorianCalendar, defaultWorkdayConfig } from './calendar-engine.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 
 const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false, injectCalendarEnabled: false, lockScreenEnabled: true, prompts: {} });
@@ -190,6 +190,9 @@ export function createPhoneStore({
         items: Array.isArray(raw?.calendar?.items) && raw.calendar.items.length > 0
           ? raw.calendar.items
           : (Array.isArray(boundCalendar.items) ? structuredClone(boundCalendar.items) : []),
+        ...(boundCalendar.workdayConfig
+          ? { workdayConfig: structuredClone(boundCalendar.workdayConfig) }
+          : (raw?.calendar?.workdayConfig ? { workdayConfig: structuredClone(raw.calendar.workdayConfig) } : {})),
         ...(globalCustomPresets ? { customPresets: globalCustomPresets } : {}),
       };
     } else if (raw?.calendar?.descriptor) {
@@ -198,6 +201,7 @@ export function createPhoneStore({
         items: Array.isArray(raw.calendar.items)
           ? structuredClone(raw.calendar.items.filter(it => !it.todoId))
           : [],
+        ...(raw.calendar.workdayConfig ? { workdayConfig: structuredClone(raw.calendar.workdayConfig) } : {}),
       };
       globalChanged = true;
       if (globalCustomPresets) {
@@ -206,6 +210,17 @@ export function createPhoneStore({
           customPresets: globalCustomPresets,
         };
       }
+    } else if (raw?.calendar?.workdayConfig) {
+      if (!phoneSettings.characterCalendars[charKey]) {
+        phoneSettings.characterCalendars[charKey] = {};
+      }
+      phoneSettings.characterCalendars[charKey].workdayConfig = structuredClone(raw.calendar.workdayConfig);
+      globalChanged = true;
+    } else if (boundCalendar?.workdayConfig) {
+      calendar = {
+        ...(calendar || raw?.calendar || { items: [] }),
+        workdayConfig: structuredClone(boundCalendar.workdayConfig),
+      };
     } else if (globalCustomPresets && globalCustomPresets.length > 0) {
       calendar = {
         ...(raw?.calendar || { items: [] }),
@@ -785,15 +800,41 @@ export function createPhoneStore({
       const note = String(event?.note || '').trim();
       const id = String(event?.id || `event:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`);
       const done = type === 'todo' ? Boolean(event?.done) : undefined;
+      const todoId = event?.todoId || (type === 'todo' && id.startsWith('todo:') ? id : null);
       return update(state => {
+        let nextState = state;
         const calendar = state.calendar || { items: [] };
         const items = Array.isArray(calendar.items) ? calendar.items : [];
         const index = items.findIndex(item => item.id === id);
-        const nextItem = { id, name, type, month, day, days, note, ...(done !== undefined ? { done } : {}) };
+        const nextItem = { id, name, type, month, day, days, note, ...(done !== undefined ? { done } : {}), ...(todoId ? { todoId } : {}) };
         const nextItems = index >= 0
           ? items.map((it, idx) => idx === index ? nextItem : it)
           : [...items, nextItem];
-        return { ...state, calendar: { ...calendar, items: nextItems } };
+
+        if (todoId) {
+          const todos = readTodos(nextState);
+          if (todos.some(t => t.id === todoId)) {
+            nextState = {
+              ...nextState,
+              todos: todos.map(t => t.id === todoId ? {
+                ...t,
+                title: name,
+                month,
+                day,
+                startAt: `${month}月${day}日`,
+              } : t),
+            };
+          }
+        }
+
+        const charKey = getCharacterKey();
+        const phoneSettings = getPhoneSettings();
+        if (phoneSettings?.characterCalendars?.[charKey]) {
+          phoneSettings.characterCalendars[charKey].items = nextItems.filter(it => !it.todoId);
+          void saveGlobalExtensionSettings();
+        }
+
+        return { ...nextState, calendar: { ...calendar, items: nextItems } };
       });
     },
     toggleCalendarEventDone(id) {
@@ -847,6 +888,33 @@ export function createPhoneStore({
           calendar: {
             ...calendar,
             descriptor: { ...(calendar.descriptor || {}), ...descriptor },
+          },
+        };
+      });
+    },
+    setCalendarWorkdayConfig(config) {
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const currentConfig = calendar.workdayConfig || defaultWorkdayConfig();
+        const nextConfig = { ...currentConfig, ...config };
+        const charKey = getCharacterKey();
+        const phoneSettings = getPhoneSettings();
+        if (phoneSettings) {
+          if (!phoneSettings.characterCalendars) phoneSettings.characterCalendars = {};
+          if (!phoneSettings.characterCalendars[charKey]) {
+            phoneSettings.characterCalendars[charKey] = {
+              descriptor: structuredClone(calendar.descriptor || {}),
+              items: Array.isArray(calendar.items) ? structuredClone(calendar.items) : [],
+            };
+          }
+          phoneSettings.characterCalendars[charKey].workdayConfig = structuredClone(nextConfig);
+          void saveGlobalExtensionSettings();
+        }
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            workdayConfig: nextConfig,
           },
         };
       });

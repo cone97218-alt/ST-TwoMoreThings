@@ -46,6 +46,7 @@ export const PRESET_SLOTS = [
   { macro: '{{contacts_prompt}}', name: '联系人风格提炼', desc: '提炼角色线上文字表达习惯' },
   { macro: '{{directory_prompt}}', name: '通讯录批量整理', desc: '智能发掘可能存在的人物和群聊并建立档案' },
   { macro: '{{calendar_prompt}}', name: '日历话题线索注入', desc: '本周节日或纪念日话题提示' },
+  { macro: '{{workday_holiday_prompt}}', name: '工作日/节假日作息提示', desc: '根据历法工作日、节假日或时段注入角色作息提示' },
   { macro: '{{summary_prompt}}', name: '短信回流正文记忆摘要', desc: '判断手机短信与待办哪些值得供正文参考' },
   { macro: '{{image_prompt}}', name: '照片转绘图描述提示词', desc: '自拍或照片描述转为生图提示词' },
   { macro: '{{old_maid_prompt}}', name: '抽鬼牌对决规则', desc: '仅单聊：抽鬼牌对决规则、主动邀约、协商赌注与心理战' },
@@ -212,6 +213,14 @@ export const DEFAULT_PRESET_ENTRIES = [
     role: 'system',
     enabled: true,
     content: `{{calendar_prompt}}`,
+  },
+  {
+    id: 'entry_workday_holiday',
+    name: '工作日/节假日作息提示',
+    scope: '短信+群聊',
+    role: 'system',
+    enabled: true,
+    content: `{{workday_holiday_prompt}}`,
   },
   {
     id: 'entry_summary_rules',
@@ -514,12 +523,21 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const hasPhoneContext = content.includes('{{phone_context}}');
     const hasCharPersonality = content.includes('{{char_personality}}');
     const hasCalendarMacro = content.includes('{{calendar_prompt}}');
+    const hasWorkdayMacro = content.includes('{{workday_holiday_prompt}}');
     const hasLatestUserInput = content.includes('{{latest_user_input}}');
     const hasCalendar = Boolean(contextData.calendar || cleanedPhoneContext?.calendar);
+    const workdayPromptText = contextData.workdayHoliday?.prompt || cleanedPhoneContext?.workdayHoliday?.prompt || '';
+    const workdayEnabled = Boolean(state?.calendar?.workdayConfig?.enabled);
 
     // 如果日历插槽在当前批次无日历数据，且无其他文本包装，安全跳过
     if (hasCalendarMacro && !hasCalendar) {
       content = content.replace(/\{\{calendar_prompt\}\}/g, '').trim();
+      if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
+    }
+
+    // 如果工作日/节假日插槽在当前未启用或无提示词，且无其他文本包装，安全跳过
+    if (hasWorkdayMacro && (!workdayEnabled || !workdayPromptText)) {
+      content = content.replace(/\{\{workday_holiday_prompt\}\}/g, '').trim();
       if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
     }
 
@@ -565,6 +583,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{contacts_prompt\}\}/g, contactsPrompt)
       .replace(/\{\{directory_prompt\}\}/g, dirPrompt)
       .replace(/\{\{calendar_prompt\}\}/g, calPrompt)
+      .replace(/\{\{workday_holiday_prompt\}\}/g, workdayPromptText)
       .replace(/\{\{summary_prompt\}\}/g, sumPrompt)
       .replace(/\{\{image_prompt\}\}/g, imgPrompt);
 

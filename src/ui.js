@@ -17,6 +17,7 @@ import { renderAuthoring } from './ui/authoring.js';
 import { LOCAL_CORE_URL, REMOTE_CORE_URL } from './authoring.js';
 import { renderCalendar } from './ui/calendar.js';
 import { createCalendarReader } from './calendar.js';
+import { defaultWorkdayConfig } from './calendar-engine.js';
 import { mountChatParticles } from './ui/particles.js';
 import { mountAvatarCropper } from './ui/avatar-cropper.js';
 import { createPhoneWindow } from './ui/window.js';
@@ -1596,9 +1597,89 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         void perform('calendar-event', () => store.toggleCalendarEventDone(eventId), onContextChange);
         break;
       }
+      case 'edit-calendar-event': {
+        const eventId = button.dataset.calendarEventId;
+        if (!eventId) break;
+        const allItems = calendar.items ? calendar.items() : [];
+        const monthDays = (calendar.month(ui.calendarOffset)?.days || []).flatMap(d => d.items || []);
+        const targetItem = allItems.find(it => it.id === eventId) || monthDays.find(it => it.id === eventId);
+        if (targetItem) {
+          const month = targetItem.month || (calendar.month(ui.calendarOffset)?.month || 1);
+          const day = targetItem.day || 1;
+          ui.calendarDraft = {
+            id: targetItem.id,
+            todoId: targetItem.todoId || '',
+            name: targetItem.name,
+            type: targetItem.type,
+            month,
+            day,
+            days: targetItem.days || 1,
+            note: targetItem.note || '',
+          };
+          ui.calendarFormOpen = true;
+          render();
+        }
+        break;
+      }
       case 'delete-calendar-event': {
         const eventId = button.dataset.calendarEventId;
+        if (!eventId) break;
         void perform('calendar-event', () => store.deleteCalendarEvent(eventId), onContextChange);
+        break;
+      }
+      case 'add-workday-slot': {
+        const state = store.read();
+        const cal = state.calendar || {};
+        const config = cal.workdayConfig || defaultWorkdayConfig();
+        const slots = Array.isArray(config.timeSlots) ? [...config.timeSlots] : [];
+        slots.push({
+          id: `slot:${Date.now().toString(36)}`,
+          enabled: true,
+          dayType: 'workday',
+          startTime: '09:00',
+          endTime: '18:00',
+          prompt: '',
+        });
+        void perform('calendar-workday', () => store.setCalendarWorkdayConfig({ timeSlots: slots }), render);
+        break;
+      }
+      case 'remove-workday-slot': {
+        const sIdx = Number(button.dataset.slotIndex);
+        if (Number.isNaN(sIdx)) break;
+        const state = store.read();
+        const cal = state.calendar || {};
+        const config = cal.workdayConfig || defaultWorkdayConfig();
+        const slots = Array.isArray(config.timeSlots) ? [...config.timeSlots] : [];
+        slots.splice(sIdx, 1);
+        void perform('calendar-workday', () => store.setCalendarWorkdayConfig({ timeSlots: slots }), render);
+        break;
+      }
+      case 'save-workday-config': {
+        const enabled = root.querySelector('#cal-w-enabled')?.checked === true;
+        const checkedDays = Array.from(root.querySelectorAll('input[name="workday-day"]:checked')).map(el => Number(el.value));
+        const overlap = root.querySelector('#cal-w-overlap')?.value || 'festival_overrides';
+        const workdayPrompt = root.querySelector('#cal-w-workday-prompt')?.value || '';
+        const holidayPrompt = root.querySelector('#cal-w-holiday-prompt')?.value || '';
+        const slotCards = Array.from(root.querySelectorAll('.workday-slot-card'));
+        const timeSlots = slotCards.map(card => {
+          const dayType = card.querySelector('.workday-slot-daytype')?.value || 'all';
+          const startTime = card.querySelector('.workday-slot-start')?.value || '09:00';
+          const endTime = card.querySelector('.workday-slot-end')?.value || '18:00';
+          const prompt = card.querySelector('.workday-slot-prompt')?.value || '';
+          return { dayType, startTime, endTime, prompt, enabled: true };
+        });
+        void perform('calendar-workday', () => store.setCalendarWorkdayConfig({
+          enabled,
+          workdays: checkedDays,
+          holidayOverlapStrategy: overlap,
+          workdayPrompt,
+          holidayPrompt,
+          timeSlots,
+        }), () => {
+          ui.calendarSettingsOpen = false;
+          ui.feedback = { text: '已保存工作日与作息配置。' };
+          onContextChange();
+        });
         break;
       }
       case 'authoring': ui.view = 'authoring'; ui.feedback = null; render(); break;
@@ -2793,9 +2874,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         note: form.elements.note.value,
       };
       if (ui.calendarDraft?.id) draft.id = ui.calendarDraft.id;
+      if (ui.calendarDraft?.todoId) draft.todoId = ui.calendarDraft.todoId;
       void perform('calendar-event', () => store.saveCalendarEvent(draft), () => {
         ui.calendarFormOpen = false;
         ui.calendarDraft = null;
+        onContextChange();
       });
     }
     if (event.target.matches('[data-calendar-settings-form]')) {

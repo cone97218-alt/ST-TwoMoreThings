@@ -1,5 +1,6 @@
 import { action, escape, icon, pageHeading } from './shared.js';
 import { ALL_NAGER_COUNTRIES, POPULAR_COUNTRIES } from '../calendar-presets.js';
+import { defaultWorkdayConfig } from '../calendar-engine.js';
 
 export function renderCalendar(state, { ui, calendar }) {
   const headingActions = `
@@ -163,16 +164,108 @@ export function renderCalendar(state, { ui, calendar }) {
     </div>
   `;
 
-  const settingsHtml = ui.calendarSettingsOpen ? `
-    <div class="calendar-form">
-      <div class="calendar-form-head">
-        <div class="calendar-tabs">
-          <button type="button" class="calendar-tab${settingsTab === 'presets' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="presets">历法预设</button>
-          <button type="button" class="calendar-tab${settingsTab === 'custom' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="custom">自定义新历法</button>
+  const workdayConfig = state?.calendar?.workdayConfig || defaultWorkdayConfig();
+  const configuredWorkdays = new Set(Array.isArray(workdayConfig.workdays) ? workdayConfig.workdays : [1, 2, 3, 4, 5]);
+  const cycle = Number(calDesc.weekdayCycle || 7);
+  const weekdayLabels = cycle === 7
+    ? [{ id: 1, name: '周一' }, { id: 2, name: '周二' }, { id: 3, name: '周三' }, { id: 4, name: '周四' }, { id: 5, name: '周五' }, { id: 6, name: '周六' }, { id: 0, name: '周日' }]
+    : Array.from({ length: cycle }, (_, i) => ({ id: i + 1, name: calDesc.weekdays?.[i] ? `第${calDesc.weekdays[i]}日` : `第${i + 1}天` }));
+
+  const timeSlots = Array.isArray(workdayConfig.timeSlots) ? workdayConfig.timeSlots : [];
+
+  const workdayTabContent = `
+    <div class="calendar-ai-inputs">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0 8px 0; border-bottom: 1px dashed var(--pp-divider-soft);">
+        <div>
+          <label class="field-label" style="margin: 0; font-size: 13px; font-weight: 600;" for="cal-w-enabled">启用工作日/节假日作息提示</label>
+          <small style="color: var(--pp-muted); display: block; margin-top: 2px;">开启后模型将结合当前剧情日期及24h时段感知作息状态</small>
         </div>
-        <button type="button" class="icon-button" data-action="close-calendar-settings" aria-label="关闭">${icon('close')}</button>
+        <input id="cal-w-enabled" type="checkbox" ${workdayConfig.enabled ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--pp-bronze); cursor: pointer;">
       </div>
-      ${settingsTab === 'presets' ? presetTabContent : customTabContent}
+
+      <div style="margin-top: 10px;">
+        <label class="field-label">每周工作日设置 (未勾选则为休息日)</label>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
+          ${weekdayLabels.map(w => `
+            <label style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; background: var(--pp-control-surface); font-size: 12px; cursor: pointer;">
+              <input type="checkbox" name="workday-day" value="${w.id}" ${configuredWorkdays.has(w.id) ? 'checked' : ''} style="accent-color: var(--pp-bronze);">
+              <span>${escape(w.name)}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <label class="field-label" for="cal-w-overlap">节日与工作日重合处理</label>
+        <select id="cal-w-overlap">
+          <option value="festival_overrides" ${workdayConfig.holidayOverlapStrategy !== 'overlap' ? 'selected' : ''}>节日优先（节日提示词覆盖工作日）</option>
+          <option value="overlap" ${workdayConfig.holidayOverlapStrategy === 'overlap' ? 'selected' : ''}>重合叠加（同时保留工作日与节日提示）</option>
+        </select>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <label class="field-label" for="cal-w-workday-prompt">工作日基础提示词</label>
+        <textarea id="cal-w-workday-prompt" rows="2" style="width: 100%; box-sizing: border-box; resize: vertical; border-radius: 6px; border: 1px solid var(--pp-divider-soft); padding: 6px; font-size: 12px; font-family: inherit; background: var(--pp-control-surface); color: var(--pp-text);" placeholder="工作日提示词，如：今天是工作日，角色处于工作/上学作息状态...">${escape(workdayConfig.workdayPrompt || '')}</textarea>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <label class="field-label" for="cal-w-holiday-prompt">节假日/休息日基础提示词</label>
+        <textarea id="cal-w-holiday-prompt" rows="2" style="width: 100%; box-sizing: border-box; resize: vertical; border-radius: 6px; border: 1px solid var(--pp-divider-soft); padding: 6px; font-size: 12px; font-family: inherit; background: var(--pp-control-surface); color: var(--pp-text);" placeholder="节假日提示词，如：今天是休息日，角色处于闲暇放松状态...">${escape(workdayConfig.holidayPrompt || '')}</textarea>
+      </div>
+
+      <div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--pp-divider-soft);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <div>
+            <label class="field-label" style="margin: 0;">细化 24h 制时段规则 (可选)</label>
+            <small style="color: var(--pp-muted); display: block;">若剧情时间命中时段，将以时段提示词为准</small>
+          </div>
+          <button type="button" class="quiet-button" style="font-size: 12px; padding: 2px 8px;" data-action="add-workday-slot">${icon('plus')} 添加时段</button>
+        </div>
+
+        <div class="workday-slots-list" style="display: flex; flex-direction: column; gap: 8px;">
+          ${timeSlots.map((slot, sIdx) => `
+            <div class="workday-slot-card" style="padding: 8px; border-radius: 6px; background: var(--pp-control-surface); border: 1px solid var(--pp-divider-soft); font-size: 12px;" data-slot-index="${sIdx}">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 6px;">
+                <select class="workday-slot-daytype" style="padding: 2px 6px; font-size: 11px;">
+                  <option value="all" ${slot.dayType === 'all' ? 'selected' : ''}>每日通用</option>
+                  <option value="workday" ${slot.dayType === 'workday' ? 'selected' : ''}>仅工作日</option>
+                  <option value="holiday" ${slot.dayType === 'holiday' ? 'selected' : ''}>仅节假日</option>
+                  ${weekdayLabels.map(w => `<option value="${w.id}" ${String(slot.dayType) === String(w.id) ? 'selected' : ''}>仅${escape(w.name)}</option>`).join('')}
+                </select>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <input type="time" class="workday-slot-start" value="${slot.startTime || '09:00'}" style="padding: 2px 4px; font-size: 11px; width: 75px;">
+                  <span>-</span>
+                  <input type="time" class="workday-slot-end" value="${slot.endTime || '18:00'}" style="padding: 2px 4px; font-size: 11px; width: 75px;">
+                </div>
+                <button type="button" class="icon-button" data-action="remove-workday-slot" data-slot-index="${sIdx}" aria-label="删除时段" style="color: var(--pp-error);">${icon('close')}</button>
+              </div>
+              <textarea class="workday-slot-prompt" rows="2" style="width: 100%; box-sizing: border-box; resize: vertical; border-radius: 4px; border: 1px solid var(--pp-divider-soft); padding: 4px 6px; font-size: 11px; font-family: inherit; background: var(--pp-bg); color: var(--pp-text);" placeholder="该时段专属提示词，如：当前是上班时间...">${escape(slot.prompt || '')}</textarea>
+            </div>
+          `).join('')}
+          ${timeSlots.length === 0 ? `<div style="text-align: center; color: var(--pp-muted); font-size: 12px; padding: 8px 0;">未配置细化时段，将默认全天按工作日/节假日基础提示词注入</div>` : ''}
+        </div>
+      </div>
+
+      <div class="compact-switch-row" style="margin-top: 14px; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="quiet-button" data-action="close-calendar-settings">取消</button>
+        <button type="button" class="save-button" style="margin-top: 0; width: auto; padding: 4px 16px;" data-action="save-workday-config">保存配置</button>
+      </div>
+    </div>
+  `;
+
+  const settingsHtml = ui.calendarSettingsOpen ? `
+    <div class="calendar-modal-backdrop">
+      <div class="calendar-modal-dialog">
+        <div class="calendar-form-head">
+          <div class="calendar-tabs">
+            <button type="button" class="calendar-tab${settingsTab === 'presets' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="presets">历法预设</button>
+            <button type="button" class="calendar-tab${settingsTab === 'custom' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="custom">自定义新历法</button>
+            <button type="button" class="calendar-tab${settingsTab === 'workday' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="workday">工作日与作息</button>
+          </div>
+          <button type="button" class="icon-button" data-action="close-calendar-settings" aria-label="关闭">${icon('close')}</button>
+        </div>
+        ${settingsTab === 'presets' ? presetTabContent : settingsTab === 'custom' ? customTabContent : workdayTabContent}
+      </div>
     </div>
   ` : '';
 
@@ -285,6 +378,7 @@ export function renderCalendar(state, { ui, calendar }) {
         <div class="calendar-event-meta">
           <small>${eventTypeLabel(item)}</small>
           ${item.type === 'todo' ? `<button type="button" class="quiet-button calendar-todo-toggle" data-action="toggle-calendar-todo" data-calendar-event-id="${escape(item.id)}">${item.done ? '取消完成' : '完成'}</button>` : ''}
+          <button type="button" class="icon-button" data-action="edit-calendar-event" data-calendar-event-id="${escape(item.id)}" aria-label="编辑">${icon('edit')}</button>
           ${!item.isBuiltin ? `<button type="button" class="icon-button" data-action="delete-calendar-event" data-calendar-event-id="${escape(item.id)}" aria-label="删除">${icon('close')}</button>` : ''}
         </div>
       </div>
@@ -315,9 +409,9 @@ export function renderCalendar(state, { ui, calendar }) {
           ${action('open-calendar-form', '添加', 'plus', 'quiet-button')}
         </div>
       </div>
-      ${settingsHtml}
       ${formHtml}
       <div class="calendar-events">${eventCards}</div>
     </section>
+    ${settingsHtml}
     ${aiHtml}`;
 }

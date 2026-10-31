@@ -301,6 +301,10 @@ export const CALENDAR_PROMPT = `[日历话题线索注入]
   - 功能介绍: calendar是已有的节日和纪念日，仅作可选话题线索。结合当前剧情、人物关系及各人实际知情判断是否提起，不因日历可见就让所有人知道私人纪念日，不强制提醒或安排活动；未来日期不代表庆祝或约定已经发生。
   - 功能格式: 作为对话上下文背景线索注入，引导角色自然引入话题。`;
 
+export const WORKDAY_HOLIDAY_PROMPT = `[工作日与作息提示词]
+- 功能: 根据当前剧情日期的历法作息（工作日/节假日及具体时段），提示角色当前的日常生活作息、忙闲状态及可能从事的活动。
+  - 功能介绍: 角色应结合当前工作日或节假日作息（以及所处时段），表现出自然合理的生活节奏与回复特征。`;
+
 export const FESTIVAL_CONCEIVE_PROMPT = `[节日构想助手]
 - 功能: 世界观与民俗构想助手（根据世界观设定与要求构想民俗节庆与重要纪念日）。
   - 功能介绍:
@@ -502,6 +506,13 @@ export const PROMPT_DEFINITIONS = [
     defaultPrompt: CALENDAR_PROMPT,
   },
   {
+    id: 'workday_holiday',
+    title: '工作日/节假日作息提示',
+    category: '日历与日程',
+    description: '根据历法与作息规则判定当前工作日或节假日时段，注入生活节奏与忙闲提示。',
+    defaultPrompt: WORKDAY_HOLIDAY_PROMPT,
+  },
+  {
     id: 'festival_conceive',
     title: 'AI 节日构想助手',
     category: '日历与日程',
@@ -569,6 +580,7 @@ export const PROMPT_MACRO_MAP = {
   comment: '{{comment_prompt}}',
   forum: '{{forum_prompt}}',
   calendar_context: '{{calendar_prompt}}',
+  workday_holiday: '{{workday_holiday_prompt}}',
   festival_conceive: '{{festival_conceive_prompt}}',
   schedule_deduce: '{{schedule_deduce_prompt}}',
   todo_suggestions: '{{todo_suggestions_prompt}}',

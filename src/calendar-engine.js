@@ -268,6 +268,8 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
     id: String(item.id || `${item.type}:${item.month}:${item.day}:${item.name}`),
     name: String(item.name),
     type: item.type === 'festival' ? 'festival' : (item.type === 'todo' || item.type === 'schedule') ? 'todo' : 'anniversary',
+    month: item.month,
+    day: item.day,
     date: String(item.displayDate || label({ month: item.month, day: item.day }, cal, 'monthDay')),
     days: Math.max(1, Number(item.days) || 1),
     note: String(item.note || ''),
@@ -340,3 +342,139 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
     },
   });
 }
+
+export function defaultWorkdayConfig() {
+  return {
+    enabled: false,
+    workdays: [1, 2, 3, 4, 5],
+    holidayOverlapStrategy: 'festival_overrides',
+    workdayPrompt: '【工作日状态】当前为工作日，角色处于日常工作/上学作息状态，精力集中，言谈举止贴合平日生活节奏。',
+    holidayPrompt: '【节假日状态】当前为休息日/节假日，角色处于闲暇放松状态，时间自由，可尽情享受休闲、娱乐或私人活动。',
+    timeSlots: [],
+  };
+}
+
+export function timeToMinutes(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeStr.trim());
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+export function matchesTimeSlot(currentMinutes, slot) {
+  if (currentMinutes == null || !slot) return false;
+  const start = timeToMinutes(slot.startTime);
+  const end = timeToMinutes(slot.endTime);
+  if (start == null || end == null) return false;
+  if (start <= end) {
+    return currentMinutes >= start && currentMinutes < end;
+  }
+  return currentMinutes >= start || currentMinutes < end;
+}
+
+export function evaluateDayType(date, calendar, workdayConfig, festivals = []) {
+  if (!date || !workdayConfig) return { isWorkday: false, isHoliday: false, isFestival: false, weekday: null };
+  const weekday = Number.isInteger(date.weekday)
+    ? date.weekday
+    : weekdayFor(date, calendar);
+
+  const configuredWorkdays = Array.isArray(workdayConfig.workdays)
+    ? workdayConfig.workdays
+    : [1, 2, 3, 4, 5];
+
+  const isBaseWorkday = weekday != null && configuredWorkdays.includes(weekday);
+  const isBaseWeekend = weekday != null && !configuredWorkdays.includes(weekday);
+
+  const hasFestival = Array.isArray(festivals) && festivals.some(f => {
+    if (f.type !== 'festival') return false;
+    const days = Math.max(1, Number(f.days) || 1);
+    if (date.month === f.month && date.day >= f.day && date.day < f.day + days) {
+      return true;
+    }
+    return false;
+  });
+
+  if (hasFestival) {
+    if (workdayConfig.holidayOverlapStrategy === 'overlap') {
+      return {
+        isWorkday: isBaseWorkday,
+        isHoliday: true,
+        isFestival: true,
+        weekday,
+      };
+    }
+    return {
+      isWorkday: false,
+      isHoliday: true,
+      isFestival: true,
+      weekday,
+    };
+  }
+
+  return {
+    isWorkday: isBaseWorkday,
+    isHoliday: isBaseWeekend,
+    isFestival: false,
+    weekday,
+  };
+}
+
+export function resolveWorkdayHolidayPrompt(timeInfo, calendar, workdayConfig, festivals = []) {
+  if (!workdayConfig?.enabled) return null;
+  const date = timeInfo?.date
+    ? parseDateString(timeInfo.date, timeInfo.weekday, calendar)
+    : (calendar?.currentYear ? { year: calendar.currentYear, month: 1, day: 1, weekday: 1 } : null);
+  if (!date) return null;
+  if (timeInfo?.weekday && date.weekday == null) {
+    date.weekday = parseWeekdayString(timeInfo.weekday);
+  }
+
+  const dayType = evaluateDayType(date, calendar, workdayConfig, festivals);
+  const currentMinutes = timeInfo?.time ? timeToMinutes(timeInfo.time) : null;
+  const timeSlots = Array.isArray(workdayConfig.timeSlots) ? workdayConfig.timeSlots.filter(s => s && s.enabled !== false) : [];
+
+  const matchedSlots = [];
+  if (currentMinutes != null) {
+    for (const slot of timeSlots) {
+      if (!matchesTimeSlot(currentMinutes, slot)) continue;
+      const slotDayType = slot.dayType || 'all';
+      let dayMatch = false;
+      if (slotDayType === 'all') dayMatch = true;
+      else if (slotDayType === 'workday' && dayType.isWorkday) dayMatch = true;
+      else if (slotDayType === 'holiday' && dayType.isHoliday) dayMatch = true;
+      else if (Number.isInteger(Number(slotDayType)) && dayType.weekday === Number(slotDayType)) dayMatch = true;
+
+      if (dayMatch && slot.prompt?.trim()) {
+        matchedSlots.push(slot);
+      }
+    }
+  }
+
+  if (matchedSlots.length > 0) {
+    const slotTexts = matchedSlots.map(s => s.prompt.trim()).join('\n');
+    return {
+      ...dayType,
+      time: timeInfo?.time || '',
+      slotMatched: true,
+      prompt: slotTexts,
+    };
+  }
+
+  const prompts = [];
+  if (dayType.isWorkday && workdayConfig.workdayPrompt?.trim()) {
+    prompts.push(workdayConfig.workdayPrompt.trim());
+  }
+  if (dayType.isHoliday && workdayConfig.holidayPrompt?.trim()) {
+    prompts.push(workdayConfig.holidayPrompt.trim());
+  }
+
+  if (!prompts.length) return null;
+
+  return {
+    ...dayType,
+    time: timeInfo?.time || '',
+    slotMatched: false,
+    prompt: prompts.join('\n'),
+  };
+}
+

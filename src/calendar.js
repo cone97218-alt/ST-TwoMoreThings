@@ -1,4 +1,4 @@
-import { createPhoneCalendarApi, defaultGregorianCalendar, BUILTIN_FESTIVALS, parseDateString, isValidDay } from './calendar-engine.js';
+import { createPhoneCalendarApi, defaultGregorianCalendar, BUILTIN_FESTIVALS, parseDateString, isValidDay, resolveWorkdayHolidayPrompt, defaultWorkdayConfig } from './calendar-engine.js';
 import { readPhoneTime, latestAiFloor } from './time.js';
 import { readTodos } from './todos.js';
 import { displayName } from './profiles.js';
@@ -245,6 +245,19 @@ export function createCalendarReader({
       const state = store?.read?.() || {};
       const disableBuiltin = Boolean(state.calendar?.descriptor?.disableBuiltinFestivals || state.calendar?.disableBuiltin);
       return [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...(state.calendar?.items || [])];
+    },
+    workdayPrompt(messages = null) {
+      const state = store?.read?.() || {};
+      const workdayConfig = state.calendar?.workdayConfig;
+      if (!workdayConfig?.enabled) return null;
+      const msgs = messages || target?.messages || [];
+      const timeInfo = readPhoneTime(msgs);
+      const desc = state.calendar?.descriptor || {};
+      const calendar = { ...defaultGregorianCalendar(), ...desc };
+      const disableBuiltin = Boolean(desc.disableBuiltinFestivals || state.calendar?.disableBuiltin);
+      const customItems = state.calendar?.items || [];
+      const festivals = [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...customItems].filter(it => it?.type === 'festival');
+      return resolveWorkdayHolidayPrompt(timeInfo, calendar, workdayConfig, festivals);
     },
     async saveEvent(event) {
       if (!store?.saveCalendarEvent) throw new Error('当前未绑定存储接口。');

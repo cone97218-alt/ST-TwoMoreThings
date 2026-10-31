@@ -560,6 +560,8 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const contactsPrompt = getPrompt('contacts', state) || CONTACTS_PROMPT;
     const dirPrompt = getPrompt('directory', state) || DIRECTORY_PROMPT;
     const calPrompt = getPrompt('calendar_context', state) || CALENDAR_PROMPT;
+    const workdayPromptRule = getPrompt('workday_holiday', state) || WORKDAY_HOLIDAY_PROMPT;
+    const resolvedWorkdayPrompt = workdayPromptText ? (workdayPromptRule ? `${workdayPromptRule}\n${workdayPromptText}` : workdayPromptText) : '';
     const sumPrompt = getPrompt('summary', state) || SUMMARY_PROMPT;
     const imgPrompt = getPrompt('image_prompt', state) || IMAGE_PROMPT;
     const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
@@ -583,7 +585,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{contacts_prompt\}\}/g, contactsPrompt)
       .replace(/\{\{directory_prompt\}\}/g, dirPrompt)
       .replace(/\{\{calendar_prompt\}\}/g, calPrompt)
-      .replace(/\{\{workday_holiday_prompt\}\}/g, workdayPromptText)
+      .replace(/\{\{workday_holiday_prompt\}\}/g, resolvedWorkdayPrompt)
       .replace(/\{\{summary_prompt\}\}/g, sumPrompt)
       .replace(/\{\{image_prompt\}\}/g, imgPrompt);
 

@@ -193,7 +193,8 @@ test('preset-engine: {{workday_holiday_prompt}} macro integration and conditiona
   const msgsActive = compilePromptPreset(preset, contextDataActive, 'chat', stateEnabled);
   assert.equal(msgsActive.length, 2);
   assert.ok(msgsActive[0].content.includes('角色正在办公中。'));
-  assert.equal(msgsActive[1].content, '角色正在办公中。');
+  assert.ok(msgsActive[1].content.includes('角色正在办公中。'));
+  assert.ok(msgsActive[1].content.includes('[工作日与作息提示词]'));
 
   // 2. 未开启或无作息提示词时跳过纯宏条目，清理宏
   const stateDisabled = {

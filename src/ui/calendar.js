@@ -6,7 +6,6 @@ export function renderCalendar(state, { ui, calendar }) {
   const headingActions = `
     <button type="button" class="icon-button" data-action="open-calendar-ai" aria-label="AI" title="AI构想与推演">${icon('sparkles')}</button>
     <button type="button" class="icon-button" data-action="open-calendar-settings" aria-label="设置" title="历法与作息设置">${icon('tuning')}</button>
-    ${action('open-calendar-workday', '作息', 'clock', 'quiet-button')}
     ${calendar ? action('calendar-today', '回到本月', '', 'quiet-button') : ''}
   `;
   const heading = pageHeading('日历', headingActions);
@@ -415,7 +414,6 @@ export function renderCalendar(state, { ui, calendar }) {
         <span class="calendar-detail-date">${escape(selected?.label || '本月')}</span>
         <div class="calendar-detail-actions">
           ${selected ? action('calendar-month', '看全月', '', 'quiet-button') : ''}
-          ${action('open-calendar-workday', '作息设置', 'clock', 'quiet-button')}
           ${action('open-calendar-form', '添加', 'plus', 'quiet-button')}
         </div>
       </div>

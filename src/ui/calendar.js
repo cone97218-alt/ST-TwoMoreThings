@@ -4,8 +4,9 @@ import { defaultWorkdayConfig } from '../calendar-engine.js';
 
 export function renderCalendar(state, { ui, calendar }) {
   const headingActions = `
-    <button type="button" class="icon-button" data-action="open-calendar-ai" aria-label="AI">${icon('sparkles')}</button>
-    <button type="button" class="icon-button" data-action="open-calendar-settings" aria-label="设置">${icon('tuning')}</button>
+    <button type="button" class="icon-button" data-action="open-calendar-ai" aria-label="AI" title="AI构想与推演">${icon('sparkles')}</button>
+    <button type="button" class="icon-button" data-action="open-calendar-settings" aria-label="设置" title="历法与作息设置">${icon('tuning')}</button>
+    ${action('open-calendar-workday', '作息', 'clock', 'quiet-button')}
     ${calendar ? action('calendar-today', '回到本月', '', 'quiet-button') : ''}
   `;
   const heading = pageHeading('日历', headingActions);
@@ -67,7 +68,7 @@ export function renderCalendar(state, { ui, calendar }) {
   const calDesc = state?.calendar?.descriptor || {};
   const currentCountry = String(calDesc.country || 'CN');
   const customPresets = Array.isArray(state?.calendar?.customPresets) ? state.calendar.customPresets : [];
-  const settingsTab = ui.calendarSettingsTab || 'presets';
+  const settingsTab = ui.calendarSettingsTab || 'workday';
   const isCustomSelected = currentCountry.startsWith('custom_preset:') || currentCountry.startsWith('custom:');
 
   const presetTabContent = `
@@ -258,13 +259,13 @@ export function renderCalendar(state, { ui, calendar }) {
       <div class="calendar-modal-dialog">
         <div class="calendar-form-head">
           <div class="calendar-tabs">
+            <button type="button" class="calendar-tab${settingsTab === 'workday' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="workday">工作日与作息</button>
             <button type="button" class="calendar-tab${settingsTab === 'presets' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="presets">历法预设</button>
             <button type="button" class="calendar-tab${settingsTab === 'custom' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="custom">自定义新历法</button>
-            <button type="button" class="calendar-tab${settingsTab === 'workday' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="workday">工作日与作息</button>
           </div>
           <button type="button" class="icon-button" data-action="close-calendar-settings" aria-label="关闭">${icon('close')}</button>
         </div>
-        ${settingsTab === 'presets' ? presetTabContent : settingsTab === 'custom' ? customTabContent : workdayTabContent}
+        ${settingsTab === 'workday' ? workdayTabContent : settingsTab === 'presets' ? presetTabContent : customTabContent}
       </div>
     </div>
   ` : '';
@@ -406,6 +407,7 @@ export function renderCalendar(state, { ui, calendar }) {
         <span class="calendar-detail-date">${escape(selected?.label || '本月')}</span>
         <div class="calendar-detail-actions">
           ${selected ? action('calendar-month', '看全月', '', 'quiet-button') : ''}
+          ${action('open-calendar-workday', '作息设置', 'clock', 'quiet-button')}
           ${action('open-calendar-form', '添加', 'plus', 'quiet-button')}
         </div>
       </div>

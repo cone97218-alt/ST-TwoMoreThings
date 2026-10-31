@@ -280,7 +280,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 6;
+export const PRESET_SCHEMA_VERSION = 7;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {

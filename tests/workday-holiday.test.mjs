@@ -302,3 +302,31 @@ test('store & character binding: workdayConfig bound to character cards and edit
   assert.equal(updatedTodo.month, 6);
   assert.equal(updatedTodo.day, 16);
 });
+
+test('workday-holiday: authoring export and import preserves workdayConfig', async () => {
+  const { stateFromPreset } = await import('../src/authoring.js');
+  const dummyPreset = {
+    schemaVersion: 1,
+    theme: 'night',
+    injectEnabled: true,
+    contacts: [{ id: 'c1', name: 'Alice' }],
+    groups: [],
+    calendar: {
+      items: [{ id: 'fest-1', name: 'Test', type: 'festival', month: 1, day: 1 }],
+      workdayConfig: {
+        enabled: true,
+        workdays: [1, 2, 3, 4],
+        holidayOverlapStrategy: 'overlap',
+        workdayPrompt: 'Custom Workday',
+        holidayPrompt: 'Custom Holiday',
+        timeSlots: [],
+      },
+    },
+  };
+
+  const restored = stateFromPreset(dummyPreset);
+  assert.ok(restored.calendar?.workdayConfig);
+  assert.equal(restored.calendar.workdayConfig.enabled, true);
+  assert.deepEqual(restored.calendar.workdayConfig.workdays, [1, 2, 3, 4]);
+  assert.equal(restored.calendar.workdayConfig.workdayPrompt, 'Custom Workday');
+});

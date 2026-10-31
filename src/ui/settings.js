@@ -534,7 +534,14 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
       <span></span>
     </span>
   </label>
-  <small class="field-label">临近 7 天内的节日、纪念日与推演日程可作为背景线索带入正文。</small>
+  <label class="compact-switch-row">
+    <span>工作日/作息带入提示词</span>
+    <span class="switch">
+      <input id="workday-enabled" type="checkbox" role="switch" aria-label="工作日/作息带入提示词" ${state.calendar?.workdayConfig?.enabled ? 'checked' : ''}>
+      <span></span>
+    </span>
+  </label>
+  <small class="field-label">临近 7 天内的节日、纪念日与工作日/时段作息可作为背景线索带入正文或提示词。</small>
   <small class="field-label">短材料由主楼一起判断；超过3000字才额外生成摘要。</small>
   <label class="compact-switch-row" for="image-provider">
     <span>生图设置</span>

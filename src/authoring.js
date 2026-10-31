@@ -35,6 +35,7 @@ export function stateFromPreset(preset) {
         items: Array.isArray(preset.calendar.items) ? preset.calendar.items : [],
         ...(preset.calendar.descriptor ? { descriptor: preset.calendar.descriptor } : {}),
         ...(preset.calendar.disableBuiltin ? { disableBuiltin: true } : {}),
+        ...(preset.calendar.workdayConfig ? { workdayConfig: preset.calendar.workdayConfig } : {}),
       }
     } : {}),
     ...(['stacked', 'rounded'].includes(preset.lockStyle) ? { lockStyle: preset.lockStyle } : {}),
@@ -114,6 +115,7 @@ export function createAuthoringService({ store, host, readEntries = () => host.r
             items: state.calendar.items || [],
             ...(state.calendar.descriptor ? { descriptor: state.calendar.descriptor } : {}),
             ...(state.calendar.disableBuiltin ? { disableBuiltin: true } : {}),
+            ...(state.calendar.workdayConfig ? { workdayConfig: state.calendar.workdayConfig } : {}),
           }
         } : {}),
         ...(['stacked', 'rounded'].includes(state.lockStyle) ? { lockStyle: state.lockStyle } : {}),

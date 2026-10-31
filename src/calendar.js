@@ -140,7 +140,8 @@ export function createCalendarReader({
       };
     }
     const todoItems = buildTodoCalendarItems(state, calendar, today);
-    const items = [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...customItems, ...todoItems];
+    const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id));
+    const items = [...deduplicatedBuiltins, ...customItems, ...todoItems];
     const weekdayReference = (today && Number.isInteger(today.weekday))
       ? { ...today, weekday: today.weekday }
       : null;
@@ -196,7 +197,8 @@ export function createCalendarReader({
     }
     const disableBuiltin = Boolean(state.calendar?.descriptor?.disableBuiltinFestivals || state.calendar?.disableBuiltin);
     const customItems = state.calendar?.items || [];
-    const items = [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...customItems];
+    const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id));
+    const items = [...deduplicatedBuiltins, ...customItems];
     if (today && !isValidDay(today, calendar)) {
       const monthCount = calendar.months?.length || 12;
       const month = Math.min(Math.max(1, (today.month - 1) % monthCount + 1), monthCount);
@@ -244,7 +246,9 @@ export function createCalendarReader({
     items() {
       const state = store?.read?.() || {};
       const disableBuiltin = Boolean(state.calendar?.descriptor?.disableBuiltinFestivals || state.calendar?.disableBuiltin);
-      return [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...(state.calendar?.items || [])];
+      const customItems = state.calendar?.items || [];
+      const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id));
+      return [...deduplicatedBuiltins, ...customItems];
     },
     workdayPrompt(messages = null) {
       const state = store?.read?.() || {};
@@ -256,7 +260,8 @@ export function createCalendarReader({
       const calendar = { ...defaultGregorianCalendar(), ...desc };
       const disableBuiltin = Boolean(desc.disableBuiltinFestivals || state.calendar?.disableBuiltin);
       const customItems = state.calendar?.items || [];
-      const festivals = [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...customItems].filter(it => it?.type === 'festival');
+      const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id));
+      const festivals = [...deduplicatedBuiltins, ...customItems].filter(it => it?.type === 'festival');
       return resolveWorkdayHolidayPrompt(timeInfo, calendar, workdayConfig, festivals);
     },
     async saveEvent(event) {

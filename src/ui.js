@@ -1402,6 +1402,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         ui.calendarFormOpen = false; ui.calendarDraft = null; render(); break;
       case 'open-calendar-settings':
         ui.calendarSettingsOpen = true; ui.calendarFormOpen = false; ui.calendarAiOpen = false; render(); break;
+      case 'open-calendar-workday':
+        ui.calendarSettingsOpen = true; ui.calendarSettingsTab = 'workday'; ui.calendarFormOpen = false; ui.calendarAiOpen = false; render(); break;
       case 'close-calendar-settings':
         ui.calendarSettingsOpen = false; render(); break;
       case 'switch-calendar-settings-tab':
@@ -2749,6 +2751,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (event.target.id === 'inject-calendar-enabled') {
       const enabled = event.target.checked;
       void perform('injection-calendar', async () => { await store.setInjectCalendarEnabled(enabled); onContextChange(); });
+    }
+    if (event.target.id === 'workday-enabled') {
+      const enabled = event.target.checked;
+      const current = store.read()?.calendar?.workdayConfig || defaultWorkdayConfig();
+      void perform('calendar-workday', async () => {
+        await store.setCalendarWorkdayConfig({ ...current, enabled });
+        onContextChange();
+      });
     }
     if (event.target.dataset.entryPreference) {
       const key = event.target.dataset.entryPreference, value = event.target.checked;

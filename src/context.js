@@ -6,7 +6,8 @@ import { readTimeline, currentMessages } from './timeline.js';
 import { contextMessage, messageText, filterFinishedGameActions } from './content.js';
 import { stickerChoices } from './stickers.js';
 import { emojiChoices } from './emojis.js';
-import { createCalendarReader } from './calendar.js';
+import { createCalendarReader, resolveTodoSpan } from './calendar.js';
+import { defaultGregorianCalendar, parseDateString, formatCalendarEventPromptLine } from './calendar-engine.js';
 import { getSocialAuthor, readSocialFeed } from './social.js';
 import { publicationLabel } from './social-time.js';
 import { readTodos } from './todos.js';
@@ -94,9 +95,14 @@ function relevantTodos(state, knownIds) {
   return [...rows.filter(todo => todo.status === 'open').slice(-30), ...rows.filter(todo => todo.status === 'done').slice(-10)];
 }
 
-function todoReference(todo, state, user) {
+function todoReference(todo, state, user, clock = null) {
   const name = id => id === '@user' ? state.userProfile?.name || user : state.contacts.find(person => person.id === id)?.name || '已移除联系人';
+  const desc = state.calendar?.descriptor || {};
+  const cal = { ...defaultGregorianCalendar(), ...desc };
+  const today = clock?.date ? parseDateString(clock.date, clock.weekday, cal) : null;
+  const span = resolveTodoSpan(todo, cal, today);
   return { id: todo.id, title: todo.title, startAt: todo.startAt || '', endAt: todo.endAt || '', status: todo.status,
+    ...(span.days > 1 ? { days: span.days, ...(span.currentDay != null ? { currentDay: span.currentDay } : {}) } : {}),
     participantIds: todo.participantIds, participants: (todo.participantIds || []).map(id => ({ id, name: name(id) })),
     knownToIds: todo.knownToIds, knownTo: (todo.knownToIds || []).map(id => ({ id, name: name(id) })),
     source: { conversationId: todo.sourceConversationId, time: todo.sourceBatch?.label || '',
@@ -165,7 +171,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const previousMessages = filterFinishedGameActions(recentPhoneHistory(state, id, current.batch.key), thread);
       const todos = relevantTodos(state, [id]);
       const social = state.contactSocialEnabled !== false ? publicSocialContext(state) : [];
-      const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'));
+      const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'), { viewerIds: ['@user', id] });
       const workdayInfo = calendar.workdayPrompt ? calendar.workdayPrompt(target.messages) : null;
       let related = '';
       const source = memorySources.select(), bridge = source.bridge;
@@ -176,7 +182,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         const context = await bridge.readContext({ query, entityIds: [entityId], maxCharacters: 4000 });
         if (context?.status === 'ready') related = (context.actors || []).filter(x => x.entityId === entityId).map(x => [x.stateText, x.memoryText].filter(Boolean).join('\n')).join('\n').slice(0, 4000);
       }
-      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: [{ id: '@user', name: current.user }, { id, name: contact.name }], todos: todos.map(todo => todoReference(todo, state, current.user)), ...(todos.length || previousMessages.length ? { storyProgress: storyProgress(target.messages, [...previousMessages.map(message => message.sourceBatch), ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), emojis: emojiChoices(), stickers: stickerChoices(), contact: { name: contact.name, nickname: contact.nickname || '', personality: contact.personality, expression: contact.expression, language: contact.language || '' }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), related, worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), contact.name, ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
+      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: [{ id: '@user', name: current.user }, { id, name: contact.name }], todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), ...(todos.length || previousMessages.length ? { storyProgress: storyProgress(target.messages, [...previousMessages.map(message => message.sourceBatch), ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), emojis: emojiChoices(), stickers: stickerChoices(), contact: { name: contact.name, nickname: contact.nickname || '', personality: contact.personality, expression: contact.expression, language: contact.language || '' }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), related, worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), contact.name, ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
     },
     async readForForum({ readMemory = false } = {}) {
       const current = base();
@@ -214,7 +220,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         return { id: person.id, kind: person.kind,
         name: person.name, nickname: person.nickname || '', description: person.description || '',
         personality: person.personality || '', expression: person.expression || '', language: person.language || '',
-        ...(includePrivateMessages && person.kind !== 'npc' ? { privateHistory: privateHistories.get(person.id) || [], todoPeople: [{ id: '@user', name: current.user }, { id: person.id, name: person.name }], todos: todos.map(todo => todoReference(todo, state, current.user)) } : {}),
+        ...(includePrivateMessages && person.kind !== 'npc' ? { privateHistory: privateHistories.get(person.id) || [], todoPeople: [{ id: '@user', name: current.user }, { id: person.id, name: person.name }], todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)) } : {}),
         related: actors.filter(actor => ids.has(person.id) && actor.entityId === ids.get(person.id))
           .map(actor => [actor.stateText, actor.memoryText].filter(Boolean).join('\n')).join('\n'),
       }; }), worldbook: await target.readWorldInfo({ scanText }) };
@@ -242,7 +248,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const previousMessages = filterFinishedGameActions(recentPhoneHistory(state, id, current.batch.key), thread);
       const todos = relevantTodos(state, group.memberIds);
       const social = state.groupSocialEnabled !== false ? publicSocialContext(state) : [];
-      const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'));
+      const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'), { viewerIds: ['@user', ...group.memberIds] });
       const workdayInfo = calendar.workdayPrompt ? calendar.workdayPrompt(target.messages) : null;
       const members = group.memberIds.map(key => {
         const person = state.contacts.find(item => item.id === key);
@@ -270,7 +276,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         return messages.length ? [{ contactId: person.id, knownToIds: ['@user', person.id], messages }] : [];
       });
       const evidence = [...previousMessages, ...privateHistories.flatMap(thread => thread.messages)].map(message => message.sourceBatch);
-      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: roster.map(({ id, name }) => ({ id, name })), todos: todos.map(todo => todoReference(todo, state, current.user)), privateHistories, ...(todos.length || evidence.length ? { storyProgress: storyProgress(target.messages, [...evidence, ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), emojis: emojiChoices(), stickers: stickerChoices(), group: { name: group.name, userIsMember: group.userIsMember, members: roster }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), ...members.map(person => person.name), ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
+      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: roster.map(({ id, name }) => ({ id, name })), todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), privateHistories, ...(todos.length || evidence.length ? { storyProgress: storyProgress(target.messages, [...evidence, ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), emojis: emojiChoices(), stickers: stickerChoices(), group: { name: group.name, userIsMember: group.userIsMember, members: roster }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), ...members.map(person => person.name), ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
     },
 
   };
@@ -315,7 +321,7 @@ async function executeSummaryGeneration({
     time: batch.label,
     calendar: calendarContext?.events || [],
     conversations,
-    todos: todos.map(todo => todoReference(todo, state, target.user)),
+    todos: todos.map(todo => todoReference(todo, state, target.user, batch.clock)),
     storyProgress: storyProgress(target.messages, [...conversations.map(() => batch), ...todos.map(todo => todo.sourceBatch)], beforeIndex, wrapperSettingsProvider()),
     maxCharacters,
   });
@@ -470,13 +476,13 @@ export function createBackflowService({
       let calendarLines = '';
       if (injectCal && calendar?.context) {
         try {
-          calendarContext = calendar.context(batch.label);
+          calendarContext = calendar.context(batch.label, { viewerIds: ['@user'] });
           if (calendarContext?.events?.length) {
             const seenLines = new Set();
             const list = calendarContext.events
-              .map(e => `- ${e.when} ${e.name}${e.note ? `（${e.note}）` : ''}`)
+              .map(e => formatCalendarEventPromptLine(e))
               .filter(line => {
-                if (seenLines.has(line)) return false;
+                if (!line || seenLines.has(line)) return false;
                 seenLines.add(line);
                 return true;
               })
@@ -530,8 +536,11 @@ export function createBackflowService({
       }
       if (todos.length) {
         parts.push('[用户保留的事项；勾选状态由用户手动维护]\n' + todos.map(todo => {
-          const item = todoReference(todo, state, target.user);
-          return `${item.title}；${item.startAt || '未定'} — ${item.endAt || '未定'}；相关人：${item.participants.map(person => person.name).join('、')}；知情人：${item.knownTo.map(person => person.name).join('、')}；用户标记：${item.status === 'done' ? '已完成' : '未勾选'}`;
+          const item = todoReference(todo, state, target.user, batch.clock);
+          const spanNote = item.days > 1
+            ? `（${item.currentDay != null ? `共${item.days}天，当前为第${item.currentDay}天` : `共${item.days}天`}）`
+            : '';
+          return `${item.title}${spanNote}；${item.startAt || '未定'} — ${item.endAt || '未定'}；相关人：${item.participants.map(person => person.name).join('、')}；知情人：${item.knownTo.map(person => person.name).join('、')}；用户标记：${item.status === 'done' ? '已完成' : '未勾选'}`;
         }).join('\n'));
       }
       const reference = parts.join('\n\n');

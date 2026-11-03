@@ -23,6 +23,7 @@ import {
   BUCKSHOT_ROULETTE_PROMPT,
 } from './prompts.js';
 import { shortenMessageId, extractLatestUserInput } from './content.js';
+import { formatCalendarEventPromptLine } from './calendar-engine.js';
 
 export const PRESET_SLOTS = [
   { macro: '{{worldbook}}', name: '世界书', desc: '蓝灯常驻条目必定注入 + 绿灯关键字动态激活' },
@@ -559,7 +560,19 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const storyMemPrompt = getPrompt('story_memory_rule', state) || STORY_MEMORY_RULE;
     const contactsPrompt = getPrompt('contacts', state) || CONTACTS_PROMPT;
     const dirPrompt = getPrompt('directory', state) || DIRECTORY_PROMPT;
-    const calPrompt = getPrompt('calendar_context', state) || CALENDAR_PROMPT;
+    const calPromptBase = getPrompt('calendar_context', state) || CALENDAR_PROMPT;
+    const calObj = contextData.calendar || cleanedPhoneContext?.calendar;
+    const calEvents = Array.isArray(calObj?.events) ? calObj.events : (Array.isArray(calObj) ? calObj : []);
+    const seenCalLines = new Set();
+    const calLines = calEvents
+      .map(e => formatCalendarEventPromptLine(e))
+      .filter(line => {
+        if (!line || seenCalLines.has(line)) return false;
+        seenCalLines.add(line);
+        return true;
+      })
+      .join('\n');
+    const calPrompt = calLines ? `${calPromptBase}\n[日历线索：\n${calLines}\n]` : calPromptBase;
     const workdayPromptRule = getPrompt('workday_holiday', state) || WORKDAY_HOLIDAY_PROMPT;
     const resolvedWorkdayPrompt = workdayPromptText ? (workdayPromptRule ? `${workdayPromptRule}\n${workdayPromptText}` : workdayPromptText) : '';
     const maxChars = contextData.maxCharacters || Number(state?.summaryMaxCharacters) || 100;

@@ -1,9 +1,9 @@
-import { createPhoneCalendarApi, defaultGregorianCalendar, BUILTIN_FESTIVALS, parseDateString, isValidDay, resolveWorkdayHolidayPrompt, defaultWorkdayConfig } from './calendar-engine.js';
+import { createPhoneCalendarApi, defaultGregorianCalendar, BUILTIN_FESTIVALS, parseDateString, isValidDay, daysBetweenCalendarDates, resolveWorkdayHolidayPrompt, defaultWorkdayConfig } from './calendar-engine.js';
 import { readPhoneTime, latestAiFloor } from './time.js';
 import { readTodos } from './todos.js';
 import { displayName } from './profiles.js';
 
-export const CALENDAR_PROMPT = 'calendar是已有的节日和纪念日，仅作可选话题线索。结合当前剧情、人物关系及各人实际知情判断是否提起，不因日历可见就让所有人知道私人纪念日，不强制提醒或安排活动；未来日期不代表庆祝或约定已经发生。';
+export const CALENDAR_PROMPT = 'calendar是已有的节日和纪念日，仅作可选话题线索。结合当前剧情、人物关系及各人实际知情判断是否提起，不因日历可见就让所有人知道私人纪念日，不强制提醒或安排活动；未来日期不代表庆祝或约定已经发生。若事项跨越多天（注明共几天、当前为第几天），应贴合当前所处的天数阶段自然推进话题，避免将多日行程或节庆每天当成首日重复开场。';
 
 function todoParticipantLabel(todo, state) {
   return (todo.participantIds || []).map(id => id === '@user'
@@ -11,17 +11,71 @@ function todoParticipantLabel(todo, state) {
     : displayName((state.contacts || []).find(person => person.id === id) || { name: '已移除联系人' })).join('、');
 }
 
-function buildTodoCalendarItems(state, calendar, today) {
-  const existingIds = new Set((state.calendar?.items || []).map(it => it?.id));
+export function resolveTodoSpan(todo, calendar = defaultGregorianCalendar(), today = null) {
+  const explicitDate = (Number.isInteger(todo?.month) && Number.isInteger(todo?.day))
+    ? { year: today?.year ?? null, month: todo.month, day: todo.day }
+    : parseDateString(todo?.startAt, '', calendar);
+  let startParsed = explicitDate;
+  let endParsed = todo?.endAt ? parseDateString(todo.endAt, '', calendar) : null;
+
+  if (!startParsed && typeof todo?.startAt === 'string') {
+    const rangeParts = todo.startAt.split(/\s*(?:—|--|－|~|～|至|到)\s*/);
+    if (rangeParts.length === 2) {
+      startParsed = parseDateString(rangeParts[0], '', calendar);
+      if (!endParsed) endParsed = parseDateString(rangeParts[1], '', calendar);
+    }
+  }
+
+  let days = Math.max(1, Number(todo?.days) || 1);
+  if (days === 1 && startParsed && endParsed) {
+    const yStart = startParsed.year ?? endParsed.year ?? today?.year ?? null;
+    const yEnd = endParsed.year ?? startParsed.year ?? today?.year ?? null;
+    const diff = daysBetweenCalendarDates(
+      { ...startParsed, year: yStart },
+      { ...endParsed, year: yEnd },
+      calendar,
+    );
+    if (diff != null && diff >= 0) {
+      days = diff + 1;
+    }
+  }
+
+  let currentDay = null;
+  if (days > 1 && today && startParsed) {
+    const yStart = startParsed.year ?? today.year ?? null;
+    let delta = daysBetweenCalendarDates({ ...startParsed, year: yStart }, today, calendar);
+    if (delta != null && delta < 0 && today.year != null && startParsed.year == null) {
+      delta = daysBetweenCalendarDates({ ...startParsed, year: today.year - 1 }, today, calendar);
+    }
+    if (delta != null && delta >= 0 && delta < days) {
+      currentDay = delta + 1;
+    }
+  }
+
+  return { startParsed, endParsed, hasExplicitDate: Boolean(startParsed), days, currentDay };
+}
+
+function buildTodoCalendarItems(state, calendar, today, { onlyExplicitMultiDay = false, viewerIds = null } = {}) {
+  const existingIds = new Set((state.calendar?.items || []).flatMap(it => [it?.id, it?.todoId]).filter(Boolean));
   const monthCount = calendar?.months?.length || 12;
   return readTodos(state)
-    .filter(todo => todo && (todo.status === 'open' || todo.status === 'done') && String(todo.title || '').trim() && !existingIds.has(todo.id))
+    .filter(todo => {
+      if (!todo || !String(todo.title || '').trim() || existingIds.has(todo.id)) return false;
+      if (onlyExplicitMultiDay) {
+        if (todo.status !== 'open') return false;
+        if (Array.isArray(viewerIds) && viewerIds.length && Array.isArray(todo.knownToIds) && todo.knownToIds.length) {
+          if (!todo.knownToIds.some(id => viewerIds.includes(id))) return false;
+        }
+        const span = resolveTodoSpan(todo, calendar, today);
+        return span.hasExplicitDate && span.days > 1;
+      }
+      return todo.status === 'open' || todo.status === 'done';
+    })
     .map(todo => {
-      const parsed = (Number.isInteger(todo.month) && Number.isInteger(todo.day))
-        ? { month: todo.month, day: todo.day }
-        : (parseDateString(todo.startAt, '', calendar)
-          || parseDateString(todo.sourceBatch?.clock?.date, '', calendar)
-          || (today ? { month: today.month, day: today.day } : { month: 1, day: 1 }));
+      const span = resolveTodoSpan(todo, calendar, today);
+      const parsed = span.startParsed
+        || parseDateString(todo.sourceBatch?.clock?.date, '', calendar)
+        || (today ? { month: today.month, day: today.day } : { month: 1, day: 1 });
       const month = Math.min(Math.max(1, Number(parsed.month) || 1), monthCount);
       const maxDays = calendar?.months?.[month - 1]?.days || 31;
       const day = Math.min(Math.max(1, Number(parsed.day) || 1), maxDays);
@@ -37,7 +91,7 @@ function buildTodoCalendarItems(state, calendar, today) {
         done: todo.status === 'done',
         month,
         day,
-        days: 1,
+        days: span.days,
         note,
       };
     });
@@ -48,6 +102,7 @@ export function createCalendarReader({
   target = null,
   apiProvider = () => globalThis.STSevenDaysCal,
 } = {}) {
+  let activeViewerIds = null;
   const externalApi = () => {
     try {
       const value = apiProvider?.();
@@ -216,7 +271,6 @@ export function createCalendarReader({
         uniqueCustomItems.push(it);
       }
     }
-    const items = [...deduplicatedBuiltins, ...uniqueCustomItems];
     if (today && !isValidDay(today, calendar)) {
       const monthCount = calendar.months?.length || 12;
       const month = Math.min(Math.max(1, (today.month - 1) % monthCount + 1), monthCount);
@@ -227,6 +281,11 @@ export function createCalendarReader({
         day: Math.min(Math.max(1, today.day), maxDays),
       };
     }
+    const multiDayTodoItems = buildTodoCalendarItems(state, calendar, today, {
+      onlyExplicitMultiDay: true,
+      viewerIds: activeViewerIds,
+    });
+    const items = [...deduplicatedBuiltins, ...uniqueCustomItems, ...multiDayTodoItems];
     const weekdayReference = (today && Number.isInteger(today.weekday))
       ? { ...today, weekday: today.weekday }
       : null;
@@ -249,17 +308,48 @@ export function createCalendarReader({
       }
       return uiApi.getPhoneCalendar({ monthOffset });
     },
-    context(query = '') {
-      const ext = externalApi();
-      if (ext) {
-        try {
-          const extContext = ext.getPhoneCalendarContext?.({ query });
-          if (extContext) return extContext;
-        } catch {
-          // 外部插件调用异常时平滑回退至内置引擎
+    context(query = '', options = {}) {
+      activeViewerIds = options?.viewerIds || null;
+      try {
+        const ext = externalApi();
+        if (ext) {
+          try {
+            const extContext = ext.getPhoneCalendarContext?.({ query });
+            if (extContext) {
+              if (Array.isArray(extContext.events) && extContext.events.some(e => Number(e?.days) > 1 && !String(e?.when || '').includes('共'))) {
+                const { calendar, today } = contextSource();
+                const enrichedEvents = extContext.events.map(e => {
+                  const totalDays = Math.max(1, Number(e.days) || 1);
+                  if (totalDays <= 1 || String(e.when || '').includes('共')) return e;
+                  let currentDay = Number.isInteger(e.currentDay) && e.currentDay >= 1 ? e.currentDay : null;
+                  if (currentDay == null && (e.when === '进行中' || e.when === '今天')) {
+                    if (today && Number.isInteger(e.month) && Number.isInteger(e.day)) {
+                      let delta = daysBetweenCalendarDates({ year: today.year ?? null, month: e.month, day: e.day }, today, calendar);
+                      if (delta != null && delta < 0 && today.year != null) {
+                        delta = daysBetweenCalendarDates({ year: today.year - 1, month: e.month, day: e.day }, today, calendar);
+                      }
+                      currentDay = (delta != null && delta >= 0 && delta < totalDays) ? delta + 1 : 1;
+                    } else {
+                      currentDay = 1;
+                    }
+                  }
+                  const when = currentDay != null
+                    ? `进行中（共${totalDays}天，当前为第${currentDay}天）`
+                    : (e.when ? `${e.when}（共${totalDays}天）` : '');
+                  return { ...e, ...(currentDay != null ? { currentDay } : {}), when };
+                });
+                return { ...extContext, events: enrichedEvents };
+              }
+              return extContext;
+            }
+          } catch {
+            // 外部插件调用异常时平滑回退至内置引擎
+          }
         }
+        return contextApi.getPhoneCalendarContext({ query });
+      } finally {
+        activeViewerIds = null;
       }
-      return contextApi.getPhoneCalendarContext({ query });
     },
     items() {
       const state = store?.read?.() || {};

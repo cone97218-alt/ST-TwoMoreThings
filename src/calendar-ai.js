@@ -11,7 +11,10 @@ export function createCalendarAiService({ contextReader, modelClient, target, st
       const customItems = state.calendar?.items || [];
       const disableBuiltin = Boolean(state.calendar?.descriptor?.disableBuiltinFestivals || state.calendar?.disableBuiltin);
       const allExisting = [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...customItems];
-      const existingFestivals = allExisting.map(it => `${it.month}月${it.day}日：${it.name}${it.note ? `（${it.note}）` : ''}`);
+      const existingFestivals = allExisting.map(it => {
+        const spanText = Number(it.days) > 1 ? `（共${Number(it.days)}天）` : '';
+        return `${it.month}月${it.day}日${spanText}：${it.name}${it.note ? `（${it.note}）` : ''}`;
+      });
 
       const payload = sanitizePhoneContext({
         contacts: sources.contacts || [],

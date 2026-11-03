@@ -348,3 +348,157 @@ test('merged todo and calendar: todo event type, AI schedule todo type, and chat
   await store.setRememberLastView(true);
   assert.equal(store.read().rememberLastView, true);
 });
+
+test('multi-day festivals, anniversaries, and todos inject total days and current day into prompts', async () => {
+  const { formatCalendarEventPromptLine } = await import('../src/calendar-engine.js');
+  const { compilePromptPreset, getActivePreset } = await import('../src/preset-engine.js');
+  const { createContextReader, createBackflowService } = await import('../src/context.js');
+
+  const cal = defaultGregorianCalendar();
+  const items = [
+    { id: 'f1', name: '秋日祭典', type: 'festival', month: 10, day: 24, days: 3, note: '全城庆典' },
+    { id: 'a1', name: '恋爱周年周', type: 'anniversary', month: 10, day: 25, days: 2, note: '海边旅行' },
+    { id: 't1', name: '期末复习冲刺', type: 'todo', month: 10, day: 23, days: 4, note: '图书馆打卡', done: false },
+    { id: 'f2', name: '跨年长假', type: 'festival', month: 10, day: 28, days: 5, note: '出行计划' },
+    { id: 's1', name: '单日茶会', type: 'festival', month: 10, day: 25, days: 1, note: '下午茶' },
+  ];
+
+  const api = createPhoneCalendarApi({
+    read: () => ({
+      calendar: cal,
+      items,
+      today: { year: 2026, month: 10, day: 25 },
+    }),
+  });
+
+  // 1. Month view exposes currentDay for multi-day items on each day
+  const monthView = api.getPhoneCalendar({ monthOffset: 0 });
+  const day24 = monthView.days.find(d => d.day === 24 && !d.outsideMonth);
+  const day25 = monthView.days.find(d => d.day === 25 && !d.outsideMonth);
+  const day26 = monthView.days.find(d => d.day === 26 && !d.outsideMonth);
+
+  assert.equal(day24.items.find(it => it.id === 'f1').currentDay, 1);
+  assert.equal(day25.items.find(it => it.id === 'f1').currentDay, 2);
+  assert.equal(day26.items.find(it => it.id === 'f1').currentDay, 3);
+  assert.equal(day25.items.find(it => it.id === 'a1').currentDay, 1);
+  assert.equal(day26.items.find(it => it.id === 'a1').currentDay, 2);
+  assert.equal(day25.items.find(it => it.id === 't1').currentDay, 3);
+  assert.equal(day25.items.find(it => it.id === 's1').currentDay, undefined);
+
+  // 2. Context marks ongoing multi-day items with 共X天，当前为第Y天 and upcoming multi-day items with 共X天
+  const ctx = api.getPhoneCalendarContext();
+  assert.ok(ctx);
+
+  const f1 = ctx.events.find(e => e.name === '秋日祭典');
+  assert.equal(f1.days, 3);
+  assert.equal(f1.currentDay, 2);
+  assert.equal(f1.when, '进行中（共3天，当前为第2天）');
+  assert.equal(formatCalendarEventPromptLine(f1), '- 进行中（共3天，当前为第2天） 秋日祭典（全城庆典）');
+
+  const a1 = ctx.events.find(e => e.name === '恋爱周年周');
+  assert.equal(a1.days, 2);
+  assert.equal(a1.currentDay, 1);
+  assert.equal(a1.when, '进行中（共2天，当前为第1天）');
+  assert.equal(formatCalendarEventPromptLine(a1), '- 进行中（共2天，当前为第1天） 恋爱周年周（海边旅行）');
+
+  const t1 = ctx.events.find(e => e.name === '期末复习冲刺');
+  assert.equal(t1.days, 4);
+  assert.equal(t1.currentDay, 3);
+  assert.equal(t1.when, '进行中（共4天，当前为第3天）');
+  assert.equal(formatCalendarEventPromptLine(t1), '- 进行中（共4天，当前为第3天） 期末复习冲刺（图书馆打卡）');
+
+  const f2 = ctx.events.find(e => e.name === '跨年长假');
+  assert.equal(f2.days, 5);
+  assert.equal(f2.currentDay, undefined);
+  assert.equal(f2.when, '3天后（共5天）');
+  assert.equal(formatCalendarEventPromptLine(f2), '- 3天后（共5天） 跨年长假（出行计划）');
+
+  const s1 = ctx.events.find(e => e.name === '单日茶会');
+  assert.equal(s1.days, 1);
+  assert.equal(s1.when, '今天');
+  assert.equal(formatCalendarEventPromptLine(s1), '- 今天 单日茶会（下午茶）');
+
+  // 3. Preset compilation & Story Backflow with multi-day calendar items and chat todos
+  const h = createHarness({
+    messages: [
+      { is_user: false, mes: '早上好！<!-- SDC-end date=2026-10-25 | weekday=周日 | time=09:00 -->' },
+    ],
+  });
+  const target = h.host.captureChat();
+  const store = createPhoneStore({ target });
+  await store.saveContact('', { name: '林舟' });
+  const lin = store.read().contacts[0];
+
+  await store.saveCalendarEvent({
+    name: '秋日祭典',
+    type: 'festival',
+    month: 10,
+    day: 24,
+    days: 3,
+    note: '全城庆典',
+  });
+  await store.saveCalendarEvent({
+    name: '恋爱周年周',
+    type: 'anniversary',
+    month: 10,
+    day: 25,
+    days: 2,
+    note: '海边旅行',
+  });
+
+  // Confirmed multi-day chat todo via startAt -> endAt
+  await store.appendMessages(lin.id, [{ id: 'm1', role: 'assistant', text: '我们从24号露营到26号吧' }], {
+    todoCandidates: [{
+      id: 'todo:camp',
+      status: 'candidate',
+      title: '山谷露营',
+      startAt: '2026年10月24日',
+      endAt: '2026年10月26日',
+      participantIds: ['@user', lin.id],
+      sourceMessageIds: ['m1'],
+    }],
+  });
+  await store.confirmTodo('todo:camp');
+
+  const calendar = createCalendarReader({ store, target });
+  const reader = createContextReader({ host: h.host, store, target, calendar });
+  const contactCtx = await reader.readForContact(lin.id, '今天露营第二天怎么安排？');
+
+  assert.ok(contactCtx.calendar);
+  const campCalEvent = contactCtx.calendar.events.find(e => e.name === '山谷露营');
+  assert.ok(campCalEvent);
+  assert.equal(campCalEvent.days, 3);
+  assert.equal(campCalEvent.currentDay, 2);
+  assert.equal(campCalEvent.when, '进行中（共3天，当前为第2天）');
+
+  const campTodoRef = contactCtx.todos.find(t => t.title === '山谷露营');
+  assert.ok(campTodoRef);
+  assert.equal(campTodoRef.days, 3);
+  assert.equal(campTodoRef.currentDay, 2);
+
+  // Compile preset and check {{calendar_prompt}} expansion
+  const preset = getActivePreset(store.read());
+  const compiled = compilePromptPreset(preset, {
+    phoneContext: contactCtx,
+    calendar: contactCtx.calendar,
+  });
+  const calendarPromptMsg = compiled.find(m => m.content.includes('[日历线索：'));
+  assert.ok(calendarPromptMsg);
+  assert.ok(calendarPromptMsg.content.includes('- 进行中（共3天，当前为第2天） 秋日祭典（全城庆典）'));
+  assert.ok(calendarPromptMsg.content.includes('- 进行中（共2天，当前为第1天） 恋爱周年周（海边旅行）'));
+  assert.ok(calendarPromptMsg.content.includes('- 进行中（共3天，当前为第2天） 山谷露营'));
+
+  // Backflow into main story prompt
+  await store.setInjectCalendarEnabled(true);
+  const backflow = createBackflowService({
+    target,
+    store,
+    calendar,
+    modelClient: { complete: async () => '' },
+  });
+  const injectedPrompt = await backflow.prepare();
+  assert.ok(injectedPrompt.includes('- 进行中（共3天，当前为第2天） 秋日祭典（全城庆典）'));
+  assert.ok(injectedPrompt.includes('- 进行中（共2天，当前为第1天） 恋爱周年周（海边旅行）'));
+  assert.ok(injectedPrompt.includes('- 进行中（共3天，当前为第2天） 山谷露营'));
+  assert.ok(injectedPrompt.includes('（共3天，当前为第2天）'));
+});

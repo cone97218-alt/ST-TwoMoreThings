@@ -324,7 +324,19 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
         columns: cycle, leading: weekday == null ? 0 : cycle === 7 ? (weekday + 6) % 7 : weekday,
         days: Array.from({ length: monthDays(cal, month, year) }, (_, i) => {
           const date = { year, month, day: i + 1, ...(today?.eraLabel ? { eraLabel: today.eraLabel } : {}) };
-          return { day: date.day, label: label(date, cal), isToday: offset === 0 && today?.day === date.day, items: items.filter(item => covers(item, date, cal)).map(item => itemView(item, cal)) };
+          return {
+            day: date.day,
+            label: label(date, cal),
+            isToday: offset === 0 && today?.day === date.day,
+            items: items.filter(item => covers(item, date, cal)).map(item => {
+              const view = itemView(item, cal);
+              if (view.days > 1) {
+                const dayOffset = elapsed(item, date, cal);
+                if (dayOffset != null && dayOffset >= 0) view.currentDay = dayOffset + 1;
+              }
+              return view;
+            }),
+          };
         }),
       };
     },
@@ -335,8 +347,25 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
         const d = today ? until(item, today, cal) : null;
         const mentioned = item.name.length >= 2 && String(query).includes(item.name);
         if (!(d != null && d >= 0 && d <= 7) && !mentioned) return [];
-        const ongoing = d === 0 && Math.max(1, Number(item.days) || 1) > 1;
-        return [{ ...itemView(item, cal), when: d == null ? '' : ongoing ? '进行中' : d === 0 ? '今天' : `${d}天后`, order: ongoing ? -1 : d ?? Infinity }];
+        const totalDays = Math.max(1, Number(item.days) || 1);
+        const ongoing = d === 0 && totalDays > 1;
+        const dayOffset = ongoing && today ? elapsed(item, today, cal) : null;
+        const currentDay = ongoing ? ((dayOffset != null && dayOffset >= 0) ? dayOffset + 1 : 1) : null;
+        const when = d == null
+          ? ''
+          : ongoing
+            ? `进行中（共${totalDays}天，当前为第${currentDay}天）`
+            : d === 0
+              ? '今天'
+              : totalDays > 1
+                ? `${d}天后（共${totalDays}天）`
+                : `${d}天后`;
+        return [{
+          ...itemView(item, cal),
+          ...(currentDay != null ? { currentDay } : {}),
+          when,
+          order: ongoing ? -1 : d ?? Infinity,
+        }];
       }).sort((a, b) => a.order - b.order).map(({ order, ...item }) => item);
       const seenEventKeys = new Set();
       const uniqueEvents = [];
@@ -350,6 +379,27 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
       return uniqueEvents.length ? { today: today ? label(today, cal) : '', events: uniqueEvents } : null;
     },
   });
+}
+
+export function formatCalendarEventPromptLine(e) {
+  if (!e || !e.name) return '';
+  const totalDays = Math.max(1, Number(e.days) || 1);
+  let whenStr = String(e.when || '').trim();
+  if (totalDays > 1 && !whenStr.includes('共')) {
+    if (Number.isInteger(e.currentDay) && e.currentDay >= 1) {
+      const base = (!whenStr || whenStr === '今天') ? '进行中' : whenStr;
+      whenStr = `${base}（共${totalDays}天，当前为第${e.currentDay}天）`;
+    } else if (whenStr === '进行中' || whenStr === '今天') {
+      whenStr = `进行中（共${totalDays}天，当前为第1天）`;
+    } else if (whenStr) {
+      whenStr = `${whenStr}（共${totalDays}天）`;
+    } else {
+      whenStr = `共${totalDays}天`;
+    }
+  }
+  const prefix = whenStr ? `${whenStr} ` : '';
+  const note = e.note ? `（${e.note}）` : '';
+  return `- ${prefix}${e.name}${note}`;
 }
 
 export function defaultWorkdayConfig() {
@@ -400,6 +450,14 @@ export function evaluateDayType(date, calendar, workdayConfig, festivals = []) {
     const days = Math.max(1, Number(f.days) || 1);
     if (date.month === f.month && date.day >= f.day && date.day < f.day + days) {
       return true;
+    }
+    if (calendar && Array.isArray(calendar.months)) {
+      const start = { year: date.year ?? null, month: f.month, day: f.day };
+      let delta = daysBetweenCalendarDates(start, date, calendar);
+      if (delta != null && delta < 0 && date.year != null) {
+        delta = daysBetweenCalendarDates({ ...start, year: date.year - 1 }, date, calendar);
+      }
+      if (delta != null && delta >= 0 && delta < days) return true;
     }
     return false;
   });

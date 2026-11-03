@@ -821,6 +821,7 @@ export function createPhoneStore({
                 title: name,
                 month,
                 day,
+                days,
                 startAt: `${month}月${day}日`,
               } : t),
             };
@@ -1119,6 +1120,7 @@ export function createPhoneStore({
         title: String(it.title || it.name || '').trim(),
         month: Math.max(1, Number(it.month) || 1),
         day: Math.max(1, Number(it.day) || 1),
+        days: Math.max(1, Number(it.days) || 1),
         startAt: it.time ? `${it.month}月${it.day}日 ${it.time}` : `${it.month}月${it.day}日`,
         endAt: '',
         participantIds: [],

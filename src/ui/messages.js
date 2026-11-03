@@ -28,6 +28,7 @@ export function renderInbox(state, { ui, busy }) {
       ${action('organize', busy.has('directory') ? '整理中…' : '整理通讯录', '', 'menu-item', busy.has('directory'))}
       ${action('add-contact', '添加联系人', '', 'menu-item')}
       ${action('add-group', '创建群聊', '', 'menu-item')}
+      ${action('manual-summary', busy.has('summary') ? '总结中…' : '总结短信', '', 'menu-item', busy.has('summary'))}
     </div>` : ''}
   </div>`;
   const groupRows = groups.map(group => {

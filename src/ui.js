@@ -74,7 +74,7 @@ const pages = {
   'social-profile': renderSocialProfile,
 };
 
-export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, logger = null, previewBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {}, host }) {
+export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, logger = null, previewBackflow = null, summarizeBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {}, host }) {
   const doc = mount.ownerDocument;
   const element = doc.createElement('div');
   element.id = mode === 'embedded' ? 'pocket-phone-card-host' : 'pocket-phone-host';
@@ -1832,6 +1832,18 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'edit-group': editGroup(ui.groupId); break;
       case 'back-group': goBack(); break;
       case 'organize': ui.inboxMenu = false; void perform('directory', () => directory.organize(), result => { ui.feedback = { text: result.contacts.length || result.groups.length ? `新增 ${result.contacts.length} 位联系人、${result.groups.length} 个群聊。` : '没有需要新增的联系人或群聊。' }; onContextChange(); }); break;
+      case 'manual-summary': {
+        ui.inboxMenu = false;
+        void perform('summary', async () => {
+          if (!summarizeBackflow) throw new Error('未提供短信总结服务。');
+          return await summarizeBackflow();
+        }, summary => {
+          const charLen = Array.from(summary || '').length;
+          ui.feedback = { text: summary ? `短信总结已完成并保存（${charLen}字）：${summary.slice(0, 30)}...` : '短信总结已更新。' };
+          onContextChange();
+        });
+        break;
+      }
       case 'remove-contact':
       case 'remove-group': {
         const group = button.dataset.action === 'remove-group';
@@ -2785,6 +2797,27 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const enabled = event.target.checked;
       void perform('group-social', async () => {
         await store.setGroupSocialEnabled(enabled);
+        onContextChange();
+      });
+    }
+    if (event.target.id === 'summary-mode') {
+      const mode = event.target.value;
+      void perform('summary-mode', async () => {
+        await store.setSummaryMode(mode);
+        onContextChange();
+      });
+    }
+    if (event.target.id === 'summary-max-characters') {
+      const val = Number(event.target.value) || 100;
+      void perform('summary-max-chars', async () => {
+        await store.setSummaryMaxCharacters(val);
+        onContextChange();
+      });
+    }
+    if (event.target.id === 'summary-auto-truncate') {
+      const enabled = event.target.checked;
+      void perform('summary-truncate', async () => {
+        await store.setSummaryAutoTruncate(enabled);
         onContextChange();
       });
     }

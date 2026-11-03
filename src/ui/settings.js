@@ -557,6 +557,25 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
   </label>
   <small class="field-label">临近 7 天内的节日、纪念日与工作日/时段作息可作为背景线索带入正文或提示词。</small>
   <small class="field-label">短材料由主楼一起判断；超过3000字才额外生成摘要。</small>
+  <label class="compact-switch-row" for="summary-mode">
+    <span>短信总结方式</span>
+    <select id="summary-mode">
+      <option value="auto" ${state.summaryMode !== 'manual' ? 'selected' : ''}>自动挡（关闭手机后在下轮AI前总结）</option>
+      <option value="manual" ${state.summaryMode === 'manual' ? 'selected' : ''}>手动挡（加号菜单中点击「总结短信」）</option>
+    </select>
+  </label>
+  <label class="compact-switch-row" for="summary-max-characters">
+    <span>摘要字数上限</span>
+    <input id="summary-max-characters" type="number" min="50" max="1000" step="50" style="width: 80px; text-align: right;" value="${state.summaryMaxCharacters || 100}">
+  </label>
+  <label class="compact-switch-row">
+    <span>超长时自动截断</span>
+    <span class="switch">
+      <input id="summary-auto-truncate" type="checkbox" role="switch" aria-label="超长时自动截断" ${state.summaryAutoTruncate !== false ? 'checked' : ''}>
+      <span></span>
+    </span>
+  </label>
+  ${state.manualSummary?.text ? `<small class="field-label" style="color: var(--SmartThemeQuoteColor, #888); word-break: break-all;">已保存手动摘要（${Array.from(state.manualSummary.text).length}字）：${escape(state.manualSummary.text.slice(0, 50))}${state.manualSummary.text.length > 50 ? '...' : ''}</small>` : ''}
   <label class="compact-switch-row" for="image-provider">
     <span>生图设置</span>
     <select id="image-provider" class="image-provider-select" aria-label="生图设置" ${busy.has('image-provider') ? 'disabled' : ''}>

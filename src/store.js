@@ -8,7 +8,7 @@ import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
 import { defaultGregorianCalendar, defaultWorkdayConfig } from './calendar-engine.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 
-const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false, injectCalendarEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {} });
+const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false, injectCalendarEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, manualSummary: null });
 const fillDefaultAvatars = people => {
   let filled = people;
   for (let index = 0; index < people.length; index++) {
@@ -1181,6 +1181,22 @@ export function createPhoneStore({
     setInjectCalendarEnabled(enabled) { return update(state => ({ ...state, injectCalendarEnabled: Boolean(enabled) })); },
     setContactSocialEnabled(enabled) { return update(state => ({ ...state, contactSocialEnabled: Boolean(enabled) })); },
     setGroupSocialEnabled(enabled) { return update(state => ({ ...state, groupSocialEnabled: Boolean(enabled) })); },
+    setSummaryMode(mode) { return update(state => ({ ...state, summaryMode: mode === 'manual' ? 'manual' : 'auto' })); },
+    setSummaryMaxCharacters(val) { return update(state => ({ ...state, summaryMaxCharacters: Math.max(50, Math.min(2000, Number(val) || 100)) })); },
+    setSummaryAutoTruncate(enabled) { return update(state => ({ ...state, summaryAutoTruncate: Boolean(enabled) })); },
+    saveManualSummary(summary) {
+      return update(state => ({
+        ...state,
+        manualSummary: typeof summary === 'string' ? { text: summary, generatedAt: new Date().toISOString() } : summary,
+      }));
+    },
+    clearManualSummary() {
+      return update(state => {
+        const next = { ...state };
+        delete next.manualSummary;
+        return next;
+      });
+    },
     confirmTodo(id, patch = {}) {
       return update(state => {
         assertEnabled();

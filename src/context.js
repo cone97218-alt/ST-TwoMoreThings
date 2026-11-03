@@ -276,9 +276,171 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
   };
 }
 
+export const summaryCache = new WeakMap();
+
+export function computePhoneHash(conversations, todos, batchKey) {
+  const convPart = (conversations || []).map(c => `${c.id}:${c.messages?.length || 0}:${c.messages?.at(-1)?.id || ''}`).join('|');
+  const todoPart = (todos || []).map(t => `${t.id}:${t.status}`).join('|');
+  return `${batchKey || ''}::${convPart}::${todoPart}`;
+}
+
+async function executeSummaryGeneration({
+  target, store, modelClient, state, beforeIndex, batch, calendarContext,
+  conversations, todos, wrapperSettingsProvider, memorySources, qqjBridgeProvider, host
+}) {
+  const maxCharacters = Number(state.summaryMaxCharacters) || 100;
+  const activePreset = getActivePreset(state);
+  const storyRecent = recentStory(target.messages, beforeIndex, wrapperSettingsProvider(), activePreset?.storyLayers !== undefined ? activePreset.storyLayers : 1);
+  const storyHistoryText = storyRecent.map(item => `${item.speaker || '角色'}：${item.text}`).join('\n\n');
+
+  let storyMemory = '';
+  let effectiveMemorySources = memorySources;
+  if (!effectiveMemorySources && typeof createMemorySources === 'function') {
+    try {
+      effectiveMemorySources = createMemorySources({
+        target,
+        qqjBridgeProvider,
+        settingsProvider: host?.readSettings,
+      });
+    } catch {}
+  }
+  if (effectiveMemorySources) {
+    try {
+      const source = effectiveMemorySources.select();
+      storyMemory = effectiveMemorySources.readStoryMemory(source, 4000) || '';
+    } catch {}
+  }
+
+  const phoneContextData = sanitizePhoneContext({
+    time: batch.label,
+    calendar: calendarContext?.events || [],
+    conversations,
+    todos: todos.map(todo => todoReference(todo, state, target.user)),
+    storyProgress: storyProgress(target.messages, [...conversations.map(() => batch), ...todos.map(todo => todo.sourceBatch)], beforeIndex, wrapperSettingsProvider()),
+    maxCharacters,
+  });
+
+  let worldbook = '';
+  if (typeof target?.readWorldInfo === 'function') {
+    try {
+      const scanLines = [
+        ...storyRecent.map(item => item.text),
+        ...conversations.flatMap(c => c.messages.map(m => m.text)),
+        ...todos.map(t => t.title),
+      ];
+      worldbook = await target.readWorldInfo({ scanText: scanLines.join('\n') }) || '';
+    } catch {}
+  }
+
+  const messagesPayload = compilePromptPreset(activePreset, {
+    worldbook,
+    storyHistory: storyHistoryText,
+    storyMemory,
+    phoneContext: phoneContextData,
+    maxCharacters,
+  }, 'summary', state);
+
+  const collapsed = collapseMessages(messagesPayload);
+  const systemEntries = messagesPayload.filter(m => m.role === 'system');
+  const userEntries = messagesPayload.filter(m => m.role !== 'system');
+  const systemPrompt = systemEntries.map(m => m.content).join('\n\n');
+
+  const reply = await modelClient.complete({
+    label: '短信回流正文记忆摘要',
+    system: systemPrompt,
+    messages: userEntries.length ? userEntries : [{ role: 'user', content: JSON.stringify(phoneContextData) }],
+    entries: messagesPayload,
+    collapsedMessages: collapsed,
+  });
+
+  const answer = parseJsonObject(reply);
+  let value = answer.summary ?? answer.reference ?? answer.content ?? answer.text;
+  if (value && typeof value === 'object') {
+    if (typeof value.text === 'string') value = value.text;
+    else if (typeof value.content === 'string') value = value.content;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`手机参考没有生成${maxCharacters}字以内的有效内容，本次正文未带入手机消息。`);
+  }
+  const chars = Array.from(value.trim());
+  if (chars.length > maxCharacters) {
+    if (state.summaryAutoTruncate) {
+      value = chars.slice(0, maxCharacters).join('');
+    } else {
+      throw new Error(`手机参考没有生成${maxCharacters}字以内的有效内容，本次正文未带入手机消息。`);
+    }
+  }
+  return value.trim();
+}
+
 // 短材料由主楼本轮判断采用；长材料沿用一次摘要并核对进展，不另加分析请求。
-export function createBackflowService({ target, store, modelClient, isEnabled = () => true, wrapperSettingsProvider = () => ({}), calendar = null }) {
+export function createBackflowService({
+  target,
+  store,
+  modelClient,
+  isEnabled = () => true,
+  wrapperSettingsProvider = () => ({}),
+  calendar = null,
+  memorySources = null,
+  qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1,
+  host = null
+}) {
   return {
+    async summarize() {
+      const state = store.read();
+      const beforeIndex = target.messages.length;
+      const batch = readTimeline(target.messages, beforeIndex);
+
+      let calendarContext = null;
+      if (calendar?.context) {
+        try { calendarContext = calendar.context(batch.label); } catch {}
+      }
+
+      const todos = relevantTodos(state, ['@user']).filter(todo => {
+        const floor = batchFloor(todo.sourceBatch);
+        return floor === null || floor < beforeIndex;
+      });
+      const conversations = [];
+      for (const person of [...state.contacts, ...(state.groups || []).filter(group => group.userIsMember)]) {
+        const thread = state.conversations[person.id] || [];
+        const messages = filterFinishedGameActions(phoneHistory(state, person.id, batch), thread);
+        if (!messages.length) continue;
+        conversations.push({
+          id: person.id, name: person.name, kind: person.memberIds ? 'group' : 'private',
+          knownToIds: person.memberIds ? ['@user', ...person.memberIds] : ['@user', person.id],
+          messages: messages.map(message => {
+            const replyTo = replyContext(message, thread);
+            return {
+              id: message.id,
+              speaker: message.role === 'user' ? state.userProfile?.name || target.user : person.memberIds ? state.contacts.find(contact => contact.id === message.speakerId)?.name || '群成员' : person.name,
+              text: messageText(message),
+              ...(message.translation ? { translation: message.translation } : {}),
+              ...(message.type === 'transfer' ? { recipient: message.transfer.recipientId === '@user' ? state.userProfile?.name || target.user : state.contacts.find(contact => contact.id === message.transfer.recipientId)?.name || '已移出的联系人' } : {}),
+              ...(message.type === 'game' ? { game: { kind: message.game.kind, title: message.game.title, wager: message.game.wager, status: message.game.status, winner: message.game.winner === 'user' ? state.userProfile?.name || target.user : message.game.winner === 'ai' ? person.name : '', round: message.game.round, turn: message.game.turn, lastAction: message.game.lastAction?.description || '' } } : {}),
+              ...(message.forwarded ? { forwarded: true, ...(message.forwardedFrom ? { forwardedFrom: message.forwardedFrom } : {}) } : {}),
+              ...(replyTo ? { replyTo } : {}),
+            };
+          })
+        });
+      }
+
+      if (!conversations.length && !todos.length) {
+        throw new Error('当前批次暂无需要总结的短信或待办。');
+      }
+
+      const summary = await executeSummaryGeneration({
+        target, store, modelClient, state, beforeIndex, batch, calendarContext,
+        conversations, todos, wrapperSettingsProvider, memorySources, qqjBridgeProvider, host
+      });
+
+      if (summary) {
+        await store.saveManualSummary({ text: summary, generatedAt: new Date().toISOString() });
+        const phoneHash = computePhoneHash(conversations, todos, batch.key);
+        summaryCache.set(target, { phoneHash, summary });
+      }
+      return summary;
+    },
+
     async prepare(type = 'normal') {
       const state = store.read();
       const injectSms = Boolean(state.injectEnabled);
@@ -377,53 +539,29 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
       let characters = 0;
       for (const _ of reference) if (++characters > 3000) break;
       if (characters <= 3000) return reference.trim();
-      const maxCharacters = 100;
-      const activePreset = getActivePreset(state);
-      const storyRecent = recentStory(target.messages, beforeIndex, wrapperSettingsProvider(), activePreset?.storyLayers !== undefined ? activePreset.storyLayers : 1);
-      const storyHistoryText = storyRecent.map(item => `${item.speaker || '角色'}：${item.text}`).join('\n\n');
-      const phoneContextData = sanitizePhoneContext({
-        time: batch.label,
-        calendar: calendarContext?.events || [],
-        conversations,
-        todos: todos.map(todo => todoReference(todo, state, target.user)),
-        storyProgress: storyProgress(target.messages, [...conversations.map(() => batch), ...todos.map(todo => todo.sourceBatch)], beforeIndex, wrapperSettingsProvider()),
-        maxCharacters,
-      });
 
-      let worldbook = '';
-      if (typeof target?.readWorldInfo === 'function') {
-        try {
-          const scanLines = [
-            ...storyRecent.map(item => item.text),
-            ...conversations.flatMap(c => c.messages.map(m => m.text)),
-            ...todos.map(t => t.title),
-          ];
-          worldbook = await target.readWorldInfo({ scanText: scanLines.join('\n') }) || '';
-        } catch {}
+      let summary = '';
+      if (state.summaryMode === 'manual') {
+        if (state.manualSummary?.text) {
+          summary = String(state.manualSummary.text).trim();
+        } else {
+          summary = '';
+        }
+      } else {
+        const phoneHash = computePhoneHash(conversations, todos, batch.key);
+        const cached = summaryCache.get(target);
+        if (cached && cached.phoneHash === phoneHash && typeof cached.summary === 'string') {
+          summary = cached.summary;
+        } else {
+          summary = await executeSummaryGeneration({
+            target, store, modelClient, state, beforeIndex, batch, calendarContext,
+            conversations, todos, wrapperSettingsProvider, memorySources, qqjBridgeProvider, host
+          });
+          summaryCache.set(target, { phoneHash, summary });
+        }
       }
 
-      const messagesPayload = compilePromptPreset(activePreset, {
-        worldbook,
-        storyHistory: storyHistoryText,
-        phoneContext: phoneContextData,
-      }, 'summary', state);
-
-      const collapsed = collapseMessages(messagesPayload);
-      const systemEntries = messagesPayload.filter(m => m.role === 'system');
-      const userEntries = messagesPayload.filter(m => m.role !== 'system');
-      const systemPrompt = systemEntries.map(m => m.content).join('\n\n');
-
-      const reply = await modelClient.complete({
-        label: '短信回流正文记忆摘要',
-        system: systemPrompt,
-        messages: userEntries.length ? userEntries : [{ role: 'user', content: JSON.stringify(phoneContextData) }],
-        entries: messagesPayload,
-        collapsedMessages: collapsed,
-      });
-      const answer = parseJsonObject(reply);
-      const value = answer.summary ?? answer.reference;
-      if (typeof value !== 'string' || Array.from(value.trim()).length > maxCharacters) throw new Error(`手机参考没有生成${maxCharacters}字以内的有效内容，本次正文未带入手机消息。`);
-      const summary = value.trim();
+      if (!summary) return '';
       if (!summary) return '';
       const current = store.read();
       if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled && !Boolean(current.calendar?.workdayConfig?.enabled && current.calendar?.workdayConfig?.injectStory))) return '';

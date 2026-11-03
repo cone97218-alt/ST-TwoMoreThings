@@ -562,7 +562,9 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const calPrompt = getPrompt('calendar_context', state) || CALENDAR_PROMPT;
     const workdayPromptRule = getPrompt('workday_holiday', state) || WORKDAY_HOLIDAY_PROMPT;
     const resolvedWorkdayPrompt = workdayPromptText ? (workdayPromptRule ? `${workdayPromptRule}\n${workdayPromptText}` : workdayPromptText) : '';
-    const sumPrompt = getPrompt('summary', state) || SUMMARY_PROMPT;
+    const maxChars = contextData.maxCharacters || Number(state?.summaryMaxCharacters) || 100;
+    const sumPromptRaw = getPrompt('summary', state) || SUMMARY_PROMPT;
+    const sumPrompt = sumPromptRaw ? sumPromptRaw.replace(/maxCharacters/g, String(maxChars)) : '';
     const imgPrompt = getPrompt('image_prompt', state) || IMAGE_PROMPT;
     const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
     const buckshotPrompt = getPrompt('buckshot_roulette', state) || BUCKSHOT_ROULETTE_PROMPT;

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHarness } from './harness.mjs';
 import { createPhoneStore } from '../src/store.js';
-import { createBackflowService } from '../src/context.js';
+import { createBackflowService, summaryCache } from '../src/context.js';
 import { readTimeline } from '../src/timeline.js';
 
 function setup(messages = [{ is_user: false, mes: '<!-- QQJ-end | date=2026-10-18 | time=18:00 -->' }], hostKind = 'native') {
@@ -263,4 +263,134 @@ test('summary generation complies with active prompt preset order and entries', 
   assert.ok(req.collapsedMessages[0].content.includes('【优先遵循头部规范】'));
   assert.equal(req.collapsedMessages[1].role, 'user');
   assert.ok(req.collapsedMessages[1].content.includes('请严格提取有价值信息。'));
+});
+
+test('story_memory is included in summary preset entries when memorySources provides memory', async () => {
+  const { target, store, batch } = setup([{ is_user: false, mes: '正文消息。<!-- QQJ-end | date=2026-10-18 | time=18:00 -->' }]);
+  await store.appendMessage('lin', { id: 'm1', role: 'user', text: '长消息内容。'.repeat(600), batch });
+
+  const mockMemorySources = {
+    select() { return { kind: 'bbs' }; },
+    readStoryMemory() { return '这是来自柏宝书的长线剧情记忆摘要。'; },
+  };
+
+  const requests = [];
+  const service = createBackflowService({
+    target,
+    store,
+    memorySources: mockMemorySources,
+    modelClient: {
+      complete(req) {
+        requests.push(req);
+        return JSON.stringify({ summary: '整理后的摘要' });
+      },
+    },
+  });
+
+  await service.prepare();
+  assert.equal(requests.length, 1);
+  const storyMemEntry = requests[0].entries.find(e => e.id === 'entry_story_memory');
+  assert.ok(storyMemEntry, 'entry_story_memory should be present');
+  assert.ok(storyMemEntry.content.includes('这是来自柏宝书的长线剧情记忆摘要。'));
+});
+
+test('manual and auto summary modes: plus menu manual trigger vs automatic caching on return', async () => {
+  const { target, store, batch } = setup([{ is_user: false, mes: '正文消息。<!-- QQJ-end | date=2026-10-18 | time=18:00 -->' }]);
+  await store.appendMessage('lin', { id: 'm1', role: 'user', text: '长消息内容。'.repeat(600), batch });
+
+  // 1. 手动挡：未手动总结前，prepare 不自动调用 API
+  await store.setSummaryMode('manual');
+  let requests = [];
+  let service = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete(req) {
+        requests.push(req);
+        return JSON.stringify({ summary: '手动总结结果' });
+      },
+    },
+  });
+
+  let res = await service.prepare();
+  assert.equal(res, '');
+  assert.equal(requests.length, 0, 'manual mode must not auto-call summary API during chat turns');
+
+  // 手动点击「总结短信」调用 summarize()
+  const manualResult = await service.summarize();
+  assert.equal(manualResult, '手动总结结果');
+  assert.equal(requests.length, 1);
+  assert.equal(store.read().manualSummary.text, '手动总结结果');
+
+  // 后续正文生成注入手动保存的总结，不再调用 API
+  res = await service.prepare();
+  assert.equal(res, '手动总结结果');
+  assert.equal(requests.length, 1);
+
+  // 2. 自动挡：首次生成调用一次并缓存，短信未变动时不重复调用
+  summaryCache.delete(target);
+  await store.setSummaryMode('auto');
+  await store.clearManualSummary();
+  requests = [];
+  service = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete(req) {
+        requests.push(req);
+        return JSON.stringify({ summary: '自动挡总结第1轮' });
+      },
+    },
+  });
+
+  res = await service.prepare();
+  assert.equal(res, '自动挡总结第1轮');
+  assert.equal(requests.length, 1);
+
+  // 再次准备正文（手机消息未改变）：复用缓存，零次 API 请求
+  res = await service.prepare();
+  assert.equal(res, '自动挡总结第1轮');
+  assert.equal(requests.length, 1, 'subsequent turns with unchanged messages reuse cached summary');
+
+  // 用户在手机中继续聊天，产生了新消息：缓存失效，下一次准备正文时重新总结一次
+  await store.appendMessage('lin', { id: 'm2', role: 'user', text: '后续新短信。', batch });
+  service = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete(req) {
+        requests.push(req);
+        return JSON.stringify({ summary: '自动挡总结第2轮' });
+      },
+    },
+  });
+  res = await service.prepare();
+  assert.equal(res, '自动挡总结第2轮');
+  assert.equal(requests.length, 2);
+});
+
+test('summaryAutoTruncate gracefully slices output when AI exceeds maxCharacters', async () => {
+  const { target, store, batch } = setup([{ is_user: false, mes: '正文消息。<!-- QQJ-end | date=2026-10-18 | time=18:00 -->' }]);
+  await store.appendMessage('lin', { id: 'm1', role: 'user', text: '长消息内容。'.repeat(600), batch });
+
+  await store.setSummaryMaxCharacters(100);
+  await store.setSummaryAutoTruncate(true);
+
+  // 模型输出了 120 字的完整摘要
+  const overLengthSummary = '这是一段正确的摘要内容。'.repeat(10); // 120字
+  assert.equal(Array.from(overLengthSummary).length, 120);
+
+  const service = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete() {
+        return JSON.stringify({ summary: overLengthSummary });
+      },
+    },
+  });
+
+  const res = await service.prepare();
+  assert.equal(Array.from(res).length, 100);
+  assert.equal(res, overLengthSummary.slice(0, 100));
 });

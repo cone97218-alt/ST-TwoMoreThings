@@ -59,9 +59,10 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
     if (!control.isEnabled()) return;
     const store = makeStore(target);
     const calendar = createCalendarReader({ store, target });
+    const memorySources = createMemorySources({ target, qqjBridgeProvider, settingsProvider: host.readSettings });
     const modelClient = createModelClient({ host, sourceProvider: createApiSettings({ host }), onBusyChange });
     try {
-      const prompt = await createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar }).prepare(type);
+      const prompt = await createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar, memorySources, qqjBridgeProvider, host }).prepare(type);
       host.setPrompt(prompt);
       logger.setLastBackflowPrompt(prompt);
     }
@@ -122,8 +123,12 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
       directory: createDirectoryService({ store, contextReader, modelClient }),
       forum: createForumService({ store, contextReader, modelClient }), apiSettings, calendar, calendarAi, logger,
       previewBackflow: async () => {
-        const backflowService = createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar });
+        const backflowService = createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar, memorySources, qqjBridgeProvider, host });
         return await backflowService.prepare('normal');
+      },
+      summarizeBackflow: async () => {
+        const backflowService = createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar, memorySources, qqjBridgeProvider, host });
+        return await backflowService.summarize();
       },
       social: createSocialService({ store, contextReader, modelClient, defaultUser: target.user, isReadingPost: id => currentPhone?.isReadingSocial(id) }),
       wallpaper: createWallpaperService({ host, store }), entries, appearance, authoring: createAuthoringService({ host, store, readEntries: entries.read }), mode: host.mode,

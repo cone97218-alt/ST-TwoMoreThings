@@ -1,333 +1,362 @@
-// 地图（千窗）核心引擎：无坐标层级场景 -> 主题底图区域与锚点投影 + 柏宝书(STBaiBaiBook)与聊天顶栏联动
+// 地图（千窗）核心引擎：无坐标层级场景 -> 主题底图/高精底图库/真实城市底图区域与锚点投影 + 177类设施NLP识别 + 1958枚Lucide图标 + 世界书提取 + 柏宝书(STBaiBaiBook)与聊天顶栏联动
 
+import {
+  QIANCHUANG_MAP_ASSETS,
+  qianchuangMapCandidates,
+  selectQianchuangMapAsset,
+} from './qianchuang-map-assets.js';
+import {
+  QIANCHUANG_MAP_STYLES,
+  validQianchuangMapStyle,
+  validQianchuangMapLayout,
+  normalizeQianchuangMapLayout,
+  normalizePlaceFacilities,
+  qianchuangFacilityDirectory,
+} from './qianchuang-display-hints.js';
+import {
+  QIANCHUANG_MAP_BASE_URL,
+  qianchuangMapCatalogEntries,
+  createQianchuangMapCatalog,
+} from './qianchuang-map-catalog.js';
+import { QIANCHUANG_BASEMAPS } from './ui/qianchuang-basemaps.js';
+import { GENERIC_BASEMAPS } from './ui/qianchuang-generic-trio.js';
+import { QIANCHUANG_MAP_REGIONS } from './ui/qianchuang-map-regions.js';
+import { QIANCHUANG_MAP_ANCHORS } from './ui/qianchuang-map-anchors.js';
+import { qianchuangMapLayout } from './ui/qianchuang-map-layout.js';
+import { createGenericMapLoader } from './ui/qianchuang-map-loader.js';
+import {
+  CITY_MAPS,
+  cityMapForPlace,
+  cityMapsForPlaceAddresses,
+  createCityMapLoader,
+  citySchematicLayout,
+} from './ui/qianchuang-city-maps.js';
+import {
+  placeMapLevel,
+  projectQianchuangSheets,
+  snapshotForCitySheet,
+} from './ui/qianchuang-city-sheets.js';
+import { projectQianchuangBrowse } from './ui/qianchuang-browse.js';
+import { QIANCHUANG_FACILITY_TERMS } from './ui/qianchuang-facility-terms.js';
+import { qianchuangFacilityTags } from './ui/qianchuang-facilities.js';
+import { LUCIDE_ICONS } from './ui/qianchuang-lucide-data.js';
+import {
+  qianchuangIcon,
+  qianchuangIconName,
+  qianchuangIconNames,
+  qianchuangIconCanonicalName,
+} from './ui/qianchuang-icons.js';
+import {
+  indexQianchuangWorldInfo,
+  projectQianchuangWorldInfo,
+} from './ui/qianchuang-worldbook.js';
+import {
+  captureQianchuangCharacterSources,
+} from './place-worldbook-material.js';
+
+export {
+  QIANCHUANG_MAP_ASSETS,
+  qianchuangMapCandidates,
+  selectQianchuangMapAsset,
+  QIANCHUANG_MAP_STYLES,
+  validQianchuangMapStyle,
+  validQianchuangMapLayout,
+  normalizeQianchuangMapLayout,
+  normalizePlaceFacilities,
+  qianchuangFacilityDirectory,
+  QIANCHUANG_MAP_BASE_URL,
+  qianchuangMapCatalogEntries,
+  createQianchuangMapCatalog,
+  QIANCHUANG_BASEMAPS,
+  GENERIC_BASEMAPS,
+  QIANCHUANG_MAP_REGIONS,
+  QIANCHUANG_MAP_ANCHORS,
+  qianchuangMapLayout,
+  createGenericMapLoader,
+  CITY_MAPS,
+  cityMapForPlace,
+  cityMapsForPlaceAddresses,
+  createCityMapLoader,
+  citySchematicLayout,
+  placeMapLevel,
+  projectQianchuangSheets,
+  snapshotForCitySheet,
+  projectQianchuangBrowse,
+  QIANCHUANG_FACILITY_TERMS,
+  qianchuangFacilityTags,
+  LUCIDE_ICONS,
+  qianchuangIcon,
+  qianchuangIconName,
+  qianchuangIconNames,
+  qianchuangIconCanonicalName,
+  indexQianchuangWorldInfo,
+  projectQianchuangWorldInfo,
+  captureQianchuangCharacterSources,
+};
+
+// 快捷设施标签（供手动编辑面板一键点选，同时映射 Lucide 图标）
 export const MAP_FACILITY_TAGS = [
-  { id: '餐饮', label: '餐饮', icon: 'utensils' },
-  { id: '住宿', label: '住宿', icon: 'bed' },
-  { id: '购物', label: '购物', icon: 'bag' },
-  { id: '交通', label: '交通', icon: 'transit' },
-  { id: '医疗', label: '医疗', icon: 'medical' },
-  { id: '娱乐', label: '娱乐', icon: 'sparkle' },
-  { id: '办公', label: '办公', icon: 'briefcase' },
-  { id: '住宅', label: '住宅', icon: 'home' },
-  { id: '景观', label: '景观', icon: 'tree' },
-  { id: '学府', label: '学府', icon: 'book' },
-  { id: '秘境', label: '秘境', icon: 'compass' },
-  { id: '防务', label: '防务', icon: 'shield' },
+  { id: '餐饮', label: '餐饮', icon: 'Utensils' },
+  { id: '住宿', label: '住宿', icon: 'BedDouble' },
+  { id: '购物', label: '购物', icon: 'ShoppingBag' },
+  { id: '交通', label: '交通', icon: 'TrainFront' },
+  { id: '医疗', label: '医疗', icon: 'Cross' },
+  { id: '娱乐', label: '娱乐', icon: 'Sparkles' },
+  { id: '办公', label: '办公', icon: 'BriefcaseBusiness' },
+  { id: '住宅', label: '住宅', icon: 'House' },
+  { id: '景观', label: '景观', icon: 'Trees' },
+  { id: '学府', label: '学府', icon: 'BookOpen' },
+  { id: '秘境', label: '秘境', icon: 'Compass' },
+  { id: '防务', label: '防务', icon: 'Shield' },
+  { id: '独立卫浴', label: '独立卫浴', icon: 'Bath' },
+  { id: '厨房', label: '厨房', icon: 'CookingPot' },
+  { id: '仓储', label: '仓储', icon: 'Archive' },
 ];
 
-const DEFAULT_REGIONS = {
-  layouts: {
-    1: [
-      {
-        contours: [[[8, 8], [92, 8], [92, 92], [8, 92]]],
-        inset: { left: 12, top: 12, width: 76, height: 76 },
-      },
-    ],
-    2: [
-      {
-        contours: [[[8, 8], [48, 8], [48, 92], [8, 92]]],
-        inset: { left: 10, top: 12, width: 36, height: 76 },
-      },
-      {
-        contours: [[[52, 8], [92, 8], [92, 92], [52, 92]]],
-        inset: { left: 54, top: 12, width: 36, height: 76 },
-      },
-    ],
-    3: [
-      {
-        contours: [[[8, 8], [58, 8], [58, 52], [8, 52]]],
-        inset: { left: 10, top: 10, width: 46, height: 40 },
-      },
-      {
-        contours: [[[62, 8], [92, 8], [92, 92], [62, 92]]],
-        inset: { left: 64, top: 12, width: 26, height: 76 },
-      },
-      {
-        contours: [[[8, 56], [58, 56], [58, 92], [8, 92]]],
-        inset: { left: 10, top: 58, width: 46, height: 32 },
-      },
-    ],
-    4: [
-      {
-        contours: [[[8, 8], [48, 8], [48, 48], [8, 48]]],
-        inset: { left: 10, top: 10, width: 36, height: 36 },
-      },
-      {
-        contours: [[[52, 8], [92, 8], [92, 48], [52, 48]]],
-        inset: { left: 54, top: 10, width: 36, height: 36 },
-      },
-      {
-        contours: [[[8, 52], [48, 52], [48, 92], [8, 92]]],
-        inset: { left: 10, top: 54, width: 36, height: 36 },
-      },
-      {
-        contours: [[[52, 52], [92, 52], [92, 92], [52, 92]]],
-        inset: { left: 54, top: 54, width: 36, height: 36 },
-      },
-    ],
-    5: [
-      {
-        contours: [[[8, 8], [46, 8], [46, 44], [8, 44]]],
-        inset: { left: 10, top: 10, width: 34, height: 32 },
-      },
-      {
-        contours: [[[54, 8], [92, 8], [92, 44], [54, 44]]],
-        inset: { left: 56, top: 10, width: 34, height: 32 },
-      },
-      {
-        contours: [[[32, 34], [68, 34], [68, 66], [32, 66]]],
-        inset: { left: 34, top: 36, width: 32, height: 28 },
-      },
-      {
-        contours: [[[8, 56], [46, 56], [46, 92], [8, 92]]],
-        inset: { left: 10, top: 58, width: 34, height: 32 },
-      },
-      {
-        contours: [[[54, 56], [92, 56], [92, 92], [54, 92]]],
-        inset: { left: 56, top: 58, width: 34, height: 32 },
-      },
-    ],
-  },
-};
+const QUICK_TAG_ICON_MAP = new Map(MAP_FACILITY_TAGS.map(t => [t.id, t.icon]));
 
-const DEFAULT_ANCHORS = {
-  layouts: {
-    1: [
-      [[28, 30], [52, 26], [72, 34], [24, 56], [50, 52], [74, 58], [32, 76], [56, 78], [72, 76]],
-    ],
-    2: [
-      [[22, 28], [36, 40], [24, 58], [38, 72], [22, 80]],
-      [[64, 28], [78, 40], [66, 58], [80, 72], [66, 80]],
-    ],
-    3: [
-      [[22, 26], [42, 28], [28, 42], [46, 42]],
-      [[72, 26], [82, 42], [74, 60], [80, 78]],
-      [[22, 70], [38, 74], [50, 72], [30, 84]],
-    ],
-    4: [
-      [[20, 24], [36, 26], [24, 38], [38, 40]],
-      [[64, 24], [80, 26], [66, 38], [80, 40]],
-      [[20, 68], [36, 70], [24, 82], [38, 84]],
-      [[64, 68], [80, 70], [66, 82], [80, 84]],
-    ],
-    5: [
-      [[20, 22], [36, 26], [26, 36]],
-      [[66, 22], [82, 26], [74, 36]],
-      [[44, 48], [56, 48], [50, 58]],
-      [[20, 70], [36, 74], [26, 84]],
-      [[66, 70], [82, 74], [74, 84]],
-    ],
-  },
-  neutral: [[50, 22], [26, 50], [74, 50], [50, 78], [36, 36], [64, 36], [36, 64], [64, 64]],
-  all: [[28, 26], [50, 24], [72, 28], [24, 50], [50, 50], [76, 50], [28, 74], [52, 76], [74, 72]],
-};
-
-export const MAP_BASEMAPS = {
-  modern: {
+const STYLE_THEME_DEFS = [
+  {
     id: 'modern',
+    basemapKey: 'modern',
+    defaultAssetId: 'modern-inland',
     label: '现代都市',
     desc: '高架路网、跨江大桥与核心商圈街区',
-    keywords: ['市', '区', '大厦', '写字楼', '地铁', '大道', '广场', '公寓', '医院', '大学', 'CBD', '商圈', '百货'],
-    regions: DEFAULT_REGIONS,
-    anchors: DEFAULT_ANCHORS,
-    svg: `
-      <rect width="1000" height="1000" class="qc-bg"/>
-      <!-- 城市绿地与公园 -->
-      <path d="M120 110 H430 V390 H120 Z" class="qc-park"/>
-      <path d="M580 580 H880 V870 H580 Z" class="qc-park"/>
-      <!-- 跨城江河 -->
-      <path d="M-20 470 C240 430, 440 550, 680 480 C820 440, 920 460, 1020 440 L1020 535 C900 555, 810 530, 670 570 C430 640, 230 520, -20 560 Z" class="qc-water"/>
-      <!-- 城市街区肌理 -->
-      <g class="qc-blocks">
-        <rect x="140" y="130" width="120" height="95" rx="10"/>
-        <rect x="280" y="130" width="130" height="95" rx="10"/>
-        <rect x="140" y="245" width="270" height="120" rx="12"/>
-        <rect x="560" y="120" width="145" height="130" rx="10"/>
-        <rect x="725" y="120" width="140" height="270" rx="12"/>
-        <rect x="560" y="270" width="145" height="120" rx="10"/>
-        <rect x="130" y="610" width="150" height="110" rx="10"/>
-        <rect x="300" y="610" width="140" height="250" rx="12"/>
-        <rect x="130" y="740" width="150" height="120" rx="10"/>
-        <rect x="600" y="605" width="125" height="115" rx="10"/>
-        <rect x="745" y="605" width="115" height="115" rx="10"/>
-        <rect x="600" y="740" width="260" height="110" rx="12"/>
-      </g>
-      <!-- 主干道与环线 -->
-      <g class="qc-roads">
-        <rect x="95" y="95" width="810" height="810" rx="36" class="qc-road-ring"/>
-        <line x1="500" y1="30" x2="500" y2="970" class="qc-road-major"/>
-        <line x1="30" y1="395" x2="970" y2="395" class="qc-road-minor"/>
-        <line x1="30" y1="590" x2="970" y2="590" class="qc-road-minor"/>
-        <line x1="285" y1="95" x2="285" y2="905" class="qc-road-minor"/>
-        <line x1="715" y1="95" x2="715" y2="905" class="qc-road-minor"/>
-      </g>
-    `,
+    keywords: ['市', '区', '大厦', '写字楼', '地铁', '大道', '广场', '公寓', '医院', '大学', 'CBD', '商圈', '百货', '高架', '集团'],
   },
-  'modern-town': {
+  {
     id: 'modern-town',
+    basemapKey: 'modern-town',
+    defaultAssetId: 'modern-town-plain',
     label: '现代小城',
     desc: '河谷沿岸、车站老街与宁静住宅社区',
-    keywords: ['镇', '县', '车站', '小巷', '商店街', '河畔', '中学', '便利店', '诊所', '社区'],
-    regions: DEFAULT_REGIONS,
-    anchors: DEFAULT_ANCHORS,
-    svg: `
-      <rect width="1000" height="1000" class="qc-bg"/>
-      <!-- 郊野林地 -->
-      <path d="M40 40 Q320 140 500 60 L960 40 L960 280 Q680 220 40 310 Z" class="qc-park"/>
-      <path d="M40 760 Q450 690 960 790 L960 960 L40 960 Z" class="qc-park"/>
-      <!-- 蜿蜒溪流 -->
-      <path d="M180 -20 C240 240, 440 340, 490 520 C540 700, 720 820, 820 1020 L900 1020 C800 790, 610 670, 560 490 C510 310, 310 210, 250 -20 Z" class="qc-water"/>
-      <!-- 城镇街坊 -->
-      <g class="qc-blocks">
-        <rect x="120" y="340" width="240" height="140" rx="14"/>
-        <rect x="120" y="510" width="280" height="190" rx="14"/>
-        <rect x="590" y="250" width="260" height="160" rx="14"/>
-        <rect x="620" y="440" width="240" height="210" rx="14"/>
-      </g>
-      <!-- 铁路与公路 -->
-      <g class="qc-roads">
-        <path d="M40 495 Q500 475 960 515" class="qc-road-major"/>
-        <path d="M365 80 Q395 500 355 920" class="qc-road-minor"/>
-        <path d="M715 120 Q695 500 735 920" class="qc-road-minor"/>
-        <path d="M40 190 L960 210" class="qc-rail"/>
-      </g>
-    `,
+    keywords: ['镇', '县', '车站', '小巷', '商店街', '河畔', '中学', '便利店', '诊所', '社区', '小镇'],
   },
-  'old-town': {
+  {
     id: 'old-town',
+    basemapKey: 'town',
+    defaultAssetId: 'old-town-inland',
     label: '古风城镇',
     desc: '护城河池、四方城垣、朱雀长街与坊市',
-    keywords: ['城', '坊', '客栈', '酒楼', '镖局', '衙门', '书院', '茶楼', '寺', '庙', '巷', '府', '阁'],
-    regions: DEFAULT_REGIONS,
-    anchors: DEFAULT_ANCHORS,
-    svg: `
-      <rect width="1000" height="1000" class="qc-bg"/>
-      <!-- 护城河 -->
-      <rect x="65" y="65" width="870" height="870" rx="44" class="qc-water"/>
-      <rect x="105" y="105" width="790" height="790" rx="28" class="qc-bg"/>
-      <!-- 曲水穿坊 -->
-      <path d="M105 640 Q380 570 500 650 T895 610 L895 665 Q620 715 500 695 T105 690 Z" class="qc-water"/>
-      <!-- 城内园林 -->
-      <circle cx="270" cy="260" r="95" class="qc-park"/>
-      <circle cx="740" cy="760" r="85" class="qc-park"/>
-      <!-- 坊市院落 -->
-      <g class="qc-blocks">
-        <rect x="145" y="145" width="310" height="310" rx="8"/>
-        <rect x="545" y="145" width="310" height="310" rx="8"/>
-        <rect x="145" y="545" width="310" height="310" rx="8"/>
-        <rect x="545" y="545" width="310" height="310" rx="8"/>
-      </g>
-      <!-- 十字御街与城墙 -->
-      <g class="qc-roads">
-        <rect x="112" y="112" width="776" height="776" rx="20" class="qc-wall"/>
-        <line x1="500" y1="65" x2="500" y2="935" class="qc-road-major"/>
-        <line x1="65" y1="500" x2="935" y2="500" class="qc-road-major"/>
-        <line x1="300" y1="112" x2="300" y2="888" class="qc-road-minor"/>
-        <line x1="700" y1="112" x2="700" y2="888" class="qc-road-minor"/>
-        <line x1="112" y1="300" x2="888" y2="300" class="qc-road-minor"/>
-      </g>
-    `,
+    keywords: ['城', '坊', '客栈', '酒楼', '镖局', '衙门', '书院', '茶楼', '寺', '庙', '巷', '府', '阁', '王都', '公会', '铁匠铺'],
   },
-  palace: {
+  {
     id: 'palace',
+    basemapKey: 'palace',
+    defaultAssetId: 'palace-axial',
     label: '宫苑庭院',
     desc: '中轴重门、前后殿宇、曲池假山与东西跨院',
-    keywords: ['宫', '殿', '苑', '轩', '斋', '亭', '院', '庄', '宗', '门派', '长老', '后山', '御花园'],
-    regions: DEFAULT_REGIONS,
-    anchors: DEFAULT_ANCHORS,
-    svg: `
-      <rect width="1000" height="1000" class="qc-bg"/>
-      <!-- 后苑湖山 -->
-      <path d="M140 120 H860 V340 H140 Z" class="qc-park"/>
-      <ellipse cx="380" cy="230" rx="150" ry="70" class="qc-water"/>
-      <!-- 宫殿台基与东西六宫 -->
-      <g class="qc-blocks">
-        <rect x="350" y="380" width="300" height="180" rx="6"/>
-        <rect x="370" y="600" width="260" height="150" rx="6"/>
-        <rect x="145" y="380" width="165" height="220" rx="6"/>
-        <rect x="145" y="630" width="165" height="220" rx="6"/>
-        <rect x="690" y="380" width="165" height="220" rx="6"/>
-        <rect x="690" y="630" width="165" height="220" rx="6"/>
-      </g>
-      <!-- 宫墙与甬道 -->
-      <g class="qc-roads">
-        <rect x="115" y="95" width="770" height="810" rx="12" class="qc-wall"/>
-        <line x1="500" y1="95" x2="500" y2="905" class="qc-road-major"/>
-        <line x1="115" y1="350" x2="885" y2="350" class="qc-road-minor"/>
-        <line x1="115" y1="585" x2="885" y2="585" class="qc-road-minor"/>
-        <line x1="330" y1="350" x2="330" y2="905" class="qc-road-minor"/>
-        <line x1="670" y1="350" x2="670" y2="905" class="qc-road-minor"/>
-      </g>
-    `,
+    keywords: ['宫', '殿', '苑', '轩', '斋', '亭', '院', '庄', '宗', '门派', '长老', '后山', '御花园', '本丸', '天守'],
   },
-  terrain: {
+  {
     id: 'terrain',
+    basemapKey: 'terrain',
+    defaultAssetId: 'terrain-forest',
     label: '自然山野',
     desc: '连绵山脉、林海河谷、荒原古道与秘境',
-    keywords: ['山', '谷', '林', '森林', '海', '岛', '湖', '洞', '崖', '原', '村', '营地', '遗迹', '秘境'],
-    regions: DEFAULT_REGIONS,
-    anchors: DEFAULT_ANCHORS,
-    svg: `
-      <rect width="1000" height="1000" class="qc-bg"/>
-      <!-- 森林与山麓等高线 -->
-      <ellipse cx="260" cy="250" rx="210" ry="150" class="qc-park"/>
-      <ellipse cx="760" cy="300" rx="190" ry="160" class="qc-park"/>
-      <ellipse cx="300" cy="760" rx="220" ry="150" class="qc-park"/>
-      <!-- 大河与湖泊 -->
-      <path d="M80 -20 C160 220, 380 340, 480 500 C580 660, 780 740, 960 1020 L1020 1020 C860 700, 650 610, 550 450 C450 290, 230 180, 150 -20 Z" class="qc-water"/>
-      <ellipse cx="520" cy="490" rx="115" ry="75" class="qc-water"/>
-      <!-- 山脊线与古道 -->
-      <g class="qc-roads">
-        <path d="M120 220 L210 130 L300 220 L380 150 L450 230" class="qc-wall" fill="none"/>
-        <path d="M640 260 L730 160 L820 260 L890 190" class="qc-wall" fill="none"/>
-        <path d="M60 620 Q480 490 940 380" class="qc-road-major" fill="none"/>
-        <path d="M360 80 Q500 500 660 920" class="qc-road-minor" fill="none"/>
-      </g>
-    `,
+    keywords: ['山', '谷', '林', '森林', '海', '岛', '湖', '洞', '崖', '原', '村', '营地', '遗迹', '秘境', '荒漠', '雪原'],
   },
-  'sci-fi': {
+  {
     id: 'sci-fi',
+    basemapKey: 'sci-fi',
+    defaultAssetId: 'sci-fi-linear',
     label: '科幻设施',
-    desc: '环形轨道舱、中央反应核心與扇区矩阵',
-    keywords: ['舱', '舰', '基地', '实验室', '核心', '甲板', '太空', '星', '轨道', '赛博', '港区', '扇区'],
-    regions: DEFAULT_REGIONS,
-    anchors: DEFAULT_ANCHORS,
-    svg: `
-      <rect width="1000" height="1000" class="qc-bg"/>
-      <!-- 能量环与核心池 -->
-      <circle cx="500" cy="500" r="140" class="qc-water"/>
-      <circle cx="500" cy="500" r="85" class="qc-park"/>
-      <!-- 扇区舱体 -->
-      <g class="qc-blocks">
-        <polygon points="220,160 440,160 440,360 160,360"/>
-        <polygon points="560,160 780,160 840,360 560,360"/>
-        <polygon points="160,640 440,640 440,840 220,840"/>
-        <polygon points="560,640 840,640 780,840 560,840"/>
-      </g>
-      <!-- 环轨与通道 -->
-      <g class="qc-roads">
-        <circle cx="500" cy="500" r="390" class="qc-road-ring"/>
-        <circle cx="500" cy="500" r="245" class="qc-road-minor"/>
-        <line x1="500" y1="60" x2="500" y2="940" class="qc-road-major"/>
-        <line x1="60" y1="500" x2="940" y2="500" class="qc-road-major"/>
-        <line x1="190" y1="190" x2="810" y2="810" class="qc-road-minor"/>
-        <line x1="810" y1="190" x2="190" y2="810" class="qc-road-minor"/>
-      </g>
-    `,
+    desc: '环形轨道舱、中央反应核心与扇区矩阵',
+    keywords: ['舱', '舰', '基地', '实验室', '核心', '甲板', '太空', '星', '轨道', '赛博', '港区', '扇区', '空间站'],
   },
+];
+
+// 构建完整的底图注册表：包含 6 大主题风格、24 项高精地图库资产、10 座真实城市底图
+export const MAP_BASEMAPS = {};
+
+for (const theme of STYLE_THEME_DEFS) {
+  const inlineBase = QIANCHUANG_BASEMAPS[theme.basemapKey] || QIANCHUANG_BASEMAPS.modern;
+  const asset = QIANCHUANG_MAP_ASSETS[theme.defaultAssetId];
+  MAP_BASEMAPS[theme.id] = {
+    id: theme.id,
+    kind: 'style',
+    group: 'style',
+    family: theme.id,
+    layout: asset?.layout || '',
+    defaultAssetId: theme.defaultAssetId,
+    file: asset?.file || '',
+    width: inlineBase.width || 1000,
+    height: inlineBase.height || 1000,
+    label: theme.label,
+    desc: theme.desc,
+    keywords: theme.keywords,
+    regions: QIANCHUANG_MAP_REGIONS[theme.basemapKey] || asset?.regions || QIANCHUANG_MAP_REGIONS.modern,
+    anchors: QIANCHUANG_MAP_ANCHORS[theme.basemapKey] || asset?.anchors || QIANCHUANG_MAP_ANCHORS.modern,
+    origin: asset?.origin || '千窗内置主题几何底图',
+    svg: inlineBase.markup,
+  };
+}
+
+// 兼容 'town' 别名指向 'old-town'
+MAP_BASEMAPS.town = {
+  ...MAP_BASEMAPS['old-town'],
+  id: 'town',
 };
 
+// 注入 24 项高精库底图资产 (QIANCHUANG_MAP_ASSETS)
+for (const [assetId, asset] of Object.entries(QIANCHUANG_MAP_ASSETS)) {
+  const familyKey = asset.family === 'old-town' ? 'town' : asset.family;
+  const inlineBase = QIANCHUANG_BASEMAPS[familyKey] || QIANCHUANG_BASEMAPS.modern;
+  MAP_BASEMAPS[assetId] = {
+    id: assetId,
+    kind: 'library',
+    group: 'library',
+    family: asset.family,
+    layout: asset.layout,
+    file: asset.file,
+    sha256: asset.sha256,
+    width: asset.width || 1000,
+    height: asset.height || 1000,
+    label: asset.label,
+    desc: (asset.shortTags || []).join(' · ') || asset.label,
+    keywords: asset.shortTags || [],
+    regions: asset.regions,
+    anchors: asset.anchors,
+    origin: asset.origin || '',
+    svg: inlineBase.markup,
+  };
+}
+
+// 注入 10 座真实世界城市底图 (CITY_MAPS)
+for (const [cityId, city] of Object.entries(CITY_MAPS)) {
+  const inlineBase = QIANCHUANG_BASEMAPS.modern;
+  MAP_BASEMAPS[cityId] = {
+    id: cityId,
+    kind: 'city',
+    group: 'city',
+    family: 'modern',
+    layout: 'city',
+    file: city.file,
+    sha256: city.sha256,
+    width: city.width || 1000,
+    height: city.height || 1000,
+    label: `真实城市·${city.label}`,
+    cityName: city.label,
+    desc: `${city.label}真实路网与水系底图（OSM）`,
+    keywords: city.aliases || [city.label],
+    aliases: city.aliases || [city.label],
+    slots: city.slots || [],
+    groups: city.groups || [],
+    origin: '© OpenStreetMap contributors · ODbL',
+    svg: inlineBase.markup,
+  };
+}
+
 export function listBasemapOptions() {
+  const styleOptions = STYLE_THEME_DEFS.map(t => ({
+    id: t.id,
+    label: `主题·${t.label}`,
+    desc: t.desc,
+    group: 'style',
+    groupLabel: '主题风格底图（自动优选高精子底图）',
+  }));
+  const libraryOptions = Object.values(QIANCHUANG_MAP_ASSETS).map(a => ({
+    id: a.id,
+    label: a.label,
+    desc: (a.shortTags || []).join(' · ') || a.label,
+    group: 'library',
+    groupLabel: '千窗高精几何底图库（21款）',
+  }));
+  const cityOptions = Object.values(CITY_MAPS).map(c => ({
+    id: c.id,
+    label: `真实城市·${c.label}`,
+    desc: `${c.label}真实路网与水系底图`,
+    group: 'city',
+    groupLabel: '真实世界城市底图（10城）',
+  }));
   return [
-    { id: 'auto', label: '自动匹配底图', desc: '根据当前场景名称与描述自动选择最契合的底图风格' },
-    ...Object.values(MAP_BASEMAPS).map(b => ({ id: b.id, label: b.label, desc: b.desc })),
+    {
+      id: 'auto',
+      label: '自动匹配底图',
+      desc: '根据当前城市/场景名称与环境描述自动匹配真实城市、主题风格与细分地貌',
+      group: 'auto',
+      groupLabel: '智能匹配',
+    },
+    ...styleOptions,
+    ...cityOptions,
+    ...libraryOptions,
   ];
 }
 
-export function resolveBasemapId(requestedId, places = []) {
-  if (requestedId && requestedId !== 'auto' && MAP_BASEMAPS[requestedId]) {
-    return requestedId;
+const LAYOUT_HINT_KEYWORDS = [
+  { style: 'palace', layout: 'honmaru', keywords: ['本丸', '天守', '御殿', '刀剑', '和风院落', '日式院落'] },
+  { style: 'palace', layout: 'courtyard', keywords: ['园林', '假山', '曲池', '后苑', '山庄', '跨院'] },
+  { style: 'palace', layout: 'axial', keywords: ['太和', '乾清', '中轴', '皇宫', '大殿', '金銮', '正殿'] },
+  { style: 'sci-fi', layout: 'ring', keywords: ['环状', '环形', '离心', '空间站', '穹顶', '轨道环'] },
+  { style: 'sci-fi', layout: 'linear', keywords: ['甲板', '生活舱', '走廊', '舰桥', '船舱'] },
+  { style: 'terrain', layout: 'desert', keywords: ['沙漠', '荒漠', '戈壁', '沙丘', '绿洲', '大漠'] },
+  { style: 'terrain', layout: 'snow', keywords: ['雪山', '冰原', '雪原', '北境', '极地', '冰川', '冻土'] },
+  { style: 'terrain', layout: 'coast', keywords: ['海岸', '海滩', '海岛', '海湾', '礁石', '群岛'] },
+  { style: 'terrain', layout: 'grassland', keywords: ['草原', '平原', '牧场', '原野', '草甸'] },
+  { style: 'terrain', layout: 'forest-river', keywords: ['林谷', '溪谷', '密林河谷'] },
+  { style: 'terrain', layout: 'mountain', keywords: ['山谷', '山脉', '峡谷', '高峰', '险峰', '山道'] },
+  { style: 'terrain', layout: 'forest', keywords: ['森林', '密林', '林海', '古树', '丛林'] },
+  { style: 'old-town', layout: 'coast', keywords: ['港', '码头', '海港', '渡口', '船坞'] },
+  { style: 'old-town', layout: 'river', keywords: ['河畔', '水乡', '江南', '运河', '画舫', '桥'] },
+  { style: 'old-town', layout: 'mountain', keywords: ['山城', '山寨', '关隘', '山门'] },
+  { style: 'modern', layout: 'coast', keywords: ['海滨', '滨海', '海湾', '外滩', '港区', '维港'] },
+  { style: 'modern', layout: 'river', keywords: ['江畔', '跨江', '江北', '江南', '滨江', '河畔'] },
+  { style: 'modern-town', layout: 'coast', keywords: ['海滨小镇', '渔村', '海湾镇'] },
+  { style: 'modern-town', layout: 'hills', keywords: ['山麓', '坡道', '山坡小镇'] },
+  { style: 'modern-town', layout: 'river', keywords: ['溪畔', '河岸小镇', '水岸小镇'] },
+];
+
+export function inferMapLayoutHint(styleId, places = [], scopeNode = null) {
+  const normalizedStyle = styleId === 'town' ? 'old-town' : styleId;
+  if (scopeNode?.mapLayout && validQianchuangMapLayout(scopeNode.mapLayout, normalizedStyle)) {
+    return scopeNode.mapLayout;
   }
+  const explicitPlace = (places || []).find(
+    p => p.mapLayout && validQianchuangMapLayout(p.mapLayout, normalizedStyle),
+  );
+  if (explicitPlace) return explicitPlace.mapLayout;
+
+  const corpus = [
+    scopeNode ? `${scopeNode.name || ''} ${scopeNode.desc || ''}` : '',
+    ...(places || []).map(p => `${p.name || ''} ${p.desc || ''} ${(p.facilities || []).join(' ')}`),
+  ].join(' ');
+
+  for (const rule of LAYOUT_HINT_KEYWORDS) {
+    if (rule.style === normalizedStyle && rule.keywords.some(kw => corpus.includes(kw))) {
+      return rule.layout;
+    }
+  }
+  return null;
+}
+
+export function resolveBasemapId(requestedId, places = [], scopeNode = null) {
+  if (requestedId && requestedId !== 'auto' && MAP_BASEMAPS[requestedId]) {
+    return requestedId === 'town' ? 'old-town' : requestedId;
+  }
+
+  // 1. 检查当前作用域节点或地点列表是否显式指定了 mapStyle
+  if (scopeNode?.mapStyle && MAP_BASEMAPS[scopeNode.mapStyle]) {
+    return scopeNode.mapStyle === 'town' ? 'old-town' : scopeNode.mapStyle;
+  }
+
+  // 2. 检查是否匹配 10 座真实世界城市 (首尔/北京/上海/广州/东京/纽约/洛杉矶/重庆/香港/名古屋)
+  const candidatesForCity = scopeNode ? [scopeNode, ...(places || [])] : (places || []);
+  for (const p of candidatesForCity) {
+    const matchedCity = cityMapForPlace({
+      displayName: p.name || p.displayName || '',
+      aliases: p.aliases || [],
+    });
+    if (matchedCity && MAP_BASEMAPS[matchedCity.id]) {
+      return matchedCity.id;
+    }
+  }
+
+  const explicitStylePlace = (places || []).find(p => p.mapStyle && MAP_BASEMAPS[p.mapStyle]);
+  if (explicitStylePlace) {
+    return explicitStylePlace.mapStyle === 'town' ? 'old-town' : explicitStylePlace.mapStyle;
+  }
+
+  // 3. 关键词打分匹配 6 大主题风格
   const corpus = (places || [])
     .map(p => `${p.name || ''} ${p.desc || ''} ${(p.facilities || []).join(' ')}`)
     .join(' ');
@@ -335,17 +364,90 @@ export function resolveBasemapId(requestedId, places = []) {
 
   let bestId = 'modern';
   let bestScore = 0;
-  for (const basemap of Object.values(MAP_BASEMAPS)) {
+  for (const theme of STYLE_THEME_DEFS) {
     let score = 0;
-    for (const kw of basemap.keywords || []) {
+    for (const kw of theme.keywords || []) {
       if (corpus.includes(kw)) score += 1;
     }
     if (score > bestScore) {
       bestScore = score;
-      bestId = basemap.id;
+      bestId = theme.id;
     }
   }
   return bestId;
+}
+
+/**
+ * 根据解析出的 basemapId（可能是主题风格如 'old-town'、真实城市如 'seoul' 或具体库资产如 'modern-coast'）
+ * 进一步通过 selectQianchuangMapAsset 解析出对应的高精底图资产 ID
+ */
+export function resolveMapAssetId(basemapId, places = [], scopeNode = null) {
+  if (!basemapId) return 'modern-inland';
+  if (CITY_MAPS[basemapId]) return basemapId;
+  if (QIANCHUANG_MAP_ASSETS[basemapId]) return basemapId;
+
+  const styleId = basemapId === 'town' ? 'old-town' : basemapId;
+  const layoutHint = inferMapLayoutHint(styleId, places, scopeNode);
+  const entityKey = scopeNode?.id || scopeNode?.name || places[0]?.id || places[0]?.name || styleId;
+  const selected = selectQianchuangMapAsset({
+    entityId: entityKey,
+    style: styleId,
+    layout: layoutHint,
+  });
+  return selected || STYLE_THEME_DEFS.find(t => t.id === styleId)?.defaultAssetId || 'modern-inland';
+}
+
+/**
+ * 提取单个地点的设施标签（结合 177 类中文设施词典 NLP 正负向判定 + 显式设施列表 + Lucide SVG 图标）
+ */
+export function extractPlaceFacilityTags(place = {}) {
+  const features = [];
+  if (place.desc) {
+    features.push({ text: place.desc, kind: 'stable' });
+  }
+  const supplements = [];
+  if (place.name) {
+    supplements.push({ text: place.name, kind: 'stable' });
+  }
+  const rawFacilities = Array.isArray(place.facilities) ? place.facilities : [];
+  for (const item of rawFacilities) {
+    if (typeof item === 'string' && item.trim()) {
+      features.push({ text: `设有${item.trim()}`, kind: 'stable' });
+    } else if (item && typeof item === 'object' && item.label) {
+      features.push({ text: `设有${item.label}`, kind: 'stable' });
+    }
+  }
+
+  const nlpTags = qianchuangFacilityTags(features, supplements);
+  const byLabel = new Map();
+
+  for (const tag of nlpTags) {
+    const iconName = qianchuangIconName(tag.key) || 'MapPin';
+    byLabel.set(tag.label, {
+      key: tag.key,
+      icon: iconName,
+      label: tag.label,
+      svg: qianchuangIcon(iconName),
+    });
+  }
+
+  // 确保用户/AI 手动填写的设施标签也在结果中
+  for (const raw of rawFacilities) {
+    const label = typeof raw === 'string' ? raw.trim() : String(raw?.label || '').trim();
+    if (!label || byLabel.has(label)) continue;
+    const explicitIcon = (typeof raw === 'object' && raw?.icon)
+      || QUICK_TAG_ICON_MAP.get(label)
+      || qianchuangIconName(label)
+      || 'MapPin';
+    byLabel.set(label, {
+      key: explicitIcon,
+      icon: qianchuangIconName(explicitIcon) || 'MapPin',
+      label,
+      svg: qianchuangIcon(explicitIcon),
+    });
+  }
+
+  return [...byLabel.values()];
 }
 
 /**
@@ -408,9 +510,14 @@ function normKey(value) {
 }
 
 /**
- * 将柏宝书 scenes、用户/AI 自定义地点、当前位置路径合并为统一的地点节点列表
+ * 将柏宝书 scenes、用户/AI 自定义地点、世界书提取地点、当前位置路径合并为统一的地点节点列表
  */
-export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLocation = null } = {}) {
+export function mergeMapPlaces({
+  stateMap = {},
+  baibaiSnapshot = null,
+  inlineLocation = null,
+  worldbookPlaces = [],
+} = {}) {
   const customItems = Array.isArray(stateMap?.items) ? stateMap.items : [];
   const deletedSet = new Set((Array.isArray(stateMap?.deletedIds) ? stateMap.deletedIds : []).map(String));
 
@@ -425,6 +532,12 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
     if (nk && !byNameKey.has(nk)) {
       byNameKey.set(nk, place);
     }
+    for (const alias of place.aliases || []) {
+      const ak = normKey(alias);
+      if (ak && !byNameKey.has(ak)) {
+        byNameKey.set(ak, place);
+      }
+    }
   }
 
   // 1. 先载入用户/AI 自定义保存的地点
@@ -432,14 +545,19 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
     const id = String(item?.id || '').trim();
     const name = String(item?.name || '').trim();
     if (!id || !name || deletedSet.has(id)) continue;
+    const rawFacilities = Array.isArray(item.facilities)
+      ? item.facilities.map(s => (typeof s === 'string' ? s.trim() : String(s?.label || '').trim())).filter(Boolean)
+      : [];
     const place = {
       id,
       name,
       parentId: String(item.parentId || '').trim(),
       role: ['area', 'site', 'interior'].includes(item.role) ? item.role : '',
       mapLevel: ['city', 'country', 'scope'].includes(item.mapLevel) ? item.mapLevel : '',
+      mapStyle: validQianchuangMapStyle(item.mapStyle) ? item.mapStyle : '',
+      mapLayout: normalizeQianchuangMapLayout(item.mapLayout, item.mapStyle) || '',
       desc: String(item.desc || '').trim(),
-      facilities: Array.isArray(item.facilities) ? item.facilities.map(s => String(s).trim()).filter(Boolean) : [],
+      facilities: rawFacilities,
       relations: Array.isArray(item.relations)
         ? item.relations
           .map(r => ({
@@ -465,13 +583,12 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
   const scenes = Array.isArray(baibaiSnapshot?.scenes) ? baibaiSnapshot.scenes : [];
   const baibaiIdToPlaceId = new Map();
 
-  // 按路径长度排序，确保父节点先处理
   const sortedScenes = [...scenes].sort((a, b) => (a?.path?.length || 0) - (b?.path?.length || 0));
   for (const scene of sortedScenes) {
     const rawId = String(scene?.id || '').trim();
     const name = String(scene?.name || '').trim();
     if (!name) continue;
-    const syntheticId = rawId ? `baibai:${rawId}` : `baibai:${ (scene.path || [name]).join('/') }`;
+    const syntheticId = rawId ? `baibai:${rawId}` : `baibai:${(scene.path || [name]).join('/')}`;
     if (deletedSet.has(rawId) || deletedSet.has(syntheticId) || deletedSet.has(`name:${normKey(name)}`)) {
       continue;
     }
@@ -481,7 +598,6 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
       : [name];
     const pathKey = pathArr.map(normKey).join('/');
 
-    // 查找是否已有同名或同路径的自定义地点
     let existing = byId.get(syntheticId) || byPathKey.get(pathKey);
     if (!existing && pathArr.length === 1) {
       existing = byNameKey.get(normKey(name));
@@ -513,6 +629,8 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
       parentId: parentPlaceId,
       role: '',
       mapLevel: '',
+      mapStyle: '',
+      mapLayout: '',
       desc: String(scene?.desc || '').trim(),
       facilities: [],
       relations: [],
@@ -524,6 +642,39 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
     };
     registerPlace(place);
     if (rawId) baibaiIdToPlaceId.set(rawId, place.id);
+  }
+
+  // 2.5 合并世界书提取出的物理地点 (worldbookPlaces)
+  for (const wb of Array.isArray(worldbookPlaces) ? worldbookPlaces : []) {
+    const name = String(wb?.displayName || wb?.name || '').trim();
+    if (!name) continue;
+    const wbId = String(wb?.entityId || wb?.id || `wb:${normKey(name)}`);
+    if (deletedSet.has(wbId) || deletedSet.has(`name:${normKey(name)}`)) continue;
+    const existing = byId.get(wbId) || byNameKey.get(normKey(name));
+    const descText = Array.isArray(wb?.features)
+      ? wb.features.map(f => String(f?.text || '').trim()).filter(Boolean).join('；')
+      : String(wb?.desc || '').trim();
+    if (existing) {
+      if (!existing.desc && descText) existing.desc = descText;
+      continue;
+    }
+    registerPlace({
+      id: wbId,
+      name,
+      parentId: String(wb?.parentId || '').trim(),
+      role: ['area', 'site', 'interior'].includes(wb?.role) ? wb.role : '',
+      mapLevel: ['city', 'country', 'scope'].includes(wb?.mapLevel) ? wb.mapLevel : '',
+      mapStyle: validQianchuangMapStyle(wb?.mapStyle) ? wb.mapStyle : '',
+      mapLayout: normalizeQianchuangMapLayout(wb?.mapLayout, wb?.mapStyle) || '',
+      desc: descText,
+      facilities: [],
+      relations: [],
+      aliases: Array.isArray(wb?.aliases) ? wb.aliases.map(s => String(s).trim()).filter(Boolean) : [],
+      source: 'worldbook',
+      baibaiId: '',
+      path: [name],
+      pathKey: normKey(name),
+    });
   }
 
   // 3. 若当前位置路径 (柏宝书 state.locationPath 或顶栏 ✧时间|地点|天气✧) 包含尚未建档的节点，自动补齐临时层级节点
@@ -548,6 +699,8 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
           parentId,
           role: '',
           mapLevel: '',
+          mapStyle: '',
+          mapLayout: '',
           desc: '',
           facilities: [],
           relations: [],
@@ -571,7 +724,7 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
     }
   }
 
-  // 5. 自动推断缺省的 role ('area' | 'site' | 'interior') 与 mapLevel
+  // 5. 自动推断缺省的 role ('area' | 'site' | 'interior')、mapLevel 与 177类设施标签
   const childrenMap = new Map();
   for (const p of places) {
     if (!p.parentId) continue;
@@ -592,7 +745,6 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
     return d;
   }
 
-  // 先自顶向下按深度排序推断
   const byDepth = [...places].sort((a, b) => getDepth(a) - getDepth(b));
   for (const p of byDepth) {
     const kids = childrenMap.get(p.id) || [];
@@ -601,7 +753,6 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
 
     if (!p.role) {
       if (kids.length > 0) {
-        // 如果它是二级以上有子节点的场所，但子节点全是房间类，且自身不像大区域，则它可以是带内部房间的 site
         const allKidsLookInterior = depth >= 1 && kids.every(k => INTERIOR_SUFFIX_RE.test(k.name) || k.role === 'interior');
         p.role = allKidsLookInterior && !AREA_SUFFIX_RE.test(p.name) ? 'site' : 'area';
       } else if (parent?.role === 'site' || (depth >= 2 && INTERIOR_SUFFIX_RE.test(p.name))) {
@@ -619,136 +770,88 @@ export function mergeMapPlaces({ stateMap = {}, baibaiSnapshot = null, inlineLoc
         p.mapLevel = 'city';
       }
     }
+
+    p.facilityTags = extractPlaceFacilityTags(p);
   }
 
   return places;
 }
 
-/**
- * 几何辅助：多边形面积与内接矩形及散布计算
- */
-function polygonArea(points = []) {
-  if (points.length < 3) return 0;
-  let total = 0;
-  for (let i = 0; i < points.length; i += 1) {
-    const [x1, y1] = points[i];
-    const [x2, y2] = points[(i + 1) % points.length];
-    total += x1 * y2 - x2 * y1;
-  }
-  return Math.abs(total) / 2;
-}
-
-function regionScore(region) {
-  const contours = Array.isArray(region?.contours) ? region.contours : [];
-  return contours.reduce((sum, pts) => sum + polygonArea(pts), 0);
-}
-
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function labelBoxFromInset(inset) {
-  const width = clamp(Math.max(inset.width * 0.62, 16), 16, Math.min(34, inset.width));
-  const height = clamp(Math.min(Math.max(inset.height * 0.24, 9), 15), 8, inset.height);
-  const left = inset.left + (inset.width - width) / 2;
-  const top = inset.top + Math.max(1.5, Math.min(4, inset.height * 0.06));
-  return { left, top, width, height };
-}
-
-function siteBoxFromInset(inset, reservedLabelBox) {
-  if (!reservedLabelBox) return inset;
-  const top = Math.min(inset.top + inset.height - 6, reservedLabelBox.top + reservedLabelBox.height + 2);
-  const height = Math.max(8, inset.top + inset.height - top);
-  return { left: inset.left, top, width: inset.width, height };
-}
-
-function spreadSitesInBox(sites = [], box) {
-  if (!sites.length) return [];
-  const count = sites.length;
-  const cols = Math.max(1, Math.ceil(Math.sqrt((count * box.width) / Math.max(box.height, 1))));
-  const rows = Math.max(1, Math.ceil(count / cols));
-  return sites.map((site, index) => {
-    const col = index % cols;
-    const row = Math.floor(index / cols);
-    const itemsInRow = row === rows - 1 ? count - row * cols : cols;
-    const x = box.left + ((col + 0.5) / Math.max(itemsInRow, 1)) * box.width;
-    const y = box.top + ((row + 0.5) / Math.max(rows, 1)) * box.height;
-    return {
-      ...site,
-      x: Math.round(clamp(x, 6, 94) * 10) / 10,
-      y: Math.round(clamp(y, 8, 92) * 10) / 10,
-    };
-  });
-}
-
-function placeSitesBySlots(sites = [], slots = [], fallbackBox) {
-  if (!sites.length) return [];
-  if (slots.length >= sites.length) {
-    return sites.map((site, idx) => ({
-      ...site,
-      x: slots[idx][0],
-      y: slots[idx][1],
-    }));
-  }
-  return spreadSitesInBox(sites, fallbackBox);
+function normalizeLabelBox(labelBox) {
+  if (!labelBox) return null;
+  const x = Number(labelBox.x ?? labelBox.left ?? 0);
+  const y = Number(labelBox.y ?? labelBox.top ?? 0);
+  const w = Number(labelBox.w ?? labelBox.width ?? 20);
+  const h = Number(labelBox.h ?? labelBox.height ?? 6);
+  return {
+    x,
+    y,
+    w,
+    h,
+    left: x,
+    top: y,
+    width: w,
+    height: h,
+  };
 }
 
 /**
  * 计算底图上的分区轮廓、区域标题框与具体场所(site)锚点坐标
+ * 完全驱动自千窗离线预烘焙的 qianchuangMapLayout (24款高精底图+6大主题轮廓/槽位) 与 citySchematicLayout (10座真实城市槽位)
  */
 export function computeMapLayout(basemapId = 'modern', groups = []) {
-  const basemap = MAP_BASEMAPS[basemapId] || MAP_BASEMAPS.modern;
-  const namedGroups = groups.filter(g => g.area);
-  const directGroups = groups.filter(g => !g.area);
-  const layoutKey = Math.min(Math.max(namedGroups.length, 1), 5);
-  const rawRegions = basemap.regions?.layouts?.[layoutKey] || DEFAULT_REGIONS.layouts[1];
-  const rawAnchorGroups = basemap.anchors?.layouts?.[layoutKey] || DEFAULT_ANCHORS.layouts[1];
+  if (!Array.isArray(groups) || !groups.length) return [];
 
-  // 按区域面积从大到小分配给场所较多的分区
-  const rankedRegions = rawRegions
-    .map((region, index) => ({
-      region,
-      slots: rawAnchorGroups[index] || [],
-      score: regionScore(region),
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  const rankedGroups = namedGroups
-    .map((group, index) => ({ group, index }))
-    .sort((a, b) => b.group.sites.length - a.group.sites.length || a.index - b.index);
-
-  const assignedByIndex = new Map();
-  rankedGroups.forEach((entry, rank) => {
-    const target = rankedRegions[rank % rankedRegions.length];
-    assignedByIndex.set(entry.index, target);
-  });
-
-  const laidOutNamed = namedGroups.map((group, idx) => {
-    const target = assignedByIndex.get(idx) || { region: rawRegions[0], slots: [] };
-    const inset = target.region.inset || { left: 12, top: 12, width: 76, height: 76 };
-    const labelBox = labelBoxFromInset(inset);
-    const siteBox = siteBoxFromInset(inset, labelBox);
+  // 构造千窗布局引擎输入格式：{ entityId, siteIds }
+  const siteIdMap = new Map();
+  const qcInputGroups = groups.map((group, gIdx) => {
+    const sites = Array.isArray(group.sites) ? group.sites : [];
+    const siteIds = sites.map((site, sIdx) => {
+      const sid = String(site?.id || `site_${gIdx}_${sIdx}`);
+      siteIdMap.set(sid, site);
+      return sid;
+    });
     return {
       ...group,
-      contours: target.region.contours || [],
-      labelBox,
-      sites: placeSitesBySlots(group.sites, target.slots, siteBox),
+      entityId: group.entityId ?? group.area?.id ?? null,
+      siteIds,
     };
   });
 
-  const directFallbackBox = { left: 14, top: 16, width: 72, height: 68 };
-  const directSlots = namedGroups.length
-    ? (basemap.anchors?.neutral || DEFAULT_ANCHORS.neutral)
-    : (basemap.anchors?.all || DEFAULT_ANCHORS.all);
+  const isRealCity = Boolean(CITY_MAPS[basemapId]);
+  const layoutKey = isRealCity
+    ? basemapId
+    : (QIANCHUANG_MAP_ASSETS[basemapId]
+      ? basemapId
+      : (basemapId === 'old-town' ? 'town' : (QIANCHUANG_MAP_REGIONS[basemapId] ? basemapId : 'modern')));
 
-  const laidOutDirect = directGroups.map(group => ({
-    ...group,
-    contours: [],
-    labelBox: null,
-    sites: placeSitesBySlots(group.sites, directSlots, directFallbackBox),
-  }));
+  const rawLayout = isRealCity
+    ? citySchematicLayout(layoutKey, qcInputGroups)
+    : qianchuangMapLayout(layoutKey, qcInputGroups);
 
-  return [...laidOutNamed, ...laidOutDirect];
+  return rawLayout.map((laidOut, gIdx) => {
+    const originalGroup = groups[gIdx] || {};
+    const pointById = new Map((laidOut.points || []).filter(Boolean).map(pt => [pt.id, pt]));
+    const placedSites = (originalGroup.sites || []).map((site, sIdx) => {
+      const sid = String(site?.id || `site_${gIdx}_${sIdx}`);
+      const pt = pointById.get(sid);
+      return {
+        ...site,
+        x: pt ? Math.round(Number(pt.x) * 100) / 100 : 50,
+        y: pt ? Math.round(Number(pt.y) * 100) / 100 : 50,
+      };
+    });
+
+    return {
+      ...originalGroup,
+      contour: laidOut.contour || null,
+      contours: Array.isArray(laidOut.contours) ? laidOut.contours : [],
+      inset: laidOut.inset || null,
+      labelBox: normalizeLabelBox(laidOut.labelBox),
+      points: laidOut.points || [],
+      sites: placedSites,
+    };
+  });
 }
 
 function matchPlaceByText(text, places) {
@@ -758,7 +861,6 @@ function matchPlaceByText(text, places) {
     if (normKey(p.name) === clean) return p;
     if ((p.aliases || []).some(a => normKey(a) === clean)) return p;
   }
-  // 退化为包含匹配（优先匹配名字更长、更具体的地点）
   const sorted = [...places].sort((a, b) => b.name.length - a.name.length);
   for (const p of sorted) {
     const nk = normKey(p.name);
@@ -775,14 +877,15 @@ function matchPlaceByText(text, places) {
 export function buildMapProjection({
   state = {},
   baibaiSnapshot = null,
-   messages = [],
+  messages = [],
+  worldbookPlaces = [],
   activeSheetId = '',
   scopePlaceId = '',
   searchQuery = '',
 } = {}) {
   const stateMap = state?.map || {};
   const inlineLocation = readInlineMessageLocation(messages);
-  const places = mergeMapPlaces({ stateMap, baibaiSnapshot, inlineLocation });
+  const places = mergeMapPlaces({ stateMap, baibaiSnapshot, inlineLocation, worldbookPlaces });
   const byId = new Map(places.map(p => [p.id, p]));
 
   const childrenMap = new Map();
@@ -823,7 +926,6 @@ export function buildMapProjection({
   }
 
   const currentAncestors = currentPlace ? getAncestors(currentPlace.id) : [];
-  // 如果当前在 interior（室内），在地图上高亮其所属的 site（建筑/场所）
   const currentPinPlace = currentPlace
     ? ([...currentAncestors].reverse().find(p => p.role === 'site') || currentPlace)
     : null;
@@ -930,12 +1032,10 @@ export function buildMapProjection({
   const scopeNode = validScopeId ? byId.get(validScopeId) : null;
   const scopeBreadcrumb = scopeNode ? getAncestors(scopeNode.id) : [];
 
-  // 收集当前视野下的直接子节点
   const topNodes = validScopeId
     ? (childrenMap.get(validScopeId) || [])
     : rootNodes;
 
-  // 将视野内的节点组织成 { area, sites } 分组以供底图布局
   const groups = [];
   const directSites = [];
 
@@ -949,6 +1049,7 @@ export function buildMapProjection({
     const isCurrent = userPosition.placeId === p.id || userPosition.pinPlaceId === p.id;
     return {
       ...p,
+      facilityTags: p.facilityTags || extractPlaceFacilityTags(p),
       interiors,
       subPlaces,
       npcs,
@@ -962,7 +1063,6 @@ export function buildMapProjection({
   for (const node of topNodes) {
     const kids = childrenMap.get(node.id) || [];
     if (node.role === 'area') {
-      // 收集该区域下的所有 site（含二级子区域下的 site，确保地图上有锚点）
       const areaSites = [];
       for (const child of kids) {
         if (child.role === 'site') {
@@ -985,10 +1085,6 @@ export function buildMapProjection({
     }
   }
 
-  // 如果当前作用域是一个没有子分区但自身是 area 的节点，或者全是顶层 area 没有下属 site，把顶层节点当作可点击点位展示
-  if (groups.length > 0 && groups.every(g => g.sites.length === 0) && directSites.length === 0) {
-    // 保持区域轮廓与标题可点击
-  }
   if (directSites.length > 0) {
     groups.push({
       area: null,
@@ -996,9 +1092,10 @@ export function buildMapProjection({
     });
   }
 
-  const basemapId = resolveBasemapId(stateMap.basemap, places);
-  const basemap = MAP_BASEMAPS[basemapId] || MAP_BASEMAPS.modern;
-  const layoutGroups = computeMapLayout(basemapId, groups);
+  const basemapId = resolveBasemapId(stateMap.basemap, places, scopeNode);
+  const assetId = resolveMapAssetId(basemapId, places, scopeNode);
+  const basemap = MAP_BASEMAPS[assetId] || MAP_BASEMAPS[basemapId] || MAP_BASEMAPS.modern;
+  const layoutGroups = computeMapLayout(assetId, groups);
 
   // 5. 搜索过滤目录树
   const q = normKey(searchQuery);
@@ -1008,16 +1105,20 @@ export function buildMapProjection({
       if (!q) return true;
       const selfMatch = normKey(node.name).includes(q)
         || normKey(node.desc).includes(q)
-        || (node.facilities || []).some(f => normKey(f).includes(q));
+        || (node.facilities || []).some(f => normKey(f).includes(q))
+        || (node.facilityTags || []).some(t => normKey(t.label).includes(q));
       if (selfMatch) return true;
       const childMatch = [...(node.subPlaces || []), ...(node.interiors || [])].some(
-        c => normKey(c.name).includes(q) || normKey(c.desc).includes(q),
+        c => normKey(c.name).includes(q)
+          || normKey(c.desc).includes(q)
+          || (c.facilityTags || []).some(t => normKey(t.label).includes(q)),
       );
       return childMatch;
     });
 
   return {
     basemapId,
+    assetId,
     basemapSelection: stateMap.basemap || 'auto',
     basemap,
     places,
@@ -1057,14 +1158,15 @@ export function formatMapContextPrompt(projection) {
     lines.push(`当前所在地：${pathText}`);
   }
 
-  // 当前所在地点详情与在场人物/物品/待办
   const currentPlace = places.find(p => p.id === userPosition?.placeId);
   if (currentPlace) {
     if (currentPlace.desc) {
       lines.push(`当前场景环境：${currentPlace.desc}`);
     }
-    if (currentPlace.facilities?.length) {
-      lines.push(`场所设施：${currentPlace.facilities.join('、')}`);
+    const facLabels = (currentPlace.facilityTags || []).map(t => t.label);
+    const mergedFacs = facLabels.length ? facLabels : (currentPlace.facilities || []);
+    if (mergedFacs.length) {
+      lines.push(`场所设施：${mergedFacs.join('、')}`);
     }
     if (currentPlace.relations?.length) {
       const relStr = currentPlace.relations
@@ -1074,7 +1176,6 @@ export function formatMapContextPrompt(projection) {
     }
   }
 
-  // 收集同区域的邻近地点
   for (const group of layoutGroups || []) {
     const isCurrentGroup = group.area?.id === currentPlace?.parentId
       || group.area?.id === currentPlace?.id
@@ -1093,7 +1194,6 @@ export function formatMapContextPrompt(projection) {
     }
   }
 
-  // 概览主要区域与关键地点（最多列出前 8 个）
   const areas = places.filter(p => p.role === 'area').map(p => p.name).slice(0, 6);
   if (areas.length) {
     lines.push(`已知主要区域：${areas.join('、')}`);

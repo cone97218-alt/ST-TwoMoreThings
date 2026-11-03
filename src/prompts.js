@@ -334,11 +334,13 @@ export const MAP_ORGANIZE_PROMPT = `[地图构想与整理助手]
           * "area": 城市、城区、街区、山脉、宗门大区等分区节点；
           * "site": 具体场所、建筑、商铺、客栈、宅邸、地标等地图锚点（parentName 指向所属的 area 名称）；
           * "interior": 场所内部的房间、楼层、包厢、内室等（parentName 指向所属的 site 名称）。
-      - 设施标签: 为每个场所挑选合适的设施标签（facilities），优先选用：餐饮、住宿、购物、交通、医疗、娱乐、办公、住宅、景观、学府、秘境、防务。
-      - 底图推荐: 从 "modern"（现代都市）、"modern-town"（现代小城）、"old-town"（古风城镇）、"palace"（宫苑庭院）、"terrain"（自然山野）、"sci-fi"（科幻设施）中选择最契合当前舞台的 basemap。
+      - 设施标签: 为每个场所挑选合适的设施标签（facilities），支持常见设施词条（如餐饮、住宿、购物、交通、医疗、娱乐、办公、住宅、景观、学府、秘境、防务、独立卫浴、厨房、酒吧、咖啡馆、温泉、神社、码头、铁匠铺、训练场等）。
+      - 底图与环境提示:
+          * basemap 支持 6 大主题风格（"modern" 现代都市、"modern-town" 现代小城、"old-town" 古风城镇、"palace" 宫苑庭院、"terrain" 自然山野、"sci-fi" 科幻设施），或 10 座真实城市（"beijing"、"shanghai"、"guangzhou"、"chongqing"、"hong-kong"、"tokyo"、"nagoya"、"seoul"、"new-york"、"los-angeles"）。
+          * 区域节点可选填 mapStyle 与细分地貌 mapLayout（如 inland、river、coast、plain、hills、mountain、forest、forest-river、snow、grassland、desert、axial、courtyard、honmaru、linear、ring）。
   - 功能格式:
       - 输出要求: 只输出合法的 JSON 格式，不要输出任何多余解释文本。
-      - JSON 格式: {"basemap":"modern|modern-town|old-town|palace|terrain|sci-fi","currentLocation":"当前主角所在地点名或空","places":[{"name":"地点名称","parentName":"上级地点名称或空","role":"area|site|interior","desc":"简短环境描述（30字以内）","facilities":["餐饮","住宿"],"relations":[{"targetName":"关联地点名","type":"邻近|相对|通往","note":"简短方位说明"}]}]}`;
+      - JSON 格式: {"basemap":"modern|modern-town|old-town|palace|terrain|sci-fi|beijing|shanghai|tokyo|seoul等","currentLocation":"当前主角所在地点名或空","places":[{"name":"地点名称","parentName":"上级地点名称或空","role":"area|site|interior","mapStyle":"可选风格","mapLayout":"可选细分地貌","desc":"简短环境描述（30字以内）","facilities":["餐饮","住宿"],"relations":[{"targetName":"关联地点名","type":"邻近|相对|通往","note":"简短方位说明"}]}]}`;
 
 export const TODO_SUGGESTIONS_PROMPT = `[待办事项提取规则]
 - 功能: 从短信中自动分析并提取需办理的待办约定事项。

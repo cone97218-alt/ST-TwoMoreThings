@@ -1,5 +1,15 @@
 import { avatar, escape, icon, pageHeading } from './shared.js';
-import { MAP_BASEMAPS, MAP_FACILITY_TAGS, listBasemapOptions } from '../map-engine.js';
+import {
+  MAP_BASEMAPS,
+  MAP_FACILITY_TAGS,
+  QIANCHUANG_BASEMAPS,
+  QIANCHUANG_MAP_ASSETS,
+  CITY_MAPS,
+  listBasemapOptions,
+  createGenericMapLoader,
+  createCityMapLoader,
+  qianchuangIcon,
+} from '../map-engine.js';
 import { displayName } from '../profiles.js';
 
 const ROLE_LABELS = {
@@ -8,8 +18,67 @@ const ROLE_LABELS = {
   interior: '室内',
 };
 
-function renderPolygonPoints(points = []) {
-  return points.map(([x, y]) => `${x * 10},${y * 10}`).join(' ');
+// 外部高精底图 (assets/maps-library/*.svg) 与真实城市底图 (assets/maps-real/*.svg) 异步加载缓存
+const loadedSvgMarkupCache = new Map();
+const pendingSvgLoads = new Set();
+
+let genericMapLoader = null;
+let cityMapLoader = null;
+
+function stripOuterSvgTag(svgText = '') {
+  const raw = String(svgText || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/^[\s\S]*?<svg[^>]*>/i, '')
+    .replace(/<\/svg>\s*$/i, '')
+    .trim();
+}
+
+function requestExternalBasemapSvg(assetId) {
+  if (!assetId || loadedSvgMarkupCache.has(assetId) || pendingSvgLoads.has(assetId)) {
+    return;
+  }
+  if (typeof globalThis.window === 'undefined' || typeof globalThis.fetch !== 'function') {
+    return;
+  }
+  const isCity = Boolean(CITY_MAPS[assetId]);
+  const isLibrary = Boolean(QIANCHUANG_MAP_ASSETS[assetId]);
+  if (!isCity && !isLibrary) return;
+
+  try {
+    if (isCity && !cityMapLoader) {
+      cityMapLoader = createCityMapLoader();
+    }
+    if (isLibrary && !genericMapLoader) {
+      genericMapLoader = createGenericMapLoader();
+    }
+    const loader = isCity ? cityMapLoader : genericMapLoader;
+    if (!loader) return;
+
+    pendingSvgLoads.add(assetId);
+    Promise.resolve(loader(assetId))
+      .then(svgText => {
+        pendingSvgLoads.delete(assetId);
+        const inner = stripOuterSvgTag(svgText);
+        if (inner) {
+          loadedSvgMarkupCache.set(assetId, inner);
+          if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+            globalThis.dispatchEvent(new CustomEvent('st-tmt-map-svg-loaded', { detail: { assetId } }));
+          }
+        }
+      })
+      .catch(() => {
+        pendingSvgLoads.delete(assetId);
+      });
+  } catch {
+    pendingSvgLoads.delete(assetId);
+  }
+}
+
+function renderPolygonPoints(points = [], vbWidth = 1000, vbHeight = 1000) {
+  const sx = vbWidth / 100;
+  const sy = vbHeight / 100;
+  return points.map(([x, y]) => `${Math.round(x * sx * 10) / 10},${Math.round(y * sy * 10) / 10}`).join(' ');
 }
 
 function renderPlaceBadges(place) {
@@ -20,8 +89,29 @@ function renderPlaceBadges(place) {
   badges.push(`<span class="qc-badge role-${escape(place.role || 'site')}">${escape(ROLE_LABELS[place.role] || '场所')}</span>`);
   if (place.source === 'baibai') {
     badges.push('<span class="qc-badge is-baibai">柏宝书</span>');
+  } else if (place.source === 'worldbook') {
+    badges.push('<span class="qc-badge is-baibai">世界书</span>');
   }
   return badges.join('');
+}
+
+function renderFacilityTagList(place) {
+  const facilityTags = Array.isArray(place.facilityTags) && place.facilityTags.length
+    ? place.facilityTags
+    : (Array.isArray(place.facilities)
+      ? place.facilities.map(f => ({ key: f, label: f, svg: qianchuangIcon(f) }))
+      : []);
+  if (!facilityTags.length) return '';
+  return `
+    <div class="qc-tag-row">
+      ${facilityTags.map(tag => `
+        <span class="qc-facility-tag" data-facility-key="${escape(tag.key || tag.label)}">
+          <span class="qc-facility-icon">${tag.svg || qianchuangIcon(tag.key || tag.label)}</span>
+          <span>${escape(tag.label)}</span>
+        </span>
+      `).join('')}
+    </div>
+  `;
 }
 
 function renderPlaceMetaDetails(place) {
@@ -29,12 +119,9 @@ function renderPlaceMetaDetails(place) {
   if (place.desc) {
     sections.push(`<p class="qc-place-desc">${escape(place.desc)}</p>`);
   }
-  if (place.facilities?.length) {
-    sections.push(`
-      <div class="qc-tag-row">
-        ${place.facilities.map(f => `<span class="qc-facility-tag">${escape(f)}</span>`).join('')}
-      </div>
-    `);
+  const facHtml = renderFacilityTagList(place);
+  if (facHtml) {
+    sections.push(facHtml);
   }
   if (place.npcs?.length) {
     sections.push(`
@@ -155,6 +242,25 @@ function renderPlaceCard(place, ui) {
   `;
 }
 
+function renderBasemapSelectOptions(options, selectedId) {
+  const groups = new Map();
+  for (const opt of options) {
+    const gKey = opt.groupLabel || '底图列表';
+    const list = groups.get(gKey) || [];
+    list.push(opt);
+    groups.set(gKey, list);
+  }
+  return [...groups.entries()].map(([gLabel, list]) => `
+    <optgroup label="${escape(gLabel)}">
+      ${list.map(opt => `
+        <option value="${escape(opt.id)}" ${selectedId === opt.id ? 'selected' : ''}>
+          ${escape(opt.label)} — ${escape(opt.desc)}
+        </option>
+      `).join('')}
+    </optgroup>
+  `).join('');
+}
+
 export function renderMap(state, { ui, mapProjection, busy }) {
   const headingActions = `
     <button type="button" class="icon-button" data-action="open-map-ai" aria-label="AI地图整理" title="AI 构想与整理地图">${icon('sparkles')}</button>
@@ -167,6 +273,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
   const {
     basemap,
     basemapId,
+    assetId: rawAssetId,
     basemapSelection,
     places,
     userPosition,
@@ -179,6 +286,18 @@ export function renderMap(state, { ui, mapProjection, busy }) {
     directoryTree,
     baibaiConnected,
   } = mapProjection;
+
+  const assetId = rawAssetId || basemap?.defaultAssetId || basemapId;
+  requestExternalBasemapSvg(assetId);
+
+  const loadedExternalSvg = loadedSvgMarkupCache.get(assetId) || '';
+  const familyKey = (basemap?.family || basemapId) === 'old-town' ? 'town' : (basemap?.family || basemapId || 'modern');
+  const inlineFallback = QIANCHUANG_BASEMAPS[familyKey] || QIANCHUANG_BASEMAPS.modern;
+
+  const vbWidth = loadedExternalSvg ? (basemap?.width || 1000) : (inlineFallback.width || 1000);
+  const vbHeight = loadedExternalSvg ? (basemap?.height || 1000) : (inlineFallback.height || 1000);
+  const activeSvgInner = loadedExternalSvg || basemap?.svg || inlineFallback.markup;
+  const isRealCity = Boolean(CITY_MAPS[assetId] || CITY_MAPS[basemapId]);
 
   const userAvatarHtml = avatar(
     state?.userProfile || { name: displayName(state?.userProfile || { name: ui.defaultUser || '我' }) },
@@ -220,18 +339,19 @@ export function renderMap(state, { ui, mapProjection, busy }) {
             </select>
           </div>
         </div>
-        <label class="field-label" for="map-f-desc">环境与场景描述</label>
-        <textarea id="map-f-desc" name="desc" rows="2" placeholder="简述该地点的环境氛围、建筑特点或剧情作用..." maxlength="200">${escape(draft.desc || '')}</textarea>
-        <label class="field-label">场所设施标签（点击可多选）</label>
+        <label class="field-label" for="map-f-desc">环境与场景描述（自动识别 177 类场所设施）</label>
+        <textarea id="map-f-desc" name="desc" rows="2" placeholder="简述该地点的环境氛围、建筑特点或内置设施（如：带有独立卫浴和吧台，无厨房）..." maxlength="240">${escape(draft.desc || '')}</textarea>
+        <label class="field-label">常用场所设施标签（点击可多选）</label>
         <div class="qc-facility-picker">
           ${MAP_FACILITY_TAGS.map(tag => `
             <button type="button" class="qc-facility-pick-btn ${selectedFacilities.has(tag.id) ? 'is-active' : ''}"
               data-action="toggle-map-draft-facility" data-facility="${escape(tag.id)}">
-              ${escape(tag.label)}
+              <span class="qc-facility-icon">${qianchuangIcon(tag.icon)}</span>
+              <span>${escape(tag.label)}</span>
             </button>
           `).join('')}
         </div>
-        <input name="facilitiesCustom" type="text" placeholder="其他自定义标签（用逗号分隔，可选）"
+        <input name="facilitiesCustom" type="text" placeholder="其他自定义设施标签（用逗号分隔，可选）"
           value="${escape([...selectedFacilities].filter(f => !MAP_FACILITY_TAGS.some(t => t.id === f)).join('，'))}" maxlength="60">
         <label class="compact-switch-row" style="margin-top: 6px;">
           <span>保存后将此地点设为当前所在位置</span>
@@ -251,6 +371,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
   // 2. 底图风格与设置弹窗
   const basemapOptions = listBasemapOptions();
   const deletedCount = Array.isArray(state?.map?.deletedIds) ? state.map.deletedIds.length : 0;
+  const activeAssetLabel = MAP_BASEMAPS[assetId]?.label || MAP_BASEMAPS[basemapId]?.label || '现代都市';
   const settingsModalHtml = ui.mapSettingsOpen ? `
     <div class="calendar-modal-backdrop" data-action="close-map-settings">
       <div class="calendar-modal-dialog">
@@ -258,15 +379,11 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           <h4>地图与底图设置</h4>
           <button type="button" class="icon-button" data-action="close-map-settings" aria-label="关闭">${icon('close')}</button>
         </div>
-        <label class="field-label" for="map-s-basemap">选择底图视觉风格</label>
+        <label class="field-label" for="map-s-basemap">选择底图视觉风格（含 6 大主题 / 10 座真实城市 / 24 款高精底图）</label>
         <select id="map-s-basemap" data-action="change-map-basemap">
-          ${basemapOptions.map(opt => `
-            <option value="${escape(opt.id)}" ${basemapSelection === opt.id ? 'selected' : ''}>
-              ${escape(opt.label)} — ${escape(opt.desc)}
-            </option>
-          `).join('')}
+          ${renderBasemapSelectOptions(basemapOptions, basemapSelection)}
         </select>
-        <small class="field-label">当前实际渲染底图：<strong>${escape(MAP_BASEMAPS[basemapId]?.label || '现代都市')}</strong></small>
+        <small class="field-label">当前激活底图：<strong>${escape(activeAssetLabel)}</strong></small>
 
         <div class="settings-sub-divider" style="margin: 12px 0;"></div>
 
@@ -311,7 +428,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           <button type="button" class="icon-button" data-action="close-map-ai" aria-label="关闭">${icon('close')}</button>
         </div>
         <div class="calendar-ai-body">
-          <p class="calendar-ai-desc">结合世界书、近期剧情与柏宝书场景，自动梳理或构想「分区 → 场所 → 室内」三层地图结构，并推荐最契合的底图风格。</p>
+          <p class="calendar-ai-desc">结合世界书、近期剧情与柏宝书场景，自动梳理或构想「分区 → 场所 → 室内」三层地图结构，并匹配最契合的千窗底图与设施标签。</p>
           <div class="calendar-ai-inputs">
             <div>
               <label class="field-label" for="map-ai-instruction">补充指令或世界观重点（可选）</label>
@@ -397,7 +514,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
       const isSelectedArea = ui.mapSelectedPlaceId === g.area.id;
       return `
         <g class="qc-region-group ${isCurrentArea ? 'is-current' : ''} ${isSelectedArea ? 'is-selected' : ''}">
-          ${g.contours.map(pts => `<polygon points="${renderPolygonPoints(pts)}" class="qc-region-poly"/>`).join('')}
+          ${g.contours.map(pts => `<polygon points="${renderPolygonPoints(pts, vbWidth, vbHeight)}" class="qc-region-poly"/>`).join('')}
         </g>
       `;
     })
@@ -475,10 +592,10 @@ export function renderMap(state, { ui, mapProjection, busy }) {
       ${scopeBarHtml}
 
       <!-- 交互式 SVG 底图视窗 -->
-      <section class="qc-map-viewport" aria-label="${escape(scopeNode?.name || basemap.label)}地图">
-        <div class="qc-map-canvas">
-          <svg viewBox="0 0 1000 1000" class="qc-basemap-svg qc-theme-${escape(basemapId)}" aria-hidden="true">
-            ${basemap.svg}
+      <section class="qc-map-viewport" aria-label="${escape(scopeNode?.name || activeAssetLabel)}地图" data-basemap-id="${escape(basemapId)}" data-asset-id="${escape(assetId)}">
+        <div class="qc-map-canvas" style="aspect-ratio: ${vbWidth} / ${vbHeight};">
+          <svg viewBox="0 0 ${vbWidth} ${vbHeight}" class="qc-basemap-svg qc-theme-${escape(basemap?.family || basemapId)} ${isRealCity ? 'qqj-real-basemap' : ''}" aria-hidden="true">
+            ${activeSvgInner}
             ${regionPolysSvg}
           </svg>
           <div class="qc-map-overlay">
@@ -487,7 +604,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           </div>
         </div>
         <div class="qc-map-caption">
-          <span>${escape(MAP_BASEMAPS[basemapId]?.label || '现代都市')}底图</span>
+          <span>${escape(activeAssetLabel)}${isRealCity ? ' · © OpenStreetMap contributors · ODbL' : ''}</span>
           <span>${places.length ? `共 ${places.length} 处地点` : '点击右上角 ✨ 由 AI 自动构建地图'}</span>
         </div>
       </section>
@@ -495,7 +612,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
       <!-- 搜索与分层折叠地点目录 -->
       <section class="qc-directory-section">
         <div class="qc-directory-toolbar">
-          <input type="search" class="qc-search-input" placeholder="搜索地点、描述或设施标签..."
+          <input type="search" class="qc-search-input" placeholder="搜索地点、描述或 177 类设施标签..."
             value="${escape(ui.mapSearch || '')}" data-action="search-map-places">
           ${scopePlaceId ? `
             <button type="button" class="qc-back-scope-btn" data-action="drill-map-scope" data-scope-id="${escape(scopeNode?.parentId || '')}">

@@ -1249,10 +1249,16 @@ export function createPhoneStore({
       const id = String(place.id || `place:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`).trim();
       const parentId = String(place.parentId || '').trim();
       const role = ['area', 'site', 'interior'].includes(place.role) ? place.role : 'site';
+      const mapLevel = ['city', 'country', 'scope'].includes(place.mapLevel) ? place.mapLevel : '';
+      const mapStyle = String(place.mapStyle || '').trim();
+      const mapLayout = String(place.mapLayout || '').trim();
       const desc = String(place.desc || '').trim();
       const facilities = Array.isArray(place.facilities)
         ? place.facilities.map(s => String(s).trim()).filter(Boolean)
         : String(place.facilities || '').split(/[,，、\s]+/).map(s => s.trim()).filter(Boolean);
+      const aliases = Array.isArray(place.aliases)
+        ? place.aliases.map(s => String(s).trim()).filter(Boolean)
+        : String(place.aliases || '').split(/[,，、\s]+/).map(s => s.trim()).filter(Boolean);
       const relations = Array.isArray(place.relations)
         ? place.relations
           .map(r => ({
@@ -1271,8 +1277,12 @@ export function createPhoneStore({
           name,
           parentId: parentId === id ? '' : parentId,
           role,
+          ...(mapLevel ? { mapLevel } : {}),
+          ...(mapStyle ? { mapStyle } : {}),
+          ...(mapLayout ? { mapLayout } : {}),
           desc,
           facilities,
+          ...(aliases.length ? { aliases } : {}),
           relations,
           source: 'custom',
         };
@@ -1345,8 +1355,12 @@ export function createPhoneStore({
             parentName: String(p.parentName || '').trim(),
             parentId: String(p.parentId || '').trim(),
             role: ['area', 'site', 'interior'].includes(p.role) ? p.role : 'site',
+            ...(p.mapLevel ? { mapLevel: String(p.mapLevel).trim() } : {}),
+            ...(p.mapStyle ? { mapStyle: String(p.mapStyle).trim() } : {}),
+            ...(p.mapLayout ? { mapLayout: String(p.mapLayout).trim() } : {}),
             desc: String(p.desc || '').trim(),
             facilities: Array.isArray(p.facilities) ? p.facilities.map(s => String(s).trim()).filter(Boolean) : [],
+            ...(Array.isArray(p.aliases) && p.aliases.length ? { aliases: p.aliases.map(s => String(s).trim()).filter(Boolean) } : {}),
             relations: Array.isArray(p.relations) ? p.relations : [],
             source: 'ai',
           };

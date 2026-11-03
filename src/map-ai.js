@@ -1,5 +1,11 @@
 import { parseJsonObject } from './api.js';
-import { MAP_BASEMAPS, buildMapProjection, readBaiBaiBookMapSnapshot } from './map-engine.js';
+import {
+  MAP_BASEMAPS,
+  buildMapProjection,
+  readBaiBaiBookMapSnapshot,
+  validQianchuangMapStyle,
+  normalizeQianchuangMapLayout,
+} from './map-engine.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
 
 export function createMapAiService({ contextReader, modelClient, target, store }) {
@@ -66,10 +72,16 @@ export function createMapAiService({ contextReader, modelClient, target, store }
           const name = String(item?.name || '').trim();
           if (!name) return null;
           const role = ['area', 'site', 'interior'].includes(item?.role) ? item.role : '';
+          const mapLevel = ['city', 'country', 'scope'].includes(item?.mapLevel) ? item.mapLevel : '';
+          const mapStyle = validQianchuangMapStyle(item?.mapStyle) ? item.mapStyle : '';
+          const mapLayout = normalizeQianchuangMapLayout(item?.mapLayout, mapStyle || basemap) || '';
           const parentName = String(item?.parentName || item?.parent || '').trim();
           const desc = String(item?.desc || item?.description || '').trim();
           const facilities = Array.isArray(item?.facilities)
-            ? item.facilities.map(s => String(s).trim()).filter(Boolean)
+            ? item.facilities.map(s => (typeof s === 'string' ? s.trim() : String(s?.label || '').trim())).filter(Boolean)
+            : [];
+          const aliases = Array.isArray(item?.aliases)
+            ? item.aliases.map(s => String(s).trim()).filter(Boolean)
             : [];
           const relations = Array.isArray(item?.relations)
             ? item.relations
@@ -85,8 +97,12 @@ export function createMapAiService({ contextReader, modelClient, target, store }
             name,
             parentName,
             role: role || (parentName ? 'site' : 'area'),
+            mapLevel,
+            mapStyle,
+            mapLayout,
             desc,
             facilities,
+            aliases,
             relations,
             selected: true,
           };

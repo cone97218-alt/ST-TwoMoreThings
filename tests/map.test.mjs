@@ -1,11 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   readBaiBaiBookMapSnapshot,
   readInlineMessageLocation,
   resolveBasemapId,
+  resolveMapAssetId,
   buildMapProjection,
   formatMapContextPrompt,
+  QIANCHUANG_MAP_ASSETS,
+  selectQianchuangMapAsset,
+  CITY_MAPS,
+  cityMapForPlace,
+  citySchematicLayout,
+  QIANCHUANG_MAP_REGIONS,
+  QIANCHUANG_MAP_ANCHORS,
+  qianchuangMapLayout,
+  qianchuangFacilityTags,
+  qianchuangIcon,
+  LUCIDE_ICONS,
+  indexQianchuangWorldInfo,
+  projectQianchuangWorldInfo,
 } from '../src/map-engine.js';
 import { createMapAiService } from '../src/map-ai.js';
 import { renderMap } from '../src/ui/map.js';
@@ -199,4 +215,76 @@ test('store & AI: saveMapPlace, deleteMapPlace, saveMapFromAi, preset macro and 
   assert.ok(html.includes('qc-basemap-svg'));
   assert.ok(html.includes('冒险者公会'));
   assert.ok(html.includes('矮人铁匠铺'));
+});
+
+test('qianchuang full port: 21 library map assets + 6 theme families + 10 real cities, pre-baked contours/anchors, 177 facilities, Lucide icons, and worldbook indexer', async () => {
+  // 1. 验证 21 款高精几何底图库与自动选择器
+  const assetList = Object.values(QIANCHUANG_MAP_ASSETS);
+  assert.equal(assetList.length, 21);
+  for (const asset of assetList) {
+    assert.ok(QIANCHUANG_MAP_REGIONS[asset.id] || asset.regions, `Missing region contours for ${asset.id}`);
+    assert.ok(QIANCHUANG_MAP_ANCHORS[asset.id] || asset.anchors, `Missing anchor slots for ${asset.id}`);
+  }
+  const coastalAssetId = selectQianchuangMapAsset({ entityId: 'test-seed', style: 'old-town', layout: 'coast' });
+  assert.equal(coastalAssetId, 'old-town-coast');
+
+  // 2. 验证 10 座真实世界城市底图识别与示意分区布局
+  assert.equal(Object.keys(CITY_MAPS).length, 10);
+  const shanghaiMatch = cityMapForPlace({ displayName: '上海市', aliases: ['魔都'] });
+  assert.equal(shanghaiMatch?.id, 'shanghai');
+  const tokyoMatch = cityMapForPlace({ displayName: '东京', aliases: ['Tokyo'] });
+  assert.equal(tokyoMatch?.id, 'tokyo');
+  const cityLayout = citySchematicLayout('shanghai', [
+    { entityId: 'a1', siteIds: ['p1'] },
+    { entityId: 'a2', siteIds: ['p2'] },
+  ]);
+  assert.equal(cityLayout.length, 2);
+  assert.equal(cityLayout[0].points.length, 1);
+  assert.ok(cityLayout[0].labelBox);
+
+  // 3. 验证 177 类中文设施词典（含否定句过滤）与 Lucide v1.17.0 矢量图标库
+  assert.ok(Object.keys(LUCIDE_ICONS).length >= 1700);
+  const tags = qianchuangFacilityTags(
+    [{ text: '一楼设有吧台与马厩，二楼有卧室和独立卫浴，但没有厨房。', kind: 'stable' }],
+    [{ text: '悦来客栈', kind: 'stable' }],
+  );
+  const tagLabels = tags.map(t => t.label);
+  assert.ok(tagLabels.length > 0);
+  assert.ok(!tagLabels.includes('厨房'), 'Negated facility "没有厨房" should be filtered out');
+  const iconSvg = qianchuangIcon('bed-double');
+  assert.ok(iconSvg.startsWith('<svg') && iconSvg.includes('</svg>'));
+
+  // 4. 验证世界书物理地点索引器与投影器
+  const wiRecords = indexQianchuangWorldInfo({
+    candidates: [
+      {
+        id: 'wb-1',
+        kind: 'worldbook',
+        hostEnabled: true,
+        comment: '临安城',
+        primaryKeys: ['临安'],
+        content: JSON.stringify({
+          名称: '临安城',
+          环境: '江南繁华都城，内有御街与西湖码头。',
+          布局: '北接皇城，南邻西湖。',
+        }),
+      },
+    ],
+  });
+  assert.equal(wiRecords.length, 1);
+  assert.ok(wiRecords[0].names.includes('临安城'));
+  const wiProjected = projectQianchuangWorldInfo(
+    {
+      places: [{ entityId: 'p1', displayName: '临安城', aliases: ['临安'] }],
+      mapRootIds: ['p1'],
+    },
+    { index: wiRecords },
+  );
+  assert.equal(wiProjected.places[0].worldInfoDescriptions.length, 2);
+
+  // 5. 验证静态 SVG 资产文件存在且完整
+  const rootDir = path.resolve(import.meta.dirname, '..');
+  assert.ok(fs.existsSync(path.join(rootDir, 'assets/maps-library/catalog.json')));
+  assert.ok(fs.existsSync(path.join(rootDir, 'assets/maps-real/shanghai.svg')));
+  assert.ok(fs.existsSync(path.join(rootDir, 'assets/maps-generic/modern-town.svg')));
 });

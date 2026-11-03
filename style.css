@@ -2316,6 +2316,23 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   --qc-road-major: #ffffff;
   --qc-road-minor: #f7f6f0;
   --qc-wall-stroke: #a59882;
+  --ql-panel: var(--pp-surface, #ffffff);
+  --ql-paper: var(--pp-paper, #f7f8fa);
+  --ql-ground: var(--pp-paper, #f7f8fa);
+  --ql-building: color-mix(in srgb, var(--pp-active, #3b706a) 23%, var(--pp-paper, #f7f8fa));
+  --ql-building-line: color-mix(in srgb, var(--pp-active, #3b706a) 33%, var(--pp-paper, #f7f8fa));
+  --ql-road: var(--pp-paper, #f7f8fa);
+  --ql-road-line: color-mix(in srgb, var(--pp-active, #3b706a) 36%, var(--pp-paper, #f7f8fa));
+  --ql-park: color-mix(in srgb, #3d6f55 15%, var(--pp-paper, #f7f8fa));
+  --ql-water: color-mix(in srgb, var(--pp-active, #3b706a) 32%, var(--pp-paper, #f7f8fa));
+  --ql-contour: color-mix(in srgb, var(--pp-ink, #22282b) 48%, var(--pp-paper, #f7f8fa));
+  --ql-water-line: color-mix(in srgb, var(--pp-active, #3b706a) 80%, var(--pp-paper, #f7f8fa));
+  --qr-land: var(--pp-paper, #f7f8fa);
+  --qr-water: color-mix(in srgb, var(--pp-active, #3b706a) 32%, var(--pp-paper, #f7f8fa));
+  --qr-park: color-mix(in srgb, #3d6f55 15%, var(--pp-paper, #f7f8fa));
+  --qr-edge: color-mix(in srgb, var(--pp-active, #3b706a) 27%, var(--pp-paper, #f7f8fa));
+  --qr-road: var(--pp-surface, #ffffff);
+  --qr-highway: color-mix(in srgb, var(--pp-active, #3b706a) 48%, var(--pp-paper, #f7f8fa));
 }
 
 :host([data-theme="night"]) .qc-basemap-svg {
@@ -2327,6 +2344,54 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   --qc-road-major: #2b4b5c;
   --qc-road-minor: #213d4c;
   --qc-wall-stroke: #6e7f88;
+  --ql-panel: var(--pp-surface, #1c2327);
+  --ql-paper: var(--pp-paper, #13181b);
+  --ql-ground: var(--pp-paper, #13181b);
+  --ql-building: color-mix(in srgb, #77b0aa 23%, var(--pp-paper, #13181b));
+  --ql-building-line: color-mix(in srgb, #77b0aa 33%, var(--pp-paper, #13181b));
+  --ql-road: var(--pp-paper, #13181b);
+  --ql-road-line: color-mix(in srgb, #77b0aa 36%, var(--pp-paper, #13181b));
+  --ql-park: color-mix(in srgb, #77b193 15%, var(--pp-paper, #13181b));
+  --ql-water: color-mix(in srgb, #77b0aa 32%, var(--pp-paper, #13181b));
+  --ql-contour: color-mix(in srgb, var(--pp-ink, #e7ecee) 48%, var(--pp-paper, #13181b));
+  --ql-water-line: color-mix(in srgb, #77b0aa 80%, var(--pp-paper, #13181b));
+  --qr-land: var(--pp-paper, #13181b);
+  --qr-water: color-mix(in srgb, #77b0aa 32%, var(--pp-paper, #13181b));
+  --qr-park: color-mix(in srgb, #77b193 15%, var(--pp-paper, #13181b));
+  --qr-edge: color-mix(in srgb, #77b0aa 27%, var(--pp-paper, #13181b));
+  --qr-road: var(--pp-surface, #1c2327);
+  --qr-highway: color-mix(in srgb, #77b0aa 48%, var(--pp-paper, #13181b));
+}
+
+.qc-basemap-svg .ql-land { fill: var(--ql-ground); stroke: none; }
+.qc-basemap-svg .ql-area { fill: var(--ql-park); stroke: none; }
+.qc-basemap-svg .ql-water { fill: var(--ql-water); stroke: none; }
+.qc-basemap-svg .ql-building {
+  fill: var(--ql-building);
+  stroke: var(--ql-building-line);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+.qc-basemap-svg .ql-road-edge,
+.qc-basemap-svg .ql-road {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.qc-basemap-svg .ql-road-edge { stroke: var(--ql-road-line); }
+.qc-basemap-svg .ql-road { stroke: var(--ql-road); }
+.qc-basemap-svg .ql-major-route { stroke: color-mix(in srgb, var(--pp-active, #3b706a) 55%, var(--ql-paper)); }
+.qc-basemap-svg .ql-ridge {
+  fill: none;
+  stroke: var(--ql-building-line);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.qc-basemap-svg .qqj-real-basemap {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .qc-basemap-svg .qc-bg { fill: var(--qc-bg-fill); }
@@ -2669,11 +2734,28 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 }
 
 .qc-facility-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   padding: 1px 6px;
   border-radius: 5px;
   font-size: 10px;
   background: var(--pp-surface-soft);
   color: var(--pp-ink);
+}
+
+.qc-facility-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.qc-facility-icon > svg {
+  width: 100%;
+  height: 100%;
 }
 
 .qc-meta-block {
@@ -2811,6 +2893,9 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 }
 
 .qc-facility-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   padding: 3px 8px;
   border-radius: 6px;
   font-size: 11px;

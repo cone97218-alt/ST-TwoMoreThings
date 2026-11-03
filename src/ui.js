@@ -3298,6 +3298,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   doc.defaultView?.addEventListener?.('st-sevendayscal:calendar-changed', refreshCalendar);
   doc.defaultView.addEventListener('st-baibai-book:changed', refreshCalendar);
   doc.defaultView.addEventListener('st-baibai-book:ready', refreshCalendar);
+  doc.defaultView?.addEventListener?.('st-tmt-map-svg-loaded', refreshCalendar);
   root.addEventListener('keydown', keydown);
   root.addEventListener('click', click);
   root.addEventListener('dblclick', dblclick);
@@ -3382,6 +3383,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       doc.defaultView.removeEventListener('st-sevendayscal:calendar-changed', refreshCalendar);
       doc.defaultView.removeEventListener('st-baibai-book:changed', refreshCalendar);
       doc.defaultView.removeEventListener('st-baibai-book:ready', refreshCalendar);
+      doc.defaultView?.removeEventListener?.('st-tmt-map-svg-loaded', refreshCalendar);
       doc.removeEventListener('pointerdown', dismissMenus, true);
       root.removeEventListener('keydown', keydown);
       root.removeEventListener('click', click);

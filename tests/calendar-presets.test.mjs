@@ -191,3 +191,105 @@ test('calendar AI service: parses conceived festivals and deduced schedules', as
   state = store.read();
   assert.ok(state.todos.some(t => t.title === '公会探险整备' && t.status === 'open'));
 });
+
+test('calendar deduplication: AI-conceived festival matching builtin festival (e.g. 元旦) is not injected twice', async () => {
+  const h = createHarness({ messages: [{ is_user: false, mes: '故事进行到新的一天。<!-- QQJ-end | date=2026年1月1日 | weekday=周四 | time=10:00 -->' }] });
+  const target = h.host.captureChat();
+  const store = createPhoneStore({ target });
+
+  // 1. 模拟 AI 生成了一个名为“元旦”的节日（1月1日）
+  const aiGeneratedFestival = {
+    id: 'ai:festival:12345:0',
+    name: '元旦',
+    type: 'festival',
+    month: 1,
+    day: 1,
+    days: 1,
+    note: '新年第一天',
+  };
+  await store.saveCalendarEvents([aiGeneratedFestival]);
+  await store.setInjectCalendarEnabled(true);
+
+  const { createCalendarReader } = await import('../src/calendar.js');
+  const { createBackflowService } = await import('../src/context.js');
+  const calendar = createCalendarReader({ store, target });
+
+  // 2. 检查日历 context 结果
+  const calCtx = calendar.context('1月1日 10:00');
+  assert.ok(calCtx, '应返回日历上下文');
+  const newYearEvents = calCtx.events.filter(e => e.name === '元旦');
+  assert.equal(newYearEvents.length, 1, '日历 context 中的元旦节日只应存在一条，不可重复');
+
+  // 3. 检查正文回流注入结果
+  const backflow = createBackflowService({ target, store, calendar, isEnabled: () => true });
+  const injected = await backflow.prepare('normal');
+  assert.ok(injected.includes('日历线索'), '应包含日历线索');
+  const occurrences = (injected.match(/元旦/g) || []).length;
+  assert.equal(occurrences, 1, '注入正文的日历线索中“元旦”只能出现 1 次，不能重复两遍');
+});
+
+test('calendar deduplication: fictional AI festival (e.g. 春7日 花舞节) is self-healed and never injected twice even with duplicate store items', async () => {
+  const h = createHarness({ messages: [{ is_user: false, mes: '春天到了。<!-- QQJ-end | date=第1年 春 7日 | weekday=周一 | time=10:00 -->' }] });
+  const target = h.host.captureChat();
+  const store = createPhoneStore({ target });
+
+  // 1. 设置为四季历
+  await store.createCustomCalendar({
+    title: '四季历',
+    era: '新历',
+    months: [
+      { name: '春之月', days: 28 },
+      { name: '夏之月', days: 28 },
+      { name: '秋之月', days: 28 },
+      { name: '冬之月', days: 28 },
+    ],
+  });
+
+  // 2. 模拟保存了两次相同的 AI 虚构节日（春7日 花舞节），测试自愈与防重
+  const festivalItem1 = {
+    id: 'ai:festival:first:0',
+    name: '花舞节',
+    type: 'festival',
+    month: 1,
+    day: 7,
+    days: 1,
+    note: '春季花舞会',
+  };
+  const festivalItem2 = {
+    id: 'ai:festival:second:0',
+    name: '花舞节',
+    type: 'festival',
+    month: 1,
+    day: 7,
+    days: 1,
+    note: '春季花舞会',
+  };
+
+  // 通过 saveCalendarEvents 批量保存
+  await store.saveCalendarEvents([festivalItem1]);
+  await store.saveCalendarEvents([festivalItem2]);
+  await store.setInjectCalendarEnabled(true);
+
+  // 3. 检查 store 中的 items 是否已去重合并
+  const state = store.read();
+  const huaWuFestivals = (state.calendar?.items || []).filter(it => it.name === '花舞节');
+  assert.equal(huaWuFestivals.length, 1, 'store.calendar.items 中花舞节应被合并去重，只保留 1 条');
+
+  // 4. 检查日历 context 结果
+  const { createCalendarReader } = await import('../src/calendar.js');
+  const { createBackflowService } = await import('../src/context.js');
+  const calendar = createCalendarReader({ store, target });
+
+  const calCtx = calendar.context('第1年 春 7日');
+  assert.ok(calCtx, '应返回四季历上下文');
+  const huaWuContextEvents = calCtx.events.filter(e => e.name === '花舞节');
+  assert.equal(huaWuContextEvents.length, 1, '日历 context 中的花舞节只应存在一条');
+
+  // 5. 检查正文回流注入结果
+  const backflow = createBackflowService({ target, store, calendar, isEnabled: () => true });
+  const injected = await backflow.prepare('normal');
+  assert.ok(injected.includes('日历线索'), '应包含日历线索');
+  const occurrences = (injected.match(/花舞节/g) || []).length;
+  assert.equal(occurrences, 1, '注入正文的日历线索中“花舞节”只能出现 1 次');
+});
+

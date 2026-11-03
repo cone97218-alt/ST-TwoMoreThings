@@ -71,3 +71,52 @@ test('group permits silence, rejects unanchored outsiders, and does not save rej
   assert.equal(store.read().conversations[group.id]?.length || 0, 0);
 });
 
+
+test('group chain-of-thought: extracts reasoning from model and renders collapsible indicator in group chat', async () => {
+  const thinkingCoT = '分析群聊气氛与各成员性格，林舟比较主动，周予习惯附和。';
+  const groupReply = {
+    anchor: { memberIds: ['lin', 'zhou'], speakerIds: ['lin', 'zhou'] },
+    messages: [
+      { speakerId: 'lin', text: '大家明天有空吗？' },
+      { speakerId: 'zhou', text: '我有空。' },
+    ],
+  };
+  const { h, store, service } = await setup(groupReply);
+  h.completion = {
+    choices: [
+      {
+        message: {
+          reasoning_content: thinkingCoT,
+          content: JSON.stringify(groupReply),
+        },
+      },
+    ],
+  };
+  const group = await store.saveGroup('', { name: '小分队', memberIds: ['lin', 'zhou'], userIsMember: false });
+  await service.continueChat(group.id);
+
+  const history = store.read().conversations[group.id];
+  assert.equal(history.length, 2);
+  assert.equal(history[0].reasoning, thinkingCoT, '群聊本轮第一条消息应保存思考过程');
+  assert.equal(history[1].reasoning, undefined, '群聊本轮后续消息不重复附带思考过程');
+
+  const { renderChat } = await import('../src/ui/messages.js');
+  const state = store.read();
+  const collapsedHtml = renderChat(state, {
+    ui: { view: 'group-chat', groupId: group.id, drafts: new Map(), batch: history[0].batch, visibleMessages: 60, visibleHistory: 60, openReasoningIds: new Set() },
+    busy: new Set(),
+    entries: {},
+  });
+  assert.ok(collapsedHtml.includes('class="message-reasoning-wrap"'), '群聊应渲染思考过程包装容器');
+  assert.ok(collapsedHtml.includes('data-action="toggle-reasoning"'), '群聊应具备展开/折叠交互行为');
+  assert.ok(collapsedHtml.includes('思考过程'), '群聊应显示思考过程提示');
+  assert.ok(!collapsedHtml.includes('message-reasoning-card'), '群聊折叠时默认不展开完整内容');
+
+  const expandedHtml = renderChat(state, {
+    ui: { view: 'group-chat', groupId: group.id, drafts: new Map(), batch: history[0].batch, visibleMessages: 60, visibleHistory: 60, openReasoningIds: new Set([history[0].id]) },
+    busy: new Set(),
+    entries: {},
+  });
+  assert.ok(expandedHtml.includes('class="message-reasoning-card"'), '群聊展开时应渲染思考卡片');
+  assert.ok(expandedHtml.includes(thinkingCoT), '群聊展开时应显示模型原生思考过程文本');
+});

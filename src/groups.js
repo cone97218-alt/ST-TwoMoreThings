@@ -1,4 +1,4 @@
-import { parseJsonObject } from './api.js';
+import { parseJsonObject, extractReasoning } from './api.js';
 import { record } from './messages.js';
 import { readTimeline } from './timeline.js';
 import { normalizeContent, messageText, formatForwardedContextText, shortenMessageId, extractLatestUserInput, RICH_MESSAGES_PROMPT } from './content.js';
@@ -67,13 +67,15 @@ export function createGroupService({ target, store, contextReader, modelClient }
       const userEntries = messagesPayload.filter(m => m.role !== 'system');
       const systemPrompt = systemEntries.map(m => m.content).join('\n\n');
 
-      const answer = parseJsonObject(await modelClient.complete({
+      const reply = await modelClient.complete({
         label: '群聊多角色续写',
         system: systemPrompt,
         messages: userEntries.length ? userEntries : messagesPayload,
         entries: messagesPayload,
         collapsedMessages: collapsed,
-      }));
+      });
+      const reasoning = extractReasoning(reply);
+      const answer = parseJsonObject(reply);
       const roster = context.group.members.map(person => person.id), speakers = answer.anchor?.speakerIds;
       if (!sameMembers(answer.anchor?.memberIds, roster) || !Array.isArray(speakers) || speakers.some(key => key === '@user' || !roster.includes(key))) throw new Error('回答中的群成员或发言者无法对应，请点继续重试。');
       if (!Array.isArray(answer.messages)) throw new Error('回答中没有可读取的群聊消息，请点继续重试。');
@@ -90,6 +92,7 @@ export function createGroupService({ target, store, contextReader, modelClient }
         return byText ? byText.id : '';
       };
       const memberMap = new Map(context.group.members.map(person => [person.id, person]));
+      let reasoningAssigned = false;
       const indexedMessages = answer.messages.map(item => {
         if (!item || !roster.includes(item.speakerId) || item.speakerId === '@user' || !speakers.includes(item.speakerId)) throw new Error('回答中的发言者不在本轮群聊中，请点继续重试。');
         const content = normalizeContent(item);
@@ -106,7 +109,9 @@ export function createGroupService({ target, store, contextReader, modelClient }
           if (resolved) content.replyToId = resolved;
           else delete content.replyToId;
         }
-        return content ? { ...record('assistant', content.text, context.clock, content.translation, context.batch), ...content, speakerId: item.speakerId } : null;
+        const reasoningData = (!content?.reasoning && !reasoningAssigned && reasoning) ? { reasoning } : {};
+        if (content?.reasoning || reasoningData.reasoning) reasoningAssigned = true;
+        return content ? { ...record('assistant', content.text, context.clock, content.translation, context.batch), ...content, ...reasoningData, speakerId: item.speakerId } : null;
       });
       const messages = indexedMessages.filter(Boolean);
       const todoCandidates = parseTodoCandidates(answer.todoSuggestions ?? answer.todos, { conversationId: id, messages: indexedMessages, participantIds: roster });

@@ -1527,6 +1527,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           ui.calendarAiFestivals = [];
           ui.calendarAiOpen = false;
           ui.feedback = { text: `已加入 ${selected.length} 个节日到日历。` };
+          onContextChange();
         });
         break;
       }
@@ -1580,6 +1581,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           ui.calendarAiSchedules = [];
           ui.calendarAiOpen = false;
           ui.feedback = { text: `已加入 ${selected.length} 条待办事项到日历。` };
+          onContextChange();
         });
         break;
       }
@@ -2772,6 +2774,21 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         onContextChange();
       });
     }
+    if (event.target.id === 'contact-social-enabled') {
+      const enabled = event.target.checked;
+      void perform('contact-social', async () => {
+        await store.setContactSocialEnabled(enabled);
+        onContextChange();
+      });
+    }
+    if (event.target.id === 'group-social-enabled') {
+      const enabled = event.target.checked;
+      void perform('group-social', async () => {
+        await store.setGroupSocialEnabled(enabled);
+        onContextChange();
+      });
+    }
+
     if (event.target.dataset.entryPreference) {
       const key = event.target.dataset.entryPreference, value = event.target.checked;
       void perform('entry', () => entries.set(key, value), result => { if (result?.notice) ui.feedback = { text: result.notice }; });

@@ -140,8 +140,17 @@ export function createCalendarReader({
       };
     }
     const todoItems = buildTodoCalendarItems(state, calendar, today);
-    const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id));
-    const items = [...deduplicatedBuiltins, ...customItems, ...todoItems];
+    const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id || (c.name === b.name && c.month === b.month && c.day === b.day)));
+    const uniqueCustomItems = [];
+    const seenCustom = new Set();
+    for (const it of customItems) {
+      const key = `${it.name}|${it.month}|${it.day}`;
+      if (!seenCustom.has(key)) {
+        seenCustom.add(key);
+        uniqueCustomItems.push(it);
+      }
+    }
+    const items = [...deduplicatedBuiltins, ...uniqueCustomItems, ...todoItems];
     const weekdayReference = (today && Number.isInteger(today.weekday))
       ? { ...today, weekday: today.weekday }
       : null;
@@ -197,8 +206,17 @@ export function createCalendarReader({
     }
     const disableBuiltin = Boolean(state.calendar?.descriptor?.disableBuiltinFestivals || state.calendar?.disableBuiltin);
     const customItems = state.calendar?.items || [];
-    const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id));
-    const items = [...deduplicatedBuiltins, ...customItems];
+    const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id || (c.name === b.name && c.month === b.month && c.day === b.day)));
+    const uniqueCustomItems = [];
+    const seenCustom = new Set();
+    for (const it of customItems) {
+      const key = `${it.name}|${it.month}|${it.day}`;
+      if (!seenCustom.has(key)) {
+        seenCustom.add(key);
+        uniqueCustomItems.push(it);
+      }
+    }
+    const items = [...deduplicatedBuiltins, ...uniqueCustomItems];
     if (today && !isValidDay(today, calendar)) {
       const monthCount = calendar.months?.length || 12;
       const month = Math.min(Math.max(1, (today.month - 1) % monthCount + 1), monthCount);

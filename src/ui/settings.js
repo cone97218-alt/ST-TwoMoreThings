@@ -541,6 +541,20 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
       <span></span>
     </span>
   </label>
+  <label class="compact-switch-row">
+    <span>私聊感知社交动态</span>
+    <span class="switch">
+      <input id="contact-social-enabled" type="checkbox" role="switch" aria-label="私聊感知社交动态" ${state.contactSocialEnabled !== false ? 'checked' : ''} ${busy?.has?.('contact-social') ? 'disabled' : ''}>
+      <span></span>
+    </span>
+  </label>
+  <label class="compact-switch-row">
+    <span>群聊感知社交动态</span>
+    <span class="switch">
+      <input id="group-social-enabled" type="checkbox" role="switch" aria-label="群聊感知社交动态" ${state.groupSocialEnabled !== false ? 'checked' : ''} ${busy?.has?.('group-social') ? 'disabled' : ''}>
+      <span></span>
+    </span>
+  </label>
   <small class="field-label">临近 7 天内的节日、纪念日与工作日/时段作息可作为背景线索带入正文或提示词。</small>
   <small class="field-label">短材料由主楼一起判断；超过3000字才额外生成摘要。</small>
   <label class="compact-switch-row" for="image-provider">

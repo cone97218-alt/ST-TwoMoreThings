@@ -338,7 +338,16 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
         const ongoing = d === 0 && Math.max(1, Number(item.days) || 1) > 1;
         return [{ ...itemView(item, cal), when: d == null ? '' : ongoing ? '进行中' : d === 0 ? '今天' : `${d}天后`, order: ongoing ? -1 : d ?? Infinity }];
       }).sort((a, b) => a.order - b.order).map(({ order, ...item }) => item);
-      return events.length ? { today: today ? label(today, cal) : '', events } : null;
+      const seenEventKeys = new Set();
+      const uniqueEvents = [];
+      for (const event of events) {
+        const key = `${event.name}|${event.when}`;
+        if (!seenEventKeys.has(key)) {
+          seenEventKeys.add(key);
+          uniqueEvents.push(event);
+        }
+      }
+      return uniqueEvents.length ? { today: today ? label(today, cal) : '', events: uniqueEvents } : null;
     },
   });
 }

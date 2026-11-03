@@ -150,6 +150,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
         ${!mine && !readOnly ? `<button type="button" class="withdrawn-reedit-btn" data-action="toggle-thought" data-message-id="${escape(message.id)}">💭 心声</button>` : ''}
         ${!readOnly ? `<button type="button" class="system-notice-delete" data-action="delete-system-message" data-message-id="${escape(message.id)}" aria-label="删除撤回提示">×</button>` : ''}
       </div>
+      ${reasoningBlock}
       ${thoughtCard}
     </div>`;
   }

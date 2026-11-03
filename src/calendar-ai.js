@@ -1,18 +1,24 @@
 import { parseJsonObject } from './api.js';
 import { readPhoneTime } from './time.js';
-import { parseDateString } from './calendar-engine.js';
+import { parseDateString, BUILTIN_FESTIVALS } from './calendar-engine.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
 
 export function createCalendarAiService({ contextReader, modelClient, target, store }) {
   return {
     async conceiveFestivals({ setting = '', count = 3 } = {}) {
       const sources = await contextReader.readDirectorySources({ readMemory: true });
+      const state = store?.read?.() || {};
+      const customItems = state.calendar?.items || [];
+      const disableBuiltin = Boolean(state.calendar?.descriptor?.disableBuiltinFestivals || state.calendar?.disableBuiltin);
+      const allExisting = [...(disableBuiltin ? [] : BUILTIN_FESTIVALS), ...customItems];
+      const existingFestivals = allExisting.map(it => `${it.month}月${it.day}日：${it.name}${it.note ? `（${it.note}）` : ''}`);
+
       const payload = sanitizePhoneContext({
         contacts: sources.contacts || [],
         userInstruction: setting ? `用户特别指定的世界观/要求：${setting}` : '',
+        existingFestivals: existingFestivals.slice(0, 30),
         requestedCount: count,
       });
-      const state = store?.read?.() || {};
       const activePreset = getActivePreset(state);
 
       const storyHistoryText = (sources.story || []).map(item => `${item.speaker || ''}：${item.text}`).join('\n\n');

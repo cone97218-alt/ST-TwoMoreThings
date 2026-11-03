@@ -12,7 +12,7 @@ import { publicationLabel } from './social-time.js';
 import { readTodos } from './todos.js';
 import { replyContext } from './replies.js';
 import { createMemorySources } from './memory-sources.js';
-import { getActivePreset } from './preset-engine.js';
+import { getActivePreset, compilePromptPreset, collapseMessages, sanitizePhoneContext } from './preset-engine.js';
 
 function recentStory(messages, beforeIndex = messages.length, wrappers = {}, layers = 1) {
   const maxLayers = Math.max(1, Number(layers) || 1);
@@ -164,7 +164,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const history = filterFinishedGameActions(phoneHistory(state, id, current.batch), thread);
       const previousMessages = filterFinishedGameActions(recentPhoneHistory(state, id, current.batch.key), thread);
       const todos = relevantTodos(state, [id]);
-      const social = publicSocialContext(state);
+      const social = state.contactSocialEnabled !== false ? publicSocialContext(state) : [];
       const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'));
       const workdayInfo = calendar.workdayPrompt ? calendar.workdayPrompt(target.messages) : null;
       let related = '';
@@ -241,7 +241,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const history = filterFinishedGameActions(phoneHistory(state, id, current.batch), thread);
       const previousMessages = filterFinishedGameActions(recentPhoneHistory(state, id, current.batch.key), thread);
       const todos = relevantTodos(state, group.memberIds);
-      const social = publicSocialContext(state);
+      const social = state.groupSocialEnabled !== false ? publicSocialContext(state) : [];
       const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'));
       const workdayInfo = calendar.workdayPrompt ? calendar.workdayPrompt(target.messages) : null;
       const members = group.memberIds.map(key => {
@@ -310,8 +310,16 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
         try {
           calendarContext = calendar.context(batch.label);
           if (calendarContext?.events?.length) {
-            const list = calendarContext.events.map(e => `- ${e.when} ${e.name}${e.note ? `（${e.note}）` : ''}`).join('\n');
-            calendarLines = `[日历线索：\n${list}\n]`;
+            const seenLines = new Set();
+            const list = calendarContext.events
+              .map(e => `- ${e.when} ${e.name}${e.note ? `（${e.note}）` : ''}`)
+              .filter(line => {
+                if (seenLines.has(line)) return false;
+                seenLines.add(line);
+                return true;
+              })
+              .join('\n');
+            if (list) calendarLines = `[日历线索：\n${list}\n]`;
           }
         } catch {}
       }
@@ -370,12 +378,48 @@ export function createBackflowService({ target, store, modelClient, isEnabled = 
       for (const _ of reference) if (++characters > 3000) break;
       if (characters <= 3000) return reference.trim();
       const maxCharacters = 100;
-      const summaryPrompt = getPrompt('summary', store?.read?.()) || SUMMARY_PROMPT;
-      const reply = await modelClient.complete({ system: summaryPrompt, messages: [{ role: 'user', content: JSON.stringify({
-        time: batch.label, calendar: calendarContext?.events || [], conversations, todos: todos.map(todo => todoReference(todo, state, target.user)),
-        story: recentStory(target.messages, beforeIndex, wrapperSettingsProvider()),
-        storyProgress: storyProgress(target.messages, [...conversations.map(() => batch), ...todos.map(todo => todo.sourceBatch)], beforeIndex, wrapperSettingsProvider()), maxCharacters,
-      }) }] });
+      const activePreset = getActivePreset(state);
+      const storyRecent = recentStory(target.messages, beforeIndex, wrapperSettingsProvider(), activePreset?.storyLayers !== undefined ? activePreset.storyLayers : 1);
+      const storyHistoryText = storyRecent.map(item => `${item.speaker || '角色'}：${item.text}`).join('\n\n');
+      const phoneContextData = sanitizePhoneContext({
+        time: batch.label,
+        calendar: calendarContext?.events || [],
+        conversations,
+        todos: todos.map(todo => todoReference(todo, state, target.user)),
+        storyProgress: storyProgress(target.messages, [...conversations.map(() => batch), ...todos.map(todo => todo.sourceBatch)], beforeIndex, wrapperSettingsProvider()),
+        maxCharacters,
+      });
+
+      let worldbook = '';
+      if (typeof target?.readWorldInfo === 'function') {
+        try {
+          const scanLines = [
+            ...storyRecent.map(item => item.text),
+            ...conversations.flatMap(c => c.messages.map(m => m.text)),
+            ...todos.map(t => t.title),
+          ];
+          worldbook = await target.readWorldInfo({ scanText: scanLines.join('\n') }) || '';
+        } catch {}
+      }
+
+      const messagesPayload = compilePromptPreset(activePreset, {
+        worldbook,
+        storyHistory: storyHistoryText,
+        phoneContext: phoneContextData,
+      }, 'summary', state);
+
+      const collapsed = collapseMessages(messagesPayload);
+      const systemEntries = messagesPayload.filter(m => m.role === 'system');
+      const userEntries = messagesPayload.filter(m => m.role !== 'system');
+      const systemPrompt = systemEntries.map(m => m.content).join('\n\n');
+
+      const reply = await modelClient.complete({
+        label: '短信回流正文记忆摘要',
+        system: systemPrompt,
+        messages: userEntries.length ? userEntries : [{ role: 'user', content: JSON.stringify(phoneContextData) }],
+        entries: messagesPayload,
+        collapsedMessages: collapsed,
+      });
       const answer = parseJsonObject(reply);
       const value = answer.summary ?? answer.reference;
       if (typeof value !== 'string' || Array.from(value.trim()).length > maxCharacters) throw new Error(`手机参考没有生成${maxCharacters}字以内的有效内容，本次正文未带入手机消息。`);

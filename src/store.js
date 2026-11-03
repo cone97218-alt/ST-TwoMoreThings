@@ -8,7 +8,7 @@ import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
 import { defaultGregorianCalendar, defaultWorkdayConfig } from './calendar-engine.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 
-const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false, injectCalendarEnabled: false, lockScreenEnabled: true, prompts: {} });
+const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false, injectCalendarEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {} });
 const fillDefaultAvatars = people => {
   let filled = people;
   for (let index = 0; index < people.length; index++) {
@@ -1093,11 +1093,20 @@ export function createPhoneStore({
           const done = type === 'todo' ? Boolean(event?.done) : undefined;
           return { id, name, type, month, day, days, note, ...(done !== undefined ? { done } : {}) };
         }).filter(Boolean);
+        const mergedItems = [...items];
+        for (const newItem of newItems) {
+          const index = mergedItems.findIndex(it => it.id === newItem.id || (it.name === newItem.name && it.month === newItem.month && it.day === newItem.day));
+          if (index >= 0) {
+            mergedItems[index] = { ...mergedItems[index], ...newItem, id: mergedItems[index].id };
+          } else {
+            mergedItems.push(newItem);
+          }
+        }
         return {
           ...state,
           calendar: {
             ...calendar,
-            items: [...items, ...newItems],
+            items: mergedItems,
           },
         };
       });
@@ -1170,6 +1179,8 @@ export function createPhoneStore({
     },
     setInjectionEnabled(enabled) { return update(state => ({ ...state, injectEnabled: Boolean(enabled) })); },
     setInjectCalendarEnabled(enabled) { return update(state => ({ ...state, injectCalendarEnabled: Boolean(enabled) })); },
+    setContactSocialEnabled(enabled) { return update(state => ({ ...state, contactSocialEnabled: Boolean(enabled) })); },
+    setGroupSocialEnabled(enabled) { return update(state => ({ ...state, groupSocialEnabled: Boolean(enabled) })); },
     confirmTodo(id, patch = {}) {
       return update(state => {
         assertEnabled();

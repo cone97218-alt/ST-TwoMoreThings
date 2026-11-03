@@ -225,3 +225,39 @@ test('partially deleted todo sources are reported as incomplete without deleting
   assert.equal(context.todos[0].source.missing, true);
   assert.equal(store.read().todos.length, 1);
 });
+
+test('social in chat switches: independently toggle social context perception in contact and group chat', async () => {
+  const h = createHarness({ messages: [{ is_user: false, mes: '新一楼。' }], metadata: { pocketPhone: {
+    contacts: [{ id: 'lin', name: '林舟' }], conversations: {}, groups: [], social: { npcs: [], feedIds: ['post'], posts: [
+      { id: 'post', authorId: 'lin', text: '公开动态。', publishedAt: '2026-10-18 18:00' },
+    ] },
+  } } });
+  const target = h.host.captureChat(), store = createPhoneStore({ target });
+  await store.saveGroup('', { name: '读书群', memberIds: ['lin'], userIsMember: true });
+  const groupId = store.read().groups[0].id;
+  const reader = createContextReader({ target, store, qqjBridgeProvider: () => null });
+
+  const contactCtx1 = await reader.readForContact('lin');
+  const groupCtx1 = await reader.readForGroup(groupId);
+  assert.equal(contactCtx1.social?.length, 1);
+  assert.equal(groupCtx1.social?.length, 1);
+
+  await store.setContactSocialEnabled(false);
+  const contactCtx2 = await reader.readForContact('lin');
+  const groupCtx2 = await reader.readForGroup(groupId);
+  assert.equal(contactCtx2.social, undefined);
+  assert.equal(groupCtx2.social?.length, 1);
+
+  await store.setGroupSocialEnabled(false);
+  const contactCtx3 = await reader.readForContact('lin');
+  const groupCtx3 = await reader.readForGroup(groupId);
+  assert.equal(contactCtx3.social, undefined);
+  assert.equal(groupCtx3.social, undefined);
+
+  await store.setContactSocialEnabled(true);
+  const contactCtx4 = await reader.readForContact('lin');
+  const groupCtx4 = await reader.readForGroup(groupId);
+  assert.equal(contactCtx4.social?.length, 1);
+  assert.equal(groupCtx4.social, undefined);
+});
+

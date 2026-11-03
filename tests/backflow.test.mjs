@@ -209,3 +209,58 @@ test('calendar festivals injection can be independently enabled or disabled', as
   result = await service.prepare();
   assert.equal(result, '');
 });
+
+test('summary generation complies with active prompt preset order and entries', async () => {
+  const { target, store, batch } = setup([{ is_user: false, mes: '这是一段正文剧情。<!-- QQJ-end | date=2026-10-18 | time=18:00 -->' }]);
+  await store.appendMessage('lin', { id: 'm1', role: 'user', text: '长消息内容。'.repeat(600), batch });
+
+  const customPreset = {
+    id: 'custom_summary_preset',
+    name: '自定义摘要预设',
+    entries: [
+      { id: 'custom_head', name: '自定义头部指令', scope: '摘要', role: 'system', enabled: true, content: '【优先遵循头部规范】' },
+      { id: 'entry_summary_rules', name: '短信回流正文记忆摘要', scope: '摘要', role: 'system', enabled: true, content: '{{summary_prompt}}' },
+      { id: 'entry_story_history', name: '主聊天最近正文历史', scope: '通用', role: 'system', enabled: true, content: '[正文：{{story_history}}]' },
+      { id: 'custom_user_suffix', name: '尾部用户指令', scope: '摘要', role: 'user', enabled: true, content: '请严格提取有价值信息。' },
+      { id: 'entry_phone_data', name: '手机上下文与任务数据', scope: '通用', role: 'user', enabled: true, content: '{{phone_context}}' },
+    ],
+  };
+
+  await store.savePromptPreset(customPreset);
+
+  const requests = [];
+  const service = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete(req) {
+        requests.push(req);
+        return JSON.stringify({ summary: '整理后的摘要' });
+      },
+    },
+  });
+
+  const res = await service.prepare();
+  assert.equal(res, '整理后的摘要');
+  assert.equal(requests.length, 1);
+  const req = requests[0];
+  assert.equal(req.label, '短信回流正文记忆摘要');
+  assert.ok(Array.isArray(req.entries));
+  assert.equal(req.entries.length, 5);
+  assert.equal(req.entries[0].name, '自定义头部指令');
+  assert.equal(req.entries[0].content, '【优先遵循头部规范】');
+  assert.equal(req.entries[1].name, '短信回流正文记忆摘要');
+  assert.ok(req.entries[1].content.includes('短信回流正文记忆摘要'));
+  assert.equal(req.entries[2].name, '主聊天最近正文历史');
+  assert.equal(req.entries[3].name, '尾部用户指令');
+  assert.equal(req.entries[3].role, 'user');
+  assert.equal(req.entries[4].name, '手机上下文与任务数据');
+  assert.equal(req.entries[4].role, 'user');
+
+  assert.ok(Array.isArray(req.collapsedMessages));
+  assert.equal(req.collapsedMessages.length, 2);
+  assert.equal(req.collapsedMessages[0].role, 'system');
+  assert.ok(req.collapsedMessages[0].content.includes('【优先遵循头部规范】'));
+  assert.equal(req.collapsedMessages[1].role, 'user');
+  assert.ok(req.collapsedMessages[1].content.includes('请严格提取有价值信息。'));
+});

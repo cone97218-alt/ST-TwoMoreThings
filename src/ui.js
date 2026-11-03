@@ -127,7 +127,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     calendarAiSetting: '', calendarAiCount: 3, calendarAiDays: 3, calendarAiFocus: '全部',
     calendarAiFestivals: [], calendarAiSchedules: [], calendarAiBusy: false,
     mapSheetId: '', mapScopeId: '', mapSelectedPlaceId: '', mapSearch: '',
-    mapFormOpen: false, mapDraft: null, mapSettingsOpen: false,
+    mapFormOpen: false, mapDraft: null, mapSettingsOpen: false, mapEditMode: false,
     mapAiModalOpen: false, mapAiInstruction: '', mapAiResults: null,
     todoEditing: new Set(), todoDrafts: new Map(),
     activeGame: null, activeGameMessageId: '', gameBoardFolded: false, gameGuideOpen: false, gameGuideTab: 'guide',
@@ -1764,6 +1764,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const placeId = button.dataset.placeId;
         if (!placeId) break;
         ui.mapSelectedPlaceId = placeId;
+        ui.mapSheetId = button.dataset.sheetId || '';
         ui.mapScopeId = '';
         render();
         const card = root.querySelector(`[data-place-card="${CSS.escape(placeId)}"]`);
@@ -1792,6 +1793,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const scopeId = button.dataset.scopeId ?? '';
         ui.mapScopeId = scopeId;
         ui.mapSelectedPlaceId = scopeId;
+        render();
+        break;
+      }
+      case 'toggle-map-edit-mode': {
+        ui.mapEditMode = !ui.mapEditMode;
         render();
         break;
       }

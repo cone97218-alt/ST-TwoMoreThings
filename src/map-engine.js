@@ -1008,36 +1008,59 @@ export function buildMapProjection({
     }
   }
 
-  // 3. 识别多图幅（顶层城市/大区域根节点）
-  const rootNodes = childrenMap.get('') || [];
-  const cityRoots = rootNodes.filter(r => r.role === 'area' && (childrenMap.get(r.id) || []).length > 0);
-  const sheets = cityRoots.length > 1
-    ? cityRoots.map(r => ({
-      id: r.id,
-      title: r.name,
-      count: (childrenMap.get(r.id) || []).length,
-    }))
+  // 3. 构造千窗原版层级快照，复用原版图幅 / 浏览投影（城市边界 → 图幅，单根自动下钻，区域→场所分组）
+  const snapshotPlaces = places.map(p => ({
+    entityId: p.id,
+    displayName: p.name,
+    aliases: p.aliases || [],
+    parentEntityId: p.parentId && byId.has(p.parentId) ? p.parentId : null,
+    childEntityIds: (childrenMap.get(p.id) || []).map(k => k.id),
+    mapRole: p.role || undefined,
+    ...(['city', 'country', 'scope'].includes(p.mapLevel) ? { mapLevel: p.mapLevel } : {}),
+    mapAssetId: p.mapAssetId || null,
+    features: [],
+    relations: [],
+    facilities: p.facilities || [],
+  }));
+  const fullSnapshot = {
+    places: snapshotPlaces,
+    mapRootIds: snapshotPlaces.filter(p => !p.parentEntityId).map(p => p.entityId),
+    unassignedPlaceIds: [],
+    userPosition: { placeEntityId: currentPlace?.id || null },
+  };
+
+  const sheetProj = places.length ? projectQianchuangSheets(fullSnapshot) : { sheets: [], placeSheets: new Map(), countryIds: new Set(), defaultSheetId: null };
+  const looseIds = sheetProj.sheets.length && !sheetProj.sheets.some(s => s.id === 'legacy')
+    ? snapshotPlaces.filter(p => sheetProj.placeSheets.get(p.entityId) === null && !sheetProj.countryIds.has(p.entityId)).map(p => p.entityId)
     : [];
+  const sheetList = [...sheetProj.sheets];
+  if (looseIds.length) sheetList.push({ id: '__loose', label: '其他地点', placeIds: looseIds, cityId: null, assetId: null });
 
-  const resolvedSheetId = sheets.length
-    ? (sheets.some(s => s.id === activeSheetId)
-      ? activeSheetId
-      : (currentAncestors[0] && sheets.some(s => s.id === currentAncestors[0].id)
-        ? currentAncestors[0].id
-        : sheets[0].id))
-    : '';
+  const currentSheetId = currentPlace
+    ? (sheetProj.placeSheets.get(currentPlace.id) ?? (looseIds.includes(currentPlace.id) ? '__loose' : null))
+    : null;
+  const activeSheet = sheetList.find(s => s.id === activeSheetId)
+    || sheetList.find(s => s.id === currentSheetId)
+    || sheetList.find(s => s.id === sheetProj.defaultSheetId)
+    || sheetList[0]
+    || null;
+  const resolvedSheetId = activeSheet?.id || '';
+  userPosition.sheetId = currentSheetId || '';
 
-  // 4. 确定当前浏览根节点（支持点击分区下钻查看，或按当前 sheet 过滤）
-  const validScopeId = scopePlaceId && byId.has(scopePlaceId) ? scopePlaceId : (resolvedSheetId || '');
+  let subSnapshot = fullSnapshot;
+  if (activeSheet && activeSheet.id !== 'legacy') {
+    subSnapshot = snapshotForCitySheet(fullSnapshot, sheetProj, activeSheet.id === '__loose' ? null : activeSheet.id);
+    if (activeSheet.id === '__loose') {
+      subSnapshot = { ...subSnapshot, mapRootIds: subSnapshot.places.filter(p => !p.parentEntityId).map(p => p.entityId) };
+    }
+  }
+  const browse = projectQianchuangBrowse(subSnapshot, scopePlaceId && byId.has(scopePlaceId) ? scopePlaceId : undefined);
+  const validScopeId = browse.scopeId || '';
   const scopeNode = validScopeId ? byId.get(validScopeId) : null;
-  const scopeBreadcrumb = scopeNode ? getAncestors(scopeNode.id) : [];
-
-  const topNodes = validScopeId
-    ? (childrenMap.get(validScopeId) || [])
-    : rootNodes;
-
-  const groups = [];
-  const directSites = [];
+  const scopeBreadcrumb = (browse.trail || []).map(id => byId.get(id)).filter(Boolean);
+  const sheets = sheetList.length > 1
+    ? sheetList.map(s => ({ id: s.id, title: s.label, count: s.placeIds.length }))
+    : [];
 
   function enrichPlace(p) {
     const kids = childrenMap.get(p.id) || [];
@@ -1060,43 +1083,26 @@ export function buildMapProjection({
     };
   }
 
-  for (const node of topNodes) {
-    const kids = childrenMap.get(node.id) || [];
-    if (node.role === 'area') {
-      const areaSites = [];
-      for (const child of kids) {
-        if (child.role === 'site') {
-          areaSites.push(enrichPlace(child));
-        } else if (child.role === 'area') {
-          const grandKids = (childrenMap.get(child.id) || []).filter(g => g.role === 'site');
-          if (grandKids.length) {
-            areaSites.push(...grandKids.map(enrichPlace));
-          } else {
-            areaSites.push(enrichPlace(child));
-          }
-        }
-      }
-      groups.push({
-        area: enrichPlace(node),
-        sites: areaSites,
-      });
-    } else if (node.role === 'site') {
-      directSites.push(enrichPlace(node));
-    }
-  }
+  const groups = browse.groups.map(g => ({
+    entityId: g.entityId,
+    siteIds: g.siteIds.filter(id => byId.has(id)),
+    area: g.entityId && byId.has(g.entityId) ? enrichPlace(byId.get(g.entityId)) : null,
+    sites: g.siteIds.filter(id => byId.has(id)).map(id => enrichPlace(byId.get(id))),
+  })).filter(g => g.area || g.sites.length);
+  const topNodes = (browse.treeRootIds || []).map(id => byId.get(id)).filter(Boolean);
 
-  if (directSites.length > 0) {
-    groups.push({
-      area: null,
-      sites: directSites,
-    });
+  const sheetPlaces = activeSheet && activeSheet.id !== 'legacy'
+    ? activeSheet.placeIds.map(id => byId.get(id)).filter(Boolean)
+    : places;
+  const sheetRoot = activeSheet?.rootPlaceId ? byId.get(activeSheet.rootPlaceId) : null;
+  const requestedBasemap = stateMap.basemap;
+  let basemapId = resolveBasemapId(requestedBasemap, sheetPlaces.length ? sheetPlaces : places, sheetRoot);
+  if ((!requestedBasemap || requestedBasemap === 'auto') && activeSheet?.assetId && MAP_BASEMAPS[activeSheet.assetId] && !sheetRoot?.mapStyle) {
+    basemapId = activeSheet.assetId;
   }
-
-  const basemapId = resolveBasemapId(stateMap.basemap, places, scopeNode);
-  const assetId = resolveMapAssetId(basemapId, places, scopeNode);
+  const assetId = resolveMapAssetId(basemapId, sheetPlaces, sheetRoot);
   const basemap = MAP_BASEMAPS[assetId] || MAP_BASEMAPS[basemapId] || MAP_BASEMAPS.modern;
   const layoutGroups = computeMapLayout(assetId, groups);
-
   // 5. 搜索过滤目录树
   const q = normKey(searchQuery);
   const directoryTree = topNodes

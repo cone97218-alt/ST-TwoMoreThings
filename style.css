@@ -2923,3 +2923,8 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 
 
 
+
+.qc-place-actions:not(:has(*)) { display: none; }
+
+.icon-button.is-active { color: var(--pp-active); background: var(--pp-pale); }
+

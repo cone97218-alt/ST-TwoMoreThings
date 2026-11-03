@@ -288,3 +288,24 @@ test('qianchuang full port: 21 library map assets + 6 theme families + 10 real c
   assert.ok(fs.existsSync(path.join(rootDir, 'assets/maps-real/shanghai.svg')));
   assert.ok(fs.existsSync(path.join(rootDir, 'assets/maps-generic/modern-town.svg')));
 });
+
+test('map: default view auto-descends into a single city and keeps districts as separate regions; edit buttons only in edit mode', () => {
+  const state = { map: { basemap: 'auto', currentLocation: '', items: [
+    { id: 'c', name: '长安城', role: 'area', parentId: '' },
+    { id: 'w', name: '西市坊', role: 'area', parentId: 'c' },
+    { id: 'e', name: '东市坊', role: 'area', parentId: 'c' },
+    { id: 'w1', name: '归雁酒楼', role: 'site', parentId: 'w' },
+    { id: 'e1', name: '珍宝阁', role: 'site', parentId: 'e' },
+  ], deletedIds: [] }, todos: [] };
+  const proj = buildMapProjection({ state });
+  assert.equal(proj.layoutGroups.length, 2);
+  assert.deepEqual(proj.layoutGroups.map(g => g.area?.name).sort(), ['东市坊', '西市坊']);
+  assert.equal(proj.layoutGroups.flatMap(g => g.sites).length, 2);
+  const view = renderMap(state, { ui: { mapSearch: '', mapEditMode: false }, mapProjection: proj, busy: new Set() });
+  assert.ok(!view.includes('data-action="edit-map-place"'));
+  assert.ok(!view.includes('data-action="set-map-current"'));
+  assert.ok(view.includes('data-action="toggle-map-edit-mode"'));
+  const edit = renderMap(state, { ui: { mapSearch: '', mapEditMode: true }, mapProjection: proj, busy: new Set() });
+  assert.ok(edit.includes('data-action="edit-map-place"'));
+  assert.ok(edit.includes('data-action="delete-map-place"'));
+});

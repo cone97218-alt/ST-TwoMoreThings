@@ -114,7 +114,7 @@ function renderFacilityTagList(place) {
   `;
 }
 
-function renderPlaceMetaDetails(place) {
+function renderPlaceMetaDetails(place, editMode = false) {
   const sections = [];
   if (place.desc) {
     sections.push(`<p class="qc-place-desc">${escape(place.desc)}</p>`);
@@ -184,11 +184,11 @@ function renderPlaceMetaDetails(place) {
               <div class="qc-interior-head">
                 <strong>${escape(room.name)}</strong>
                 ${room.isCurrent ? '<span class="qc-badge is-current">当前</span>' : ''}
-                <div class="qc-interior-actions">
+                ${editMode ? `<div class="qc-interior-actions">
                   <button type="button" class="qc-mini-btn" data-action="set-map-current" data-place-id="${escape(room.id)}" title="定位到此室内">定位</button>
                   <button type="button" class="qc-mini-btn" data-action="edit-map-place" data-place-id="${escape(room.id)}" title="编辑">编辑</button>
                   <button type="button" class="qc-mini-btn danger" data-action="delete-map-place" data-place-id="${escape(room.id)}" title="删除">×</button>
-                </div>
+                </div>` : ''}
               </div>
               ${room.desc ? `<small class="qc-interior-desc">${escape(room.desc)}</small>` : ''}
             </div>
@@ -201,6 +201,7 @@ function renderPlaceMetaDetails(place) {
 }
 
 function renderPlaceCard(place, ui) {
+  const editMode = Boolean(ui.mapEditMode);
   const isSelected = ui.mapSelectedPlaceId === place.id || place.isCurrent;
   const subSites = (place.subPlaces || []).filter(p => p.role !== 'interior');
 
@@ -218,19 +219,19 @@ function renderPlaceCard(place, ui) {
         </div>
       </summary>
       <div class="qc-place-body">
-        ${renderPlaceMetaDetails(place)}
+        ${renderPlaceMetaDetails(place, editMode)}
         <div class="qc-place-actions">
-          <button type="button" class="qc-action-btn" data-action="set-map-current" data-place-id="${escape(place.id)}">
+          ${editMode ? `<button type="button" class="qc-action-btn" data-action="set-map-current" data-place-id="${escape(place.id)}">
             ${place.isCurrent ? '已在当前位置' : '设为当前位置'}
-          </button>
+          </button>` : ''}
           ${place.hasDrilldown ? `
             <button type="button" class="qc-action-btn primary" data-action="drill-map-scope" data-scope-id="${escape(place.id)}">
               进入分区 (${subSites.length})
             </button>
           ` : ''}
-          <button type="button" class="qc-action-btn" data-action="open-map-form" data-parent-id="${escape(place.id)}">+ 子地点</button>
+          ${editMode ? `<button type="button" class="qc-action-btn" data-action="open-map-form" data-parent-id="${escape(place.id)}">+ 子地点</button>
           <button type="button" class="qc-action-btn" data-action="edit-map-place" data-place-id="${escape(place.id)}">编辑</button>
-          <button type="button" class="qc-action-btn danger" data-action="delete-map-place" data-place-id="${escape(place.id)}">删除</button>
+          <button type="button" class="qc-action-btn danger" data-action="delete-map-place" data-place-id="${escape(place.id)}">删除</button>` : ''}
         </div>
         ${subSites.length ? `
           <div class="qc-subplaces-tree">
@@ -263,6 +264,7 @@ function renderBasemapSelectOptions(options, selectedId) {
 
 export function renderMap(state, { ui, mapProjection, busy }) {
   const headingActions = `
+    <button type="button" class="icon-button ${ui.mapEditMode ? 'is-active' : ''}" data-action="toggle-map-edit-mode" aria-pressed="${ui.mapEditMode ? 'true' : 'false'}" aria-label="编辑地点" title="${ui.mapEditMode ? '退出编辑' : '编辑地点'}">${icon('edit')}</button>
     <button type="button" class="icon-button" data-action="open-map-ai" aria-label="AI地图整理" title="AI 构想与整理地图">${icon('sparkles')}</button>
     <button type="button" class="icon-button" data-action="open-map-form" aria-label="新增地点" title="手动添加地点">${icon('plus')}</button>
     <button type="button" class="icon-button" data-action="open-map-settings" aria-label="地图设置" title="底图风格与定位设置">${icon('tuning')}</button>
@@ -493,7 +495,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
     </div>
   ` : '';
 
-  const scopeBarHtml = scopeBreadcrumb.length > 0 ? `
+  const scopeBarHtml = scopeBreadcrumb.length > 1 ? `
     <nav class="qc-scope-breadcrumb" aria-label="地图层级导航">
       <button type="button" class="qc-crumb-btn" data-action="drill-map-scope" data-scope-id="">全图视野</button>
       ${scopeBreadcrumb.map((node, idx) => `
@@ -582,7 +584,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           </div>
         </div>
         ${userPosition.placeId ? `
-          <button type="button" class="qc-locate-btn" data-action="locate-current-place" data-place-id="${escape(userPosition.placeId)}">
+          <button type="button" class="qc-locate-btn" data-action="locate-current-place" data-place-id="${escape(userPosition.placeId)}" data-sheet-id="${escape(userPosition.sheetId || '')}">
             定位
           </button>
         ` : ''}
@@ -614,8 +616,8 @@ export function renderMap(state, { ui, mapProjection, busy }) {
         <div class="qc-directory-toolbar">
           <input type="search" class="qc-search-input" placeholder="搜索地点、描述或 177 类设施标签..."
             value="${escape(ui.mapSearch || '')}" data-action="search-map-places">
-          ${scopePlaceId ? `
-            <button type="button" class="qc-back-scope-btn" data-action="drill-map-scope" data-scope-id="${escape(scopeNode?.parentId || '')}">
+          ${scopeBreadcrumb.length > 1 ? `
+            <button type="button" class="qc-back-scope-btn" data-action="drill-map-scope" data-scope-id="${escape(scopeBreadcrumb[scopeBreadcrumb.length - 2]?.id || '')}">
               返回上级
             </button>
           ` : ''}

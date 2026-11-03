@@ -14,6 +14,7 @@ import { readTodos } from './todos.js';
 import { replyContext } from './replies.js';
 import { createMemorySources } from './memory-sources.js';
 import { getActivePreset, compilePromptPreset, collapseMessages, sanitizePhoneContext } from './preset-engine.js';
+import { buildMapProjection, formatMapContextPrompt, readBaiBaiBookMapSnapshot } from './map-engine.js';
 
 function recentStory(messages, beforeIndex = messages.length, wrappers = {}, layers = 1) {
   const maxLayers = Math.max(1, Number(layers) || 1);
@@ -173,6 +174,8 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const social = state.contactSocialEnabled !== false ? publicSocialContext(state) : [];
       const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'), { viewerIds: ['@user', id] });
       const workdayInfo = calendar.workdayPrompt ? calendar.workdayPrompt(target.messages) : null;
+      const mapProjection = buildMapProjection({ state, baibaiSnapshot: readBaiBaiBookMapSnapshot(), messages: target.messages });
+      const mapPrompt = formatMapContextPrompt(mapProjection);
       let related = '';
       const source = memorySources.select(), bridge = source.bridge;
       const storyMemory = memorySources.readStoryMemory(source, 4000);
@@ -182,7 +185,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         const context = await bridge.readContext({ query, entityIds: [entityId], maxCharacters: 4000 });
         if (context?.status === 'ready') related = (context.actors || []).filter(x => x.entityId === entityId).map(x => [x.stateText, x.memoryText].filter(Boolean).join('\n')).join('\n').slice(0, 4000);
       }
-      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: [{ id: '@user', name: current.user }, { id, name: contact.name }], todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), ...(todos.length || previousMessages.length ? { storyProgress: storyProgress(target.messages, [...previousMessages.map(message => message.sourceBatch), ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), emojis: emojiChoices(), stickers: stickerChoices(), contact: { name: contact.name, nickname: contact.nickname || '', personality: contact.personality, expression: contact.expression, language: contact.language || '' }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), related, worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), contact.name, ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
+      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: [{ id: '@user', name: current.user }, { id, name: contact.name }], todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), ...(todos.length || previousMessages.length ? { storyProgress: storyProgress(target.messages, [...previousMessages.map(message => message.sourceBatch), ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), ...(mapPrompt ? { mapPrompt } : {}), emojis: emojiChoices(), stickers: stickerChoices(), contact: { name: contact.name, nickname: contact.nickname || '', personality: contact.personality, expression: contact.expression, language: contact.language || '' }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), related, worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), contact.name, ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
     },
     async readForForum({ readMemory = false } = {}) {
       const current = base();
@@ -250,6 +253,8 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       const social = state.groupSocialEnabled !== false ? publicSocialContext(state) : [];
       const calendarReference = calendar.context([...current.story.map(item => item.text), messageText(history.at(-1) || {})].join('\n'), { viewerIds: ['@user', ...group.memberIds] });
       const workdayInfo = calendar.workdayPrompt ? calendar.workdayPrompt(target.messages) : null;
+      const mapProjection = buildMapProjection({ state, baibaiSnapshot: readBaiBaiBookMapSnapshot(), messages: target.messages });
+      const mapPrompt = formatMapContextPrompt(mapProjection);
       const members = group.memberIds.map(key => {
         const person = state.contacts.find(item => item.id === key);
         if (!person) throw new Error('有群成员不在联系人中，请编辑群聊重新选择。');
@@ -276,7 +281,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         return messages.length ? [{ contactId: person.id, knownToIds: ['@user', person.id], messages }] : [];
       });
       const evidence = [...previousMessages, ...privateHistories.flatMap(thread => thread.messages)].map(message => message.sourceBatch);
-      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: roster.map(({ id, name }) => ({ id, name })), todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), privateHistories, ...(todos.length || evidence.length ? { storyProgress: storyProgress(target.messages, [...evidence, ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), emojis: emojiChoices(), stickers: stickerChoices(), group: { name: group.name, userIsMember: group.userIsMember, members: roster }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), ...members.map(person => person.name), ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
+      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: roster.map(({ id, name }) => ({ id, name })), todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), privateHistories, ...(todos.length || evidence.length ? { storyProgress: storyProgress(target.messages, [...evidence, ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), ...(mapPrompt ? { mapPrompt } : {}), emojis: emojiChoices(), stickers: stickerChoices(), group: { name: group.name, userIsMember: group.userIsMember, members: roster }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), ...members.map(person => person.name), ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
     },
 
   };
@@ -451,14 +456,31 @@ export function createBackflowService({
       const state = store.read();
       const injectSms = Boolean(state.injectEnabled);
       const injectCal = Boolean(state.injectCalendarEnabled);
+      const injectMap = Boolean(state.injectMapEnabled);
       const workdayConfig = state.calendar?.workdayConfig;
       const injectWorkday = Boolean(workdayConfig?.enabled && workdayConfig?.injectStory);
-      if (!isEnabled() || (!injectSms && !injectCal && !injectWorkday)) return '';
+      if (!isEnabled() || (!injectSms && !injectCal && !injectWorkday && !injectMap)) return '';
       // 重生成事件发生时旧回答可能尚未移除；参考取自该回答之前的短信卡口。
       const last = target.messages.at(-1);
       const replacing = ['regenerate', 'swipe'].includes(type) && last && !last.is_user && !last.is_system && !['user', 'system'].includes(last.role);
       const beforeIndex = target.messages.length - Number(Boolean(replacing));
       const batch = readTimeline(target.messages, beforeIndex);
+
+      // 地图与位置线索（若开启地图带入正文）
+      let mapLines = '';
+      if (injectMap) {
+        try {
+          const mapProj = buildMapProjection({
+            state,
+            baibaiSnapshot: readBaiBaiBookMapSnapshot(),
+            messages: target.messages.slice(0, beforeIndex),
+          });
+          const text = formatMapContextPrompt(mapProj);
+          if (text) {
+            mapLines = `[地图与位置线索：\n${text}\n]`;
+          }
+        } catch {}
+      }
 
       // 作息提示（若开启工作日/节假日带入正文）
       let workdayLines = '';
@@ -518,10 +540,11 @@ export function createBackflowService({
         }
       }
 
-      if (!conversations.length && !todos.length && !calendarLines && !workdayLines) return '';
+      if (!conversations.length && !todos.length && !calendarLines && !workdayLines && !mapLines) return '';
       const parts = [];
       if (workdayLines) parts.push(workdayLines);
       if (calendarLines) parts.push(calendarLines);
+      if (mapLines) parts.push(mapLines);
       if (conversations.length) {
         parts.push(conversations.map(conversation => {
           const lines = conversation.messages.map(message => {
@@ -573,7 +596,7 @@ export function createBackflowService({
       if (!summary) return '';
       if (!summary) return '';
       const current = store.read();
-      if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled && !Boolean(current.calendar?.workdayConfig?.enabled && current.calendar?.workdayConfig?.injectStory))) return '';
+      if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled && !current.injectMapEnabled && !Boolean(current.calendar?.workdayConfig?.enabled && current.calendar?.workdayConfig?.injectStory))) return '';
       for (const conversation of conversations) {
         const saved = new Map((current.conversations[conversation.id] || []).map(message => [message.id, message]));
         if (conversation.messages.some(message => !saved.has(message.id))) throw new Error('参考中的短信已被删除，本次正文未带入手机消息。');
@@ -585,6 +608,7 @@ export function createBackflowService({
       const summaryParts = [];
       if (workdayLines) summaryParts.push(workdayLines);
       if (calendarLines) summaryParts.push(calendarLines);
+      if (mapLines) summaryParts.push(mapLines);
       if (summary) summaryParts.push(summary);
       return summaryParts.join('\n\n');
     },

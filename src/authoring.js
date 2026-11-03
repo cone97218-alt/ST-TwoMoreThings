@@ -38,6 +38,14 @@ export function stateFromPreset(preset) {
         ...(preset.calendar.workdayConfig ? { workdayConfig: preset.calendar.workdayConfig } : {}),
       }
     } : {}),
+    ...(preset.map ? {
+      map: {
+        basemap: preset.map.basemap || 'auto',
+        currentLocation: preset.map.currentLocation || '',
+        items: Array.isArray(preset.map.items) ? preset.map.items : [],
+        deletedIds: Array.isArray(preset.map.deletedIds) ? preset.map.deletedIds : [],
+      }
+    } : {}),
     ...(['stacked', 'rounded'].includes(preset.lockStyle) ? { lockStyle: preset.lockStyle } : {}),
     ...(preset.prompts && typeof preset.prompts === 'object' ? { prompts: preset.prompts } : {}),
     ...(preset.userProfile ? { userProfile: profile(preset.userProfile) } : {}),
@@ -116,6 +124,14 @@ export function createAuthoringService({ store, host, readEntries = () => host.r
             ...(state.calendar.descriptor ? { descriptor: state.calendar.descriptor } : {}),
             ...(state.calendar.disableBuiltin ? { disableBuiltin: true } : {}),
             ...(state.calendar.workdayConfig ? { workdayConfig: state.calendar.workdayConfig } : {}),
+          }
+        } : {}),
+        ...(state.map && (state.map.items?.length || state.map.basemap) ? {
+          map: {
+            basemap: state.map.basemap || 'auto',
+            currentLocation: state.map.currentLocation || '',
+            items: state.map.items || [],
+            deletedIds: state.map.deletedIds || [],
           }
         } : {}),
         ...(['stacked', 'rounded'].includes(state.lockStyle) ? { lockStyle: state.lockStyle } : {}),

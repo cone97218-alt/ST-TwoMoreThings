@@ -323,6 +323,23 @@ export const SCHEDULE_DEDUCE_PROMPT = `[日程推演助手]
       - 输出要求: 只输出合法的 JSON 格式，不要输出任何其他多余文本。
       - JSON 格式: {"schedules":[{"title":"日程事项名称","month":数字月份,"day":数字日期,"days":1,"time":"如 上午 10:00 / 晚上","location":"地点或空","note":"事项简短说明"}]}`;
 
+export const MAP_PROMPT = `[地图与位置线索注入]
+- 功能: 将当前场景位置、所属区域、周边场所与空间方位作为背景环境线索提供给角色。
+  - 功能介绍: 结合地图位置线索感知当前所处环境、周边地标及空间动线；仅在对话自然涉及出行、约见、位置询问或日常分享时自然引用，不生硬背诵地理设定。`;
+
+export const MAP_ORGANIZE_PROMPT = `[地图构想与整理助手]
+- 功能: 根据世界观设定、角色卡、近期正文与已有地点，整理并构想层级分明的场景地图结构。
+  - 功能介绍:
+      - 层级划分: 将舞台划分为三类节点（role）：
+          * "area": 城市、城区、街区、山脉、宗门大区等分区节点；
+          * "site": 具体场所、建筑、商铺、客栈、宅邸、地标等地图锚点（parentName 指向所属的 area 名称）；
+          * "interior": 场所内部的房间、楼层、包厢、内室等（parentName 指向所属的 site 名称）。
+      - 设施标签: 为每个场所挑选合适的设施标签（facilities），优先选用：餐饮、住宿、购物、交通、医疗、娱乐、办公、住宅、景观、学府、秘境、防务。
+      - 底图推荐: 从 "modern"（现代都市）、"modern-town"（现代小城）、"old-town"（古风城镇）、"palace"（宫苑庭院）、"terrain"（自然山野）、"sci-fi"（科幻设施）中选择最契合当前舞台的 basemap。
+  - 功能格式:
+      - 输出要求: 只输出合法的 JSON 格式，不要输出任何多余解释文本。
+      - JSON 格式: {"basemap":"modern|modern-town|old-town|palace|terrain|sci-fi","currentLocation":"当前主角所在地点名或空","places":[{"name":"地点名称","parentName":"上级地点名称或空","role":"area|site|interior","desc":"简短环境描述（30字以内）","facilities":["餐饮","住宿"],"relations":[{"targetName":"关联地点名","type":"邻近|相对|通往","note":"简短方位说明"}]}]}`;
+
 export const TODO_SUGGESTIONS_PROMPT = `[待办事项提取规则]
 - 功能: 从短信中自动分析并提取需办理的待办约定事项。
   - 功能介绍:
@@ -527,6 +544,20 @@ export const PROMPT_DEFINITIONS = [
     defaultPrompt: SCHEDULE_DEDUCE_PROMPT,
   },
   {
+    id: 'map_context',
+    title: '地图与位置线索注入',
+    category: '地图与场景',
+    description: '将主角当前所在位置、所属分区与周边场所作为空间背景线索注入对话。',
+    defaultPrompt: MAP_PROMPT,
+  },
+  {
+    id: 'map_organize',
+    title: 'AI 地图构想与整理',
+    category: '地图与场景',
+    description: '从世界书、正文与柏宝书场景中整理并构想区域、场所与室内三层地图结构。',
+    defaultPrompt: MAP_ORGANIZE_PROMPT,
+  },
+  {
     id: 'todo_suggestions',
     title: '待办事项提取规则',
     category: '待办与正文',
@@ -583,6 +614,8 @@ export const PROMPT_MACRO_MAP = {
   workday_holiday: '{{workday_holiday_prompt}}',
   festival_conceive: '{{festival_conceive_prompt}}',
   schedule_deduce: '{{schedule_deduce_prompt}}',
+  map_context: '{{map_prompt}}',
+  map_organize: '{{map_organize_prompt}}',
   todo_suggestions: '{{todo_suggestions_prompt}}',
   summary: '{{summary_prompt}}',
   rich_messages: '{{rich_messages_prompt}}',

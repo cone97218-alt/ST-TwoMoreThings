@@ -131,6 +131,7 @@ h3 { font-size: 14px; font-weight: 600; }
 .desktop-week-day.is-today small { color: inherit; }
 .desktop-week-day i { position: absolute; bottom: 4px; width: 2px; height: 2px; border-radius: 50%; background: currentColor; }
 .desktop-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.desktop-app[data-tab="map"] { grid-column: 3; grid-row: 1; }
 .desktop-app[data-tab="social"] { grid-column: 4; grid-row: 1; }
 .desktop-app[data-tab="messages"] { grid-column: 1; grid-row: 2; }
 .desktop-app[data-tab="forum"] { grid-column: 2; grid-row: 2; }
@@ -2119,6 +2120,719 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   font-size: 11px;
   color: var(--pp-muted);
 }
+
+/* ==================== 地图（千窗）模块样式 ==================== */
+.view-map {
+  width: 100%;
+  align-self: stretch;
+  padding: 12px 14px 18px;
+}
+
+.qc-map-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.qc-position-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  box-shadow: var(--pp-elevation-soft);
+}
+
+.qc-position-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.qc-position-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.qc-position-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.qc-position-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.qc-position-text small {
+  font-size: 10px;
+  color: var(--pp-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.qc-position-text strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pp-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-sync-tag {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 99px;
+  font-size: 9px;
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  font-weight: 500;
+}
+
+.qc-sync-tag.is-manual {
+  background: color-mix(in srgb, var(--pp-bronze) 18%, transparent);
+  color: var(--pp-bronze);
+}
+
+.qc-locate-btn {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  border: 1px solid var(--pp-divider-soft);
+  flex-shrink: 0;
+}
+
+.qc-sheets-bar {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.qc-sheets-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.qc-sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  color: var(--pp-muted);
+  white-space: nowrap;
+}
+
+.qc-sheet-tab.is-active {
+  background: var(--pp-active);
+  color: var(--pp-paper);
+  border-color: var(--pp-active);
+  font-weight: 500;
+}
+
+.qc-sheet-tab small {
+  font-size: 9.5px;
+  opacity: 0.8;
+}
+
+.qc-scope-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 4px;
+  color: var(--pp-muted);
+}
+
+.qc-crumb-btn {
+  font-size: 11px;
+  color: var(--pp-active);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.qc-crumb-btn.is-current {
+  color: var(--pp-ink);
+  font-weight: 600;
+}
+
+.qc-crumb-sep {
+  opacity: 0.5;
+}
+
+/* 底图视窗与 SVG 主题配色 */
+.qc-map-viewport {
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--pp-divider-soft);
+  background: var(--pp-surface);
+  box-shadow: var(--pp-elevation-soft);
+}
+
+.qc-map-canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  user-select: none;
+}
+
+.qc-basemap-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  --qc-bg-fill: #eceae0;
+  --qc-park-fill: #dce5d7;
+  --qc-water-fill: #cadce0;
+  --qc-block-fill: #f6f4ec;
+  --qc-block-stroke: #d5d3c8;
+  --qc-road-major: #ffffff;
+  --qc-road-minor: #f7f6f0;
+  --qc-wall-stroke: #a59882;
+}
+
+:host([data-theme="night"]) .qc-basemap-svg {
+  --qc-bg-fill: #112430;
+  --qc-park-fill: #17333b;
+  --qc-water-fill: #0b1a24;
+  --qc-block-fill: #193240;
+  --qc-block-stroke: #294656;
+  --qc-road-major: #2b4b5c;
+  --qc-road-minor: #213d4c;
+  --qc-wall-stroke: #6e7f88;
+}
+
+.qc-basemap-svg .qc-bg { fill: var(--qc-bg-fill); }
+.qc-basemap-svg .qc-park { fill: var(--qc-park-fill); opacity: 0.85; }
+.qc-basemap-svg .qc-water { fill: var(--qc-water-fill); }
+.qc-basemap-svg .qc-blocks rect,
+.qc-basemap-svg .qc-blocks polygon {
+  fill: var(--qc-block-fill);
+  stroke: var(--qc-block-stroke);
+  stroke-width: 3;
+}
+.qc-basemap-svg .qc-road-ring,
+.qc-basemap-svg .qc-road-major {
+  fill: none;
+  stroke: var(--qc-road-major);
+  stroke-width: 14;
+  stroke-linecap: round;
+}
+.qc-basemap-svg .qc-road-minor {
+  fill: none;
+  stroke: var(--qc-road-minor);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+.qc-basemap-svg .qc-wall {
+  fill: none;
+  stroke: var(--qc-wall-stroke);
+  stroke-width: 8;
+  stroke-dasharray: 18 8;
+}
+.qc-basemap-svg .qc-rail {
+  fill: none;
+  stroke: var(--qc-wall-stroke);
+  stroke-width: 5;
+  stroke-dasharray: 12 10;
+}
+
+.qc-region-poly {
+  fill: color-mix(in srgb, var(--pp-active) 7%, transparent);
+  stroke: color-mix(in srgb, var(--pp-active) 36%, transparent);
+  stroke-width: 3.5;
+  stroke-dasharray: 14 8;
+  stroke-linejoin: round;
+}
+
+.qc-region-group.is-current .qc-region-poly,
+.qc-region-group.is-selected .qc-region-poly {
+  fill: color-mix(in srgb, var(--pp-bronze) 12%, transparent);
+  stroke: var(--pp-bronze);
+  stroke-width: 4.5;
+}
+
+.qc-map-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.qc-area-label {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pp-paper) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pp-rule) 65%, transparent);
+  color: var(--pp-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: center;
+  backdrop-filter: blur(2px);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.qc-area-label:hover,
+.qc-area-label.is-selected,
+.qc-area-label.is-current {
+  color: var(--pp-ink);
+  border-color: var(--pp-bronze);
+  transform: scale(1.03);
+}
+
+.qc-area-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  z-index: 2;
+  transition: transform 0.16s ease;
+}
+
+.qc-pin:hover,
+.qc-pin.is-selected {
+  transform: translate(-50%, -54%) scale(1.08);
+  z-index: 4;
+}
+
+.qc-pin.is-current {
+  z-index: 5;
+}
+
+.qc-pin-avatar {
+  margin-bottom: 1px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+}
+
+.qc-pin-avatar .avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  border: 2px solid var(--pp-bronze);
+}
+
+.qc-pin-dot {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--pp-active);
+  border: 2px solid var(--pp-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.qc-pin.is-current .qc-pin-dot,
+.qc-pin.is-selected .qc-pin-dot {
+  background: var(--pp-bronze);
+  width: 13px;
+  height: 13px;
+}
+
+.qc-pin-badge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--pp-surface);
+}
+
+.qc-pin-badge.is-todo {
+  background: #e53935;
+}
+
+.qc-pin-badge.is-npc {
+  background: #2e7d32;
+  right: auto;
+  left: -5px;
+}
+
+.qc-pin-label {
+  max-width: 88px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--pp-surface) 92%, transparent);
+  border: 1px solid var(--pp-divider-soft);
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--pp-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.qc-pin.is-current .qc-pin-label,
+.qc-pin.is-selected .qc-pin-label {
+  border-color: var(--pp-bronze);
+  font-weight: 600;
+}
+
+.qc-map-caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 10px;
+  font-size: 10px;
+  color: var(--pp-muted);
+  border-top: 1px solid var(--pp-divider-soft);
+  background: var(--pp-surface-soft);
+}
+
+/* 地点目录与卡片 */
+.qc-directory-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qc-directory-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.qc-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--pp-divider-soft);
+  background: var(--pp-surface);
+  font-size: 12px;
+}
+
+.qc-back-scope-btn {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--pp-divider-soft);
+  background: var(--pp-surface);
+  font-size: 11px;
+  color: var(--pp-active);
+  white-space: nowrap;
+}
+
+.qc-directory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.qc-place-card {
+  border-radius: 11px;
+  border: 1px solid var(--pp-divider-soft);
+  background: var(--pp-surface);
+  overflow: hidden;
+}
+
+.qc-place-card.is-current,
+.qc-place-card.is-selected {
+  border-color: var(--pp-bronze);
+}
+
+.qc-place-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 10px;
+  user-select: none;
+}
+
+.qc-place-summary::-webkit-details-marker {
+  display: none;
+}
+
+.qc-place-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qc-place-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pp-ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qc-place-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.qc-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 500;
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+}
+
+.qc-badge.is-current {
+  background: var(--pp-bronze);
+  color: var(--pp-paper);
+}
+
+.qc-badge.role-area {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+}
+
+.qc-badge.is-baibai {
+  border: 1px solid var(--pp-divider-soft);
+}
+
+.qc-pill-count {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 99px;
+  background: var(--pp-pale);
+  color: var(--pp-active);
+}
+
+.qc-pill-count.is-todo {
+  background: var(--pp-error-surface);
+  color: var(--pp-error);
+}
+
+.qc-place-body {
+  padding: 0 10px 10px;
+  border-top: 1px dashed var(--pp-divider-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.qc-place-desc {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--pp-muted);
+  line-height: 1.5;
+}
+
+.qc-tag-row,
+.qc-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.qc-facility-tag {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+}
+
+.qc-meta-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.qc-meta-label {
+  font-size: 10px;
+  color: var(--pp-muted);
+  font-weight: 500;
+}
+
+.qc-entity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-divider-soft);
+}
+
+.qc-entity-chip small {
+  font-size: 9.5px;
+  color: var(--pp-muted);
+}
+
+.qc-interior-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qc-interior-item {
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--pp-surface-soft);
+  font-size: 11px;
+}
+
+.qc-interior-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qc-interior-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.qc-mini-btn {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--pp-active);
+}
+
+.qc-mini-btn.danger {
+  color: var(--pp-error);
+}
+
+.qc-interior-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--pp-muted);
+}
+
+.qc-place-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.qc-action-btn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  border: 1px solid var(--pp-divider-soft);
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+}
+
+.qc-action-btn.primary {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  font-weight: 500;
+}
+
+.qc-action-btn.danger {
+  color: var(--pp-error);
+}
+
+.qc-subplaces-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--pp-divider-soft);
+}
+
+.qc-empty-box {
+  padding: 18px 12px;
+  text-align: center;
+  border-radius: 12px;
+  border: 1px dashed var(--pp-divider-soft);
+  background: var(--pp-surface);
+  color: var(--pp-muted);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.qc-empty-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.qc-facility-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.qc-facility-pick-btn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  border: 1px solid var(--pp-divider-soft);
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+}
+
+.qc-facility-pick-btn.is-active {
+  background: var(--pp-active);
+  color: var(--pp-paper);
+  border-color: var(--pp-active);
+}
+
+.qc-ai-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  margin-bottom: 6px;
+}
+
 
 
 

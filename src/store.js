@@ -8,7 +8,7 @@ import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
 import { defaultGregorianCalendar, defaultWorkdayConfig } from './calendar-engine.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 
-const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, injectEnabled: false, injectCalendarEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, manualSummary: null });
+const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, map: { basemap: 'auto', currentLocation: '', items: [], deletedIds: [] }, injectEnabled: false, injectCalendarEnabled: false, injectMapEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, manualSummary: null });
 const fillDefaultAvatars = people => {
   let filled = people;
   for (let index = 0; index < people.length; index++) {
@@ -228,11 +228,37 @@ export function createPhoneStore({
       };
     }
 
+    // 6. 地图角色绑定 (characterMaps)
+    if (!phoneSettings.characterMaps) {
+      phoneSettings.characterMaps = {};
+    }
+    const boundMap = phoneSettings.characterMaps[charKey];
+    let map = raw?.map;
+    if (boundMap && (!raw?.map || (!raw.map.items?.length && boundMap.items?.length))) {
+      map = {
+        basemap: raw?.map?.basemap || boundMap.basemap || 'auto',
+        currentLocation: raw?.map?.currentLocation || '',
+        items: Array.isArray(raw?.map?.items) && raw.map.items.length > 0
+          ? raw.map.items
+          : (Array.isArray(boundMap.items) ? structuredClone(boundMap.items) : []),
+        deletedIds: Array.isArray(raw?.map?.deletedIds) && raw.map.deletedIds.length > 0
+          ? raw.map.deletedIds
+          : (Array.isArray(boundMap.deletedIds) ? structuredClone(boundMap.deletedIds) : []),
+      };
+    } else if (raw?.map && (raw.map.items?.length || raw.map.basemap)) {
+      phoneSettings.characterMaps[charKey] = {
+        basemap: raw.map.basemap || 'auto',
+        items: Array.isArray(raw.map.items) ? structuredClone(raw.map.items) : [],
+        deletedIds: Array.isArray(raw.map.deletedIds) ? structuredClone(raw.map.deletedIds) : [],
+      };
+      globalChanged = true;
+    }
+
     if (globalChanged) {
       void saveGlobalExtensionSettings();
     }
 
-    const needsMerge = prompts !== undefined || promptPresets !== undefined || activePresetId !== undefined || calendar !== raw?.calendar;
+    const needsMerge = prompts !== undefined || promptPresets !== undefined || activePresetId !== undefined || calendar !== raw?.calendar || map !== raw?.map;
 
     if (!needsMerge) {
       if (raw === undefined) return empty;
@@ -246,6 +272,7 @@ export function createPhoneStore({
       ...(promptPresets !== undefined ? { promptPresets: normalizePromptPresets(promptPresets) } : {}),
       ...(activePresetId !== undefined ? { activePresetId } : {}),
       ...(calendar !== undefined ? { calendar } : {}),
+      ...(map !== undefined ? { map } : {}),
     };
   };
   // Serialize normal phone saves so sending while a reply arrives keeps both changes.
@@ -320,6 +347,20 @@ export function createPhoneStore({
                 ? structuredClone(next.calendar.items.filter(it => !it.todoId))
                 : [],
             };
+            globalChanged = true;
+          }
+        }
+
+        // 6. 地图角色绑定同步
+        if (next.map && (Array.isArray(next.map.items) || next.map.basemap)) {
+          if (!phoneSettings.characterMaps) phoneSettings.characterMaps = {};
+          const nextMapBound = {
+            basemap: next.map.basemap || 'auto',
+            items: Array.isArray(next.map.items) ? structuredClone(next.map.items) : [],
+            deletedIds: Array.isArray(next.map.deletedIds) ? structuredClone(next.map.deletedIds) : [],
+          };
+          if (JSON.stringify(phoneSettings.characterMaps[charKey] || {}) !== JSON.stringify(nextMapBound)) {
+            phoneSettings.characterMaps[charKey] = nextMapBound;
             globalChanged = true;
           }
         }
@@ -1181,6 +1222,164 @@ export function createPhoneStore({
     },
     setInjectionEnabled(enabled) { return update(state => ({ ...state, injectEnabled: Boolean(enabled) })); },
     setInjectCalendarEnabled(enabled) { return update(state => ({ ...state, injectCalendarEnabled: Boolean(enabled) })); },
+    setInjectMapEnabled(enabled) { return update(state => ({ ...state, injectMapEnabled: Boolean(enabled) })); },
+    setMapBasemap(basemap) {
+      const value = String(basemap || 'auto').trim() || 'auto';
+      return update(state => ({
+        ...state,
+        map: {
+          ...(state.map || { items: [], deletedIds: [] }),
+          basemap: value,
+        },
+      }));
+    },
+    setMapCurrentLocation(location) {
+      const value = String(location ?? '').trim();
+      return update(state => ({
+        ...state,
+        map: {
+          ...(state.map || { basemap: 'auto', items: [], deletedIds: [] }),
+          currentLocation: value,
+        },
+      }));
+    },
+    saveMapPlace(place = {}) {
+      const name = String(place.name || '').trim();
+      if (!name) throw new Error('请填写地点名称。');
+      const id = String(place.id || `place:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`).trim();
+      const parentId = String(place.parentId || '').trim();
+      const role = ['area', 'site', 'interior'].includes(place.role) ? place.role : 'site';
+      const desc = String(place.desc || '').trim();
+      const facilities = Array.isArray(place.facilities)
+        ? place.facilities.map(s => String(s).trim()).filter(Boolean)
+        : String(place.facilities || '').split(/[,，、\s]+/).map(s => s.trim()).filter(Boolean);
+      const relations = Array.isArray(place.relations)
+        ? place.relations
+          .map(r => ({
+            targetName: String(r?.targetName || r?.place || '').trim(),
+            type: String(r?.type || '邻近').trim(),
+            note: String(r?.note || '').trim(),
+          }))
+          .filter(r => r.targetName)
+        : [];
+      return update(state => {
+        const map = state.map || { basemap: 'auto', currentLocation: '', items: [], deletedIds: [] };
+        const items = Array.isArray(map.items) ? [...map.items] : [];
+        const deletedIds = (Array.isArray(map.deletedIds) ? map.deletedIds : []).filter(d => d !== id);
+        const newEntry = {
+          id,
+          name,
+          parentId: parentId === id ? '' : parentId,
+          role,
+          desc,
+          facilities,
+          relations,
+          source: 'custom',
+        };
+        const idx = items.findIndex(it => it.id === id);
+        if (idx >= 0) {
+          items[idx] = { ...items[idx], ...newEntry };
+        } else {
+          items.push(newEntry);
+        }
+        return {
+          ...state,
+          map: {
+            ...map,
+            items,
+            deletedIds,
+          },
+        };
+      });
+    },
+    deleteMapPlace(id) {
+      const targetId = String(id || '').trim();
+      if (!targetId) return update(s => s);
+      return update(state => {
+        const map = state.map || { basemap: 'auto', currentLocation: '', items: [], deletedIds: [] };
+        const items = (Array.isArray(map.items) ? map.items : [])
+          .filter(it => it.id !== targetId)
+          .map(it => (it.parentId === targetId ? { ...it, parentId: '' } : it));
+        const deletedIds = Array.isArray(map.deletedIds) ? [...map.deletedIds] : [];
+        if ((targetId.startsWith('baibai:') || targetId.startsWith('live:')) && !deletedIds.includes(targetId)) {
+          deletedIds.push(targetId);
+        }
+        return {
+          ...state,
+          map: {
+            ...map,
+            currentLocation: map.currentLocation === targetId ? '' : map.currentLocation,
+            items,
+            deletedIds,
+          },
+        };
+      });
+    },
+    restoreDeletedMapPlaces() {
+      return update(state => ({
+        ...state,
+        map: {
+          ...(state.map || { basemap: 'auto', currentLocation: '', items: [] }),
+          deletedIds: [],
+        },
+      }));
+    },
+    saveMapFromAi({ basemap = '', currentLocation = '', places = [] } = {}, { mode = 'merge' } = {}) {
+      if (!Array.isArray(places) || !places.length) return update(s => s);
+      return update(state => {
+        const map = state.map || { basemap: 'auto', currentLocation: '', items: [], deletedIds: [] };
+        const baseItems = mode === 'replace' ? [] : (Array.isArray(map.items) ? [...map.items] : []);
+        const nameToId = new Map(baseItems.map(it => [String(it.name || '').trim().toLowerCase(), it.id]));
+
+        // 第一遍：分配/复用 ID
+        const staged = places.map((p, idx) => {
+          const name = String(p?.name || '').trim();
+          if (!name) return null;
+          const key = name.toLowerCase();
+          const existingId = nameToId.get(key);
+          const id = existingId || String(p.id || `place:${Date.now().toString(36)}:${idx}`);
+          nameToId.set(key, id);
+          return {
+            id,
+            name,
+            parentName: String(p.parentName || '').trim(),
+            parentId: String(p.parentId || '').trim(),
+            role: ['area', 'site', 'interior'].includes(p.role) ? p.role : 'site',
+            desc: String(p.desc || '').trim(),
+            facilities: Array.isArray(p.facilities) ? p.facilities.map(s => String(s).trim()).filter(Boolean) : [],
+            relations: Array.isArray(p.relations) ? p.relations : [],
+            source: 'ai',
+          };
+        }).filter(Boolean);
+
+        // 第二遍：将 parentName 解析为 parentId
+        for (const item of staged) {
+          if (!item.parentId && item.parentName) {
+            const pid = nameToId.get(item.parentName.toLowerCase()) || '';
+            if (pid && pid !== item.id) {
+              item.parentId = pid;
+            }
+          }
+          delete item.parentName;
+          const idx = baseItems.findIndex(b => b.id === item.id);
+          if (idx >= 0) {
+            baseItems[idx] = { ...baseItems[idx], ...item };
+          } else {
+            baseItems.push(item);
+          }
+        }
+
+        return {
+          ...state,
+          map: {
+            ...map,
+            basemap: basemap || map.basemap || 'auto',
+            currentLocation: currentLocation || map.currentLocation || '',
+            items: baseItems,
+          },
+        };
+      });
+    },
     setContactSocialEnabled(enabled) { return update(state => ({ ...state, contactSocialEnabled: Boolean(enabled) })); },
     setGroupSocialEnabled(enabled) { return update(state => ({ ...state, groupSocialEnabled: Boolean(enabled) })); },
     setSummaryMode(mode) { return update(state => ({ ...state, summaryMode: mode === 'manual' ? 'manual' : 'auto' })); },

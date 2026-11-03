@@ -18,6 +18,7 @@ import { readLockWeather } from './weather.js';
 import { createAuthoringService, stateFromPreset } from './authoring.js';
 import { createCalendarReader } from './calendar.js';
 import { createCalendarAiService } from './calendar-ai.js';
+import { createMapAiService } from './map-ai.js';
 import { logger, detectRequestTitle } from './logger.js';
 import { createSocialService } from './social.js';
 import { createImageFiles } from './image-files.js';
@@ -116,12 +117,14 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
     const memorySources = createMemorySources({ target, qqjBridgeProvider, settingsProvider: host.readSettings });
     const contextReader = createContextReader({ target, store, qqjBridgeProvider, calendar, wrapperSettingsProvider, memorySources });
     const calendarAi = createCalendarAiService({ contextReader, modelClient, target, store });
+    const mapAi = createMapAiService({ contextReader, modelClient, target, store });
     currentPhone = mountPhone({ mount: documentRef.documentElement, store, qqjBridgeProvider, defaultUser: target.user, readTime: () => readPhoneTime(target.messages), readTimeline: () => readTimeline(target.messages),
+      readChatMessages: () => target.messages,
       host,
       messages: createMessageService({ target, store, contextReader, modelClient }),
       groups: createGroupService({ target, store, contextReader, modelClient }),
       directory: createDirectoryService({ store, contextReader, modelClient }),
-      forum: createForumService({ store, contextReader, modelClient }), apiSettings, calendar, calendarAi, logger,
+      forum: createForumService({ store, contextReader, modelClient }), apiSettings, calendar, calendarAi, mapAi, logger,
       previewBackflow: async () => {
         const backflowService = createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar, memorySources, qqjBridgeProvider, host });
         return await backflowService.prepare('normal');

@@ -177,7 +177,7 @@ export function renderPromptSettings(state, ui) {
 
 export function renderPromptLibrarySettings(state, ui) {
   const allPrompts = getAllPrompts(state);
-  const categories = ['全部', '短信与通讯', '群聊', '社交与论坛', '日历与日程', '待办与正文', '通用规则', '小游戏'];
+  const categories = ['全部', '短信与通讯', '群聊', '社交与论坛', '日历与日程', '地图与场景', '待办与正文', '通用规则', '小游戏'];
   const activeCategory = ui.promptCategory || '全部';
   const customCount = allPrompts.filter(p => p.isCustom).length;
   const search = (ui.promptSearch || '').trim().toLowerCase();
@@ -245,7 +245,7 @@ export function renderPromptLibrarySettings(state, ui) {
 export function renderLogSettings(state, ui, { logger, backflowPreview } = {}) {
   const logs = logger?.getLogs?.() || [];
   const lastBackflow = backflowPreview !== undefined ? backflowPreview : (logger?.getLastBackflowPrompt?.() || '');
-  const isInjectEnabled = Boolean(state?.injectEnabled || state?.injectCalendarEnabled);
+  const isInjectEnabled = Boolean(state?.injectEnabled || state?.injectCalendarEnabled || state?.injectMapEnabled);
   const isBackflowExpanded = Boolean(ui.backflowExpanded);
 
   return `<div class="logs-manager">
@@ -538,6 +538,13 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
     <span>工作日/作息带入正文</span>
     <span class="switch">
       <input id="workday-enabled" type="checkbox" role="switch" aria-label="工作日/作息带入正文" ${state.calendar?.workdayConfig?.injectStory ? 'checked' : ''}>
+      <span></span>
+    </span>
+  </label>
+  <label class="compact-switch-row">
+    <span>地图位置带入正文</span>
+    <span class="switch">
+      <input id="inject-map-enabled" type="checkbox" role="switch" aria-label="地图位置带入正文" ${state.injectMapEnabled ? 'checked' : ''}>
       <span></span>
     </span>
   </label>

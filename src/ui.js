@@ -16,6 +16,8 @@ import { readLockWeather } from './weather.js';
 import { renderAuthoring } from './ui/authoring.js';
 import { LOCAL_CORE_URL, REMOTE_CORE_URL } from './authoring.js';
 import { renderCalendar } from './ui/calendar.js';
+import { renderMap } from './ui/map.js';
+import { buildMapProjection, readBaiBaiBookMapSnapshot } from './map-engine.js';
 import { createCalendarReader } from './calendar.js';
 import { defaultWorkdayConfig } from './calendar-engine.js';
 import { mountChatParticles } from './ui/particles.js';
@@ -51,6 +53,7 @@ const apps = [
   { id: 'messages', label: '短信', view: 'inbox' },
   { id: 'forum', label: '论坛', view: 'forum' },
   { id: 'calendar', label: '日历', view: 'calendar' },
+  { id: 'map', label: '地图', view: 'map' },
   { id: 'settings', label: '设置', view: 'settings' },
   { id: 'social', label: 'ainstgram', view: 'social' },
 ];
@@ -70,11 +73,12 @@ const pages = {
   authoring: renderAuthoring,
   calendar: renderCalendar,
   todos: renderCalendar,
+  map: renderMap,
   social: renderSocial,
   'social-profile': renderSocialProfile,
 };
 
-export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, logger = null, previewBackflow = null, summarizeBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {}, host }) {
+export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, mapAi = { async organizeMap() { return { places: [] }; } }, readChatMessages = () => [], logger = null, previewBackflow = null, summarizeBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {}, host }) {
   const doc = mount.ownerDocument;
   const element = doc.createElement('div');
   element.id = mode === 'embedded' ? 'pocket-phone-card-host' : 'pocket-phone-host';
@@ -122,6 +126,9 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     calendarSettingsOpen: false, calendarAiOpen: false, calendarAiTab: 'festivals',
     calendarAiSetting: '', calendarAiCount: 3, calendarAiDays: 3, calendarAiFocus: '全部',
     calendarAiFestivals: [], calendarAiSchedules: [], calendarAiBusy: false,
+    mapSheetId: '', mapScopeId: '', mapSelectedPlaceId: '', mapSearch: '',
+    mapFormOpen: false, mapDraft: null, mapSettingsOpen: false,
+    mapAiModalOpen: false, mapAiInstruction: '', mapAiResults: null,
     todoEditing: new Set(), todoDrafts: new Map(),
     activeGame: null, activeGameMessageId: '', gameBoardFolded: false, gameGuideOpen: false, gameGuideTab: 'guide',
     replyToId: '',
@@ -271,6 +278,12 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       start: previousExcludeWorldSearch.selectionStart,
       end: previousExcludeWorldSearch.selectionEnd,
     };
+    const previousMapSearch = root.querySelector('[data-action="search-map-places"]');
+    const mapSearchSelection = previousMapSearch && (root.activeElement === previousMapSearch) && {
+      text: previousMapSearch.value,
+      start: previousMapSearch.selectionStart,
+      end: previousMapSearch.selectionEnd,
+    };
     const scrollTop = inChat() ? root.querySelector('.message-feed')?.scrollTop : undefined;
     const settingsScroll = ui.savedSettingsScroll !== undefined ? ui.savedSettingsScroll : root.querySelector('.view-settings')?.scrollTop;
     const promptCardsScroll = ui.savedPromptCardsScroll !== undefined ? ui.savedPromptCardsScroll : root.querySelector('.prompt-cards-list')?.scrollTop;
@@ -321,8 +334,18 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     const calendarMonth = ui.view === 'calendar'
       ? calendar.month(ui.calendarOffset)
       : ui.view === 'desktop' ? calendar.month(0) : null;
+    const mapProjection = ui.view === 'map'
+      ? buildMapProjection({
+          state,
+          baibaiSnapshot: readBaiBaiBookMapSnapshot(doc.defaultView || globalThis),
+          messages: readChatMessages(),
+          activeSheetId: ui.mapSheetId,
+          scopePlaceId: ui.mapScopeId,
+          searchQuery: ui.mapSearch,
+        })
+      : null;
     surface.innerHTML = renderShell({
-      content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview, host }),
+      content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, mapProjection, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview, host }),
       view: ui.view, enabled, weather,
       feedback: ui.feedback, photo: ui.photo,
       conflict: ui.conflict, mode, conflictBusy: busy.has('conflict'),
@@ -378,6 +401,13 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       if (searchInput && searchInput.value === excludeWorldSearchSelection.text) {
         searchInput.focus({ preventScroll: true });
         searchInput.setSelectionRange(excludeWorldSearchSelection.start, excludeWorldSearchSelection.end);
+      }
+    }
+    if (mapSearchSelection) {
+      const searchInput = root.querySelector('[data-action="search-map-places"]');
+      if (searchInput && searchInput.value === mapSearchSelection.text) {
+        searchInput.focus({ preventScroll: true });
+        searchInput.setSelectionRange(mapSearchSelection.start, mapSearchSelection.end);
       }
     }
     chatScroll.attach();
@@ -1631,6 +1661,193 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         void perform('calendar-event', () => store.deleteCalendarEvent(eventId), onContextChange);
         break;
       }
+      case 'open-map-form': {
+        const parentId = button.dataset.parentId || ui.mapScopeId || '';
+        ui.mapDraft = {
+          id: '',
+          name: '',
+          role: parentId ? 'site' : 'area',
+          parentId,
+          desc: '',
+          facilities: [],
+          setAsCurrent: false,
+        };
+        ui.mapFormOpen = true;
+        render();
+        break;
+      }
+      case 'close-map-form': {
+        if (event.target !== button && !event.target.closest('[data-action="close-map-form"]')) break;
+        ui.mapFormOpen = false;
+        ui.mapDraft = null;
+        render();
+        break;
+      }
+      case 'toggle-map-draft-facility': {
+        const fac = button.dataset.facility;
+        if (!fac || !ui.mapDraft) break;
+        const form = root.querySelector('[data-map-form]');
+        if (form) {
+          ui.mapDraft.name = form.elements.name?.value || ui.mapDraft.name;
+          ui.mapDraft.role = form.elements.role?.value || ui.mapDraft.role;
+          ui.mapDraft.parentId = form.elements.parentId?.value ?? ui.mapDraft.parentId;
+          ui.mapDraft.desc = form.elements.desc?.value ?? ui.mapDraft.desc;
+          ui.mapDraft.setAsCurrent = Boolean(form.elements.setAsCurrent?.checked);
+        }
+        const list = Array.isArray(ui.mapDraft.facilities) ? [...ui.mapDraft.facilities] : [];
+        const idx = list.indexOf(fac);
+        if (idx >= 0) list.splice(idx, 1);
+        else list.push(fac);
+        ui.mapDraft.facilities = list;
+        render();
+        break;
+      }
+      case 'edit-map-place': {
+        const placeId = button.dataset.placeId;
+        if (!placeId) break;
+        const proj = buildMapProjection({
+          state: store.read(),
+          baibaiSnapshot: readBaiBaiBookMapSnapshot(doc.defaultView || globalThis),
+          messages: readChatMessages(),
+        });
+        const targetPlace = proj.places.find(p => p.id === placeId);
+        if (targetPlace) {
+          ui.mapDraft = {
+            id: targetPlace.id,
+            name: targetPlace.name,
+            role: targetPlace.role || 'site',
+            parentId: targetPlace.parentId || '',
+            desc: targetPlace.desc || '',
+            facilities: [...(targetPlace.facilities || [])],
+            setAsCurrent: proj.userPosition?.placeId === targetPlace.id,
+          };
+          ui.mapFormOpen = true;
+          render();
+        }
+        break;
+      }
+      case 'delete-map-place': {
+        const placeId = button.dataset.placeId;
+        if (!placeId) break;
+        void perform('map-place', () => store.deleteMapPlace(placeId), () => {
+          if (ui.mapSelectedPlaceId === placeId) ui.mapSelectedPlaceId = '';
+          if (ui.mapScopeId === placeId) ui.mapScopeId = '';
+          onContextChange();
+        });
+        break;
+      }
+      case 'set-map-current': {
+        const placeId = button.dataset.placeId;
+        if (!placeId) break;
+        void perform('map-current', () => store.setMapCurrentLocation(placeId), () => {
+          ui.mapSelectedPlaceId = placeId;
+          ui.feedback = { text: '已更新当前所在位置。' };
+          onContextChange();
+        });
+        break;
+      }
+      case 'clear-map-manual-location': {
+        void perform('map-current', () => store.setMapCurrentLocation(''), () => {
+          ui.feedback = { text: '已恢复自动跟随剧情位置。' };
+          onContextChange();
+        });
+        break;
+      }
+      case 'restore-deleted-map-places': {
+        void perform('map-restore', () => store.restoreDeletedMapPlaces(), () => {
+          ui.feedback = { text: '已恢复所有隐藏的自动同步场景。' };
+          onContextChange();
+        });
+        break;
+      }
+      case 'locate-current-place': {
+        const placeId = button.dataset.placeId;
+        if (!placeId) break;
+        ui.mapSelectedPlaceId = placeId;
+        ui.mapScopeId = '';
+        render();
+        const card = root.querySelector(`[data-place-card="${CSS.escape(placeId)}"]`);
+        card?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+        break;
+      }
+      case 'select-map-place': {
+        const placeId = button.dataset.placeId;
+        if (!placeId) break;
+        ui.mapSelectedPlaceId = placeId;
+        if (!button.matches('summary')) {
+          render();
+          const card = root.querySelector(`[data-place-card="${CSS.escape(placeId)}"]`);
+          card?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+        }
+        break;
+      }
+      case 'select-map-sheet': {
+        const sheetId = button.dataset.sheetId || '';
+        ui.mapSheetId = sheetId;
+        ui.mapScopeId = '';
+        render();
+        break;
+      }
+      case 'drill-map-scope': {
+        const scopeId = button.dataset.scopeId ?? '';
+        ui.mapScopeId = scopeId;
+        ui.mapSelectedPlaceId = scopeId;
+        render();
+        break;
+      }
+      case 'open-map-settings': {
+        ui.mapSettingsOpen = true;
+        render();
+        break;
+      }
+      case 'close-map-settings': {
+        if (event.target !== button && !event.target.closest('[data-action="close-map-settings"]')) break;
+        ui.mapSettingsOpen = false;
+        render();
+        break;
+      }
+      case 'open-map-ai': {
+        ui.mapAiModalOpen = true;
+        render();
+        break;
+      }
+      case 'close-map-ai': {
+        if (event.target !== button && !event.target.closest('[data-action="close-map-ai"]')) break;
+        ui.mapAiModalOpen = false;
+        render();
+        break;
+      }
+      case 'run-map-ai': {
+        const instInput = root.querySelector('#map-ai-instruction');
+        if (instInput) ui.mapAiInstruction = instInput.value;
+        void perform('map-ai', async () => {
+          ui.mapAiResults = await mapAi.organizeMap({ instruction: ui.mapAiInstruction });
+        });
+        break;
+      }
+      case 'save-map-ai-results': {
+        const results = ui.mapAiResults;
+        if (!results || !Array.isArray(results.places)) break;
+        const selectedPlaces = results.places.filter(p => p.selected !== false);
+        if (!selectedPlaces.length) {
+          ui.feedback = { error: true, text: '请至少勾选一处要应用的地点。' };
+          render();
+          break;
+        }
+        const modeSelect = root.querySelector('#map-ai-save-mode');
+        const mode = modeSelect?.value === 'replace' ? 'replace' : 'merge';
+        void perform('map-ai-save', () => store.saveMapFromAi({
+          basemap: results.basemap,
+          currentLocation: results.currentLocation,
+          places: selectedPlaces,
+        }, { mode }), () => {
+          ui.mapAiModalOpen = false;
+          ui.mapAiResults = null;
+          ui.feedback = { text: `已将 ${selectedPlaces.length} 处地点应用到地图。` };
+          onContextChange();
+        });
+        break;
+      }
       case 'add-workday-slot': {
         const state = store.read();
         const cal = state.calendar || {};
@@ -2638,6 +2855,12 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (event.target.id === 'cal-ai-count') ui.calendarAiCount = Number(event.target.value);
     if (event.target.id === 'cal-ai-days') ui.calendarAiDays = Number(event.target.value);
     if (event.target.id === 'cal-ai-focus') ui.calendarAiFocus = event.target.value;
+    if (event.target.id === 'map-ai-instruction') ui.mapAiInstruction = event.target.value;
+    if (event.target.matches('[data-action="search-map-places"]')) {
+      ui.mapSearch = event.target.value;
+      render();
+      return;
+    }
     if (event.target.closest('.attachment-form') && event.target.name) ui.attachmentDraft[event.target.name] = event.target.value;
     if (event.target.id === 'sms-draft') {
       ui.drafts.set(conversationId(), event.target.value);
@@ -2777,6 +3000,20 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (event.target.id === 'inject-calendar-enabled') {
       const enabled = event.target.checked;
       void perform('injection-calendar', async () => { await store.setInjectCalendarEnabled(enabled); onContextChange(); });
+    }
+    if (event.target.id === 'inject-map-enabled' || event.target.matches('[data-action="toggle-map-inject"]')) {
+      const enabled = event.target.checked;
+      void perform('injection-map', async () => { await store.setInjectMapEnabled(enabled); onContextChange(); });
+    }
+    if (event.target.matches('[data-action="change-map-basemap"]')) {
+      const val = event.target.value || 'auto';
+      void perform('map-basemap', async () => { await store.setMapBasemap(val); onContextChange(); });
+    }
+    if (event.target.matches('[data-action="toggle-map-ai-item"]')) {
+      const idx = Number(event.target.dataset.index);
+      if (ui.mapAiResults?.places?.[idx]) {
+        ui.mapAiResults.places[idx].selected = event.target.checked;
+      }
     }
     if (event.target.id === 'workday-enabled') {
       const enabled = event.target.checked;
@@ -2953,6 +3190,36 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         onContextChange();
       });
     }
+    if (event.target.matches('[data-map-form]')) {
+      const form = event.target;
+      const pickedFacilities = Array.isArray(ui.mapDraft?.facilities) ? ui.mapDraft.facilities : [];
+      const customFacilities = String(form.elements.facilitiesCustom?.value || '')
+        .split(/[,，、\s]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const facilities = [...new Set([...pickedFacilities, ...customFacilities])];
+      const placeDraft = {
+        id: form.elements.id?.value || ui.mapDraft?.id || '',
+        name: form.elements.name?.value || '',
+        role: form.elements.role?.value || 'site',
+        parentId: form.elements.parentId?.value || '',
+        desc: form.elements.desc?.value || '',
+        facilities,
+      };
+      const setAsCurrent = Boolean(form.elements.setAsCurrent?.checked);
+      void perform('map-place', async () => {
+        const nextState = await store.saveMapPlace(placeDraft);
+        if (setAsCurrent) {
+          const saved = (nextState?.map?.items || []).find(it => it.name === placeDraft.name.trim());
+          await store.setMapCurrentLocation(saved?.id || placeDraft.name.trim());
+        }
+      }, () => {
+        ui.mapFormOpen = false;
+        ui.mapDraft = null;
+        ui.feedback = { text: '地点已保存。' };
+        onContextChange();
+      });
+    }
     if (event.target.matches('[data-calendar-settings-form]')) {
       const form = event.target;
       const country = form.elements.country?.value || 'china';
@@ -3013,7 +3280,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     render();
   }
   const refreshCalendar = () => {
-    if (!element.hidden && ['calendar', 'desktop'].includes(ui.view)) render();
+    if (!element.hidden && ['calendar', 'desktop', 'map'].includes(ui.view)) render();
   };
   const rememberMembersFold = event => { if (event.target.matches?.('.group-members-fold')) ui.groupMembersOpen = event.target.open; };
   const unsubscribeAppearance = appearance.subscribe(() => {
@@ -3091,7 +3358,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     refreshTime() {
       clock.refresh();
       if (element.hidden) return;
-      if (inChat() || ['calendar', 'desktop'].includes(ui.view)) render();
+      if (inChat() || ['calendar', 'desktop', 'map'].includes(ui.view)) render();
       if (ui.view === 'home') {
         const weather = readWeather(), label = root.querySelector('.lock-weather');
         label.title = weather.source === 'decoration' ? '装饰天气' : '构画剧情天气';

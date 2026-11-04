@@ -309,3 +309,21 @@ test('map: default view auto-descends into a single city and keeps districts as 
   assert.ok(edit.includes('data-action="edit-map-place"'));
   assert.ok(edit.includes('data-action="delete-map-place"'));
 });
+
+test('map-engine: AI/custom places merge into the BaiBai hierarchy instead of duplicating or orphaning', () => {
+  const baibai = { location: '西市坊', locationPath: ['长安城', '西市坊'], scenes: [
+    { id: 's1', name: '长安城', path: ['长安城'], parentId: '' },
+    { id: 's2', name: '西市坊', path: ['长安城', '西市坊'], parentId: 's1' },
+  ], npcs: [], items: [] };
+  const state = { map: { basemap: 'auto', currentLocation: '', deletedIds: [], items: [
+    { id: 'ai:1', name: '西市坊', role: 'area', parentId: '', source: 'ai' },
+    { id: 'ai:2', name: '悦来客栈', role: 'site', parentId: 'ai:1', source: 'ai' },
+  ] } };
+  const proj = buildMapProjection({ state, baibaiSnapshot: baibai });
+  const west = proj.places.filter(p => p.name === '西市坊');
+  assert.equal(west.length, 1);
+  assert.equal(west[0].parentId, 'baibai:s1');
+  const inn = proj.places.find(p => p.name === '悦来客栈');
+  assert.equal(inn.parentId, west[0].id);
+  assert.equal(proj.userPosition.placeId, west[0].id);
+});

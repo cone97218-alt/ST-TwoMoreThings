@@ -579,6 +579,21 @@ export function mergeMapPlaces({
     registerPlace(place);
   }
 
+  // 1.5 自定义/AI 地点按父链推出完整路径，便于与柏宝书同路径地点对齐，避免重复
+  for (const place of byId.values()) {
+    if (place.path.length) continue;
+    const names = [];
+    const seen = new Set();
+    let cur = place;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      names.unshift(cur.name);
+      cur = cur.parentId ? byId.get(cur.parentId) : null;
+    }
+    place.path = names;
+    place.pathKey = names.map(normKey).join('/');
+    byPathKey.set(place.pathKey, place);
+  }
   // 2. 合并柏宝书 (STBaiBaiBook) 的 scenes 层级树
   const scenes = Array.isArray(baibaiSnapshot?.scenes) ? baibaiSnapshot.scenes : [];
   const baibaiIdToPlaceId = new Map();
@@ -599,12 +614,34 @@ export function mergeMapPlaces({
     const pathKey = pathArr.map(normKey).join('/');
 
     let existing = byId.get(syntheticId) || byPathKey.get(pathKey);
-    if (!existing && pathArr.length === 1) {
-      existing = byNameKey.get(normKey(name));
+    let nameMatched = false;
+    if (!existing) {
+      // 同名且全局唯一的 AI/自定义地点视为同一个地点（柏宝书层级为准）
+      const byName = byNameKey.get(normKey(name));
+      if (byName && byName.source !== 'baibai' && !byName.baibaiId) {
+        existing = byName;
+        nameMatched = true;
+      }
     }
 
     if (existing) {
       if (!existing.desc && scene.desc) existing.desc = String(scene.desc).trim();
+      existing.baibaiId = existing.baibaiId || rawId;
+      if (nameMatched) {
+        // 按柏宝书的路径重新挂载层级，保证 AI 生成的地点与剧情记录的层级一致
+        let parentPlaceId = '';
+        if (scene.parentId && baibaiIdToPlaceId.has(String(scene.parentId))) {
+          parentPlaceId = baibaiIdToPlaceId.get(String(scene.parentId));
+        } else if (pathArr.length > 1) {
+          parentPlaceId = (byPathKey.get(pathArr.slice(0, -1).map(normKey).join('/')) || {}).id || '';
+        }
+        if (parentPlaceId && parentPlaceId !== existing.id && (!existing.parentId || existing.source === 'ai')) {
+          existing.parentId = parentPlaceId;
+        }
+        existing.path = pathArr;
+        existing.pathKey = pathKey;
+        byPathKey.set(pathKey, existing);
+      }
       if (!existing.path.length) existing.path = pathArr;
       if (!existing.pathKey) {
         existing.pathKey = pathKey;

@@ -228,31 +228,8 @@ export function createPhoneStore({
       };
     }
 
-    // 6. 地图角色绑定 (characterMaps)
-    if (!phoneSettings.characterMaps) {
-      phoneSettings.characterMaps = {};
-    }
-    const boundMap = phoneSettings.characterMaps[charKey];
-    let map = raw?.map;
-    if (boundMap && (!raw?.map || (!raw.map.items?.length && boundMap.items?.length))) {
-      map = {
-        basemap: raw?.map?.basemap || boundMap.basemap || 'auto',
-        currentLocation: raw?.map?.currentLocation || '',
-        items: Array.isArray(raw?.map?.items) && raw.map.items.length > 0
-          ? raw.map.items
-          : (Array.isArray(boundMap.items) ? structuredClone(boundMap.items) : []),
-        deletedIds: Array.isArray(raw?.map?.deletedIds) && raw.map.deletedIds.length > 0
-          ? raw.map.deletedIds
-          : (Array.isArray(boundMap.deletedIds) ? structuredClone(boundMap.deletedIds) : []),
-      };
-    } else if (raw?.map && (raw.map.items?.length || raw.map.basemap)) {
-      phoneSettings.characterMaps[charKey] = {
-        basemap: raw.map.basemap || 'auto',
-        items: Array.isArray(raw.map.items) ? structuredClone(raw.map.items) : [],
-        deletedIds: Array.isArray(raw.map.deletedIds) ? structuredClone(raw.map.deletedIds) : [],
-      };
-      globalChanged = true;
-    }
+    // 地图数据只属于当前聊天：新聊天从空白开始，不再按角色卡绑定或回灌。
+    const map = raw?.map;
 
     if (globalChanged) {
       void saveGlobalExtensionSettings();
@@ -347,20 +324,6 @@ export function createPhoneStore({
                 ? structuredClone(next.calendar.items.filter(it => !it.todoId))
                 : [],
             };
-            globalChanged = true;
-          }
-        }
-
-        // 6. 地图角色绑定同步
-        if (next.map && (Array.isArray(next.map.items) || next.map.basemap)) {
-          if (!phoneSettings.characterMaps) phoneSettings.characterMaps = {};
-          const nextMapBound = {
-            basemap: next.map.basemap || 'auto',
-            items: Array.isArray(next.map.items) ? structuredClone(next.map.items) : [],
-            deletedIds: Array.isArray(next.map.deletedIds) ? structuredClone(next.map.deletedIds) : [],
-          };
-          if (JSON.stringify(phoneSettings.characterMaps[charKey] || {}) !== JSON.stringify(nextMapBound)) {
-            phoneSettings.characterMaps[charKey] = nextMapBound;
             globalChanged = true;
           }
         }
@@ -1388,7 +1351,7 @@ export function createPhoneStore({
           map: {
             ...map,
             basemap: basemap || map.basemap || 'auto',
-            currentLocation: currentLocation || map.currentLocation || '',
+            currentLocation: map.currentLocation || '',
             items: baseItems,
           },
         };

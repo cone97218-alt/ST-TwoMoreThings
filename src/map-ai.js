@@ -20,20 +20,34 @@ export function createMapAiService({ contextReader, modelClient, target, store }
         messages: target?.messages || [],
       });
 
-      const existingPlaces = (projection.places || []).map(p => ({
+      const projPlaces = projection.places || [];
+      const placeById = new Map(projPlaces.map(p => [p.id, p]));
+      const pathOf = p => {
+        const names = [];
+        const seen = new Set();
+        let cur = p;
+        while (cur && !seen.has(cur.id)) { seen.add(cur.id); names.unshift(cur.name); cur = placeById.get(cur.parentId); }
+        return names.join(' > ');
+      };
+      // 柏宝书既定地点优先放进提示词，避免被截断；AI 只能在其下补充，不得改名或改层级
+      const ordered = [...projPlaces].sort((a, b) => (b.source === 'baibai') - (a.source === 'baibai'));
+      const existingPlaces = ordered.slice(0, 120).map(p => ({
         name: p.name,
+        path: pathOf(p),
         role: p.role,
-        parentName: (projection.places.find(x => x.id === p.parentId)?.name) || '',
+        parentName: placeById.get(p.parentId)?.name || '',
+        source: p.source === 'baibai' ? '柏宝书既定' : '已有',
         desc: p.desc || '',
         facilities: p.facilities || [],
       }));
 
       const payload = sanitizePhoneContext({
         currentLocation: projection.userPosition?.label || '',
-        existingPlaces: existingPlaces.slice(0, 40),
+        currentLocationPath: (projection.userPosition?.breadcrumb || []).map(b => b.name).join(' > '),
+        existingPlaces,
+        rules: '标注“柏宝书既定”的地点来自剧情记录，名称与层级不可更改、不可重复创建；新增地点必须通过 parentName 挂到已有地点（或本次新增的地点）之下，parentName 须与已有名称完全一致；不要输出 currentLocation，当前位置由剧情自动决定。',
         userInstruction: instruction ? `用户特别指定的地图整理/构想要求：${instruction}` : '',
       });
-
       const activePreset = getActivePreset(state);
       const storyHistoryText = (sources.story || []).map(item => `${item.speaker || ''}：${item.text}`).join('\n\n');
       const latestUserInput = instruction
@@ -67,6 +81,11 @@ export function createMapAiService({ contextReader, modelClient, target, store }
       const currentLocation = String(parsed?.currentLocation || '').trim();
 
       const stamp = Date.now().toString(36);
+      const existingByName = new Map();
+      for (const p of projPlaces) {
+        const k = String(p.name || '').trim().toLowerCase();
+        existingByName.set(k, existingByName.has(k) ? null : p);
+      }
       const places = rawPlaces
         .map((item, idx) => {
           const name = String(item?.name || '').trim();
@@ -96,6 +115,7 @@ export function createMapAiService({ contextReader, modelClient, target, store }
             id: `ai:place:${stamp}:${idx}`,
             name,
             parentName,
+            parentId: existingByName.get(parentName.toLowerCase())?.id || '',
             role: role || (parentName ? 'site' : 'area'),
             mapLevel,
             mapStyle,

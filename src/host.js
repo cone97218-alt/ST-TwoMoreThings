@@ -10,6 +10,57 @@ import { readCardPreset } from './authoring.js';
 
 const PROMPT_ID = 'pocket-phone-context';
 
+let personasModule = null;
+
+export async function getPersonasModule() {
+  if (personasModule !== null) return personasModule;
+  try {
+    personasModule = await import(new URL('/scripts/personas.js', globalThis.location.href).href);
+  } catch {
+    try {
+      personasModule = await import(new URL('/script.js', globalThis.location.href).href);
+    } catch {
+      personasModule = null;
+    }
+  }
+  return personasModule;
+}
+
+export function resolveHostUserAvatar(ctx) {
+  try {
+    if (personasModule?.user_avatar) {
+      const av = personasModule.user_avatar;
+      const url = typeof personasModule.getUserAvatar === 'function'
+        ? personasModule.getUserAvatar(av)
+        : (av.startsWith('/') ? av : `/User Avatars/${av}`);
+      if (url) return url.startsWith('/') ? url : `/${url}`;
+    }
+    if (globalThis.user_avatar) {
+      const av = globalThis.user_avatar;
+      return av.startsWith('/') ? av : `/User Avatars/${av}`;
+    }
+    if (typeof document !== 'undefined') {
+      const domAvatarId = document.querySelector?.('#user_avatar_block .avatar-container.selected')?.getAttribute?.('data-avatar-id')
+        || document.querySelector?.('#user_avatar_block .avatar-container')?.getAttribute?.('data-avatar-id');
+      if (domAvatarId) {
+        return domAvatarId.startsWith('/') ? domAvatarId : `/User Avatars/${domAvatarId}`;
+      }
+      const userMesImg = document.querySelector?.('.mes[is_user="true"] .avatar img')?.getAttribute?.('src');
+      if (userMesImg) {
+        return userMesImg;
+      }
+    }
+    const defaultPersona = ctx?.powerUserSettings?.personas;
+    if (defaultPersona && typeof defaultPersona === 'object') {
+      const firstAvatarKey = Object.keys(defaultPersona)[0];
+      if (firstAvatarKey) {
+        return firstAvatarKey.startsWith('/') ? firstAvatarKey : `/User Avatars/${firstAvatarKey}`;
+      }
+    }
+  } catch {}
+  return '';
+}
+
 export async function renderUpdateMarkdown(text) {
   const { showdown, DOMPurify } = await import(new URL('/lib.js', globalThis.location.href).href);
   return DOMPurify.sanitize(new showdown.Converter().makeHtml(text), { FORBID_TAGS: ['img', 'iframe', 'object', 'embed', 'style', 'form'], FORBID_ATTR: ['style'] });
@@ -17,6 +68,9 @@ export async function renderUpdateMarkdown(text) {
 
 export function createHostAdapter({ contextProvider = () => (globalThis.SillyTavern || globalThis.Luker)?.getContext(), fetchImpl = (...args) => globalThis.fetch(...args), worldInfoBindings, mode = 'standalone' } = {}) {
   const embedded = mode === 'embedded', promptId = embedded ? `${PROMPT_ID}-card` : PROMPT_ID, openCommand = embedded ? 'tmt-card-open' : OPEN_COMMAND;
+  if (typeof globalThis.location !== 'undefined' && globalThis.location?.href) {
+    void getPersonasModule();
+  }
   const context = () => {
     const value = contextProvider();
     if (!value) throw new Error('暂时无法读取酒馆，请刷新页面后再打开小手机。');
@@ -24,10 +78,18 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
   };
   const host = {
     mode, phoneSettingsKey: embedded ? 'twoMoreThingsEmbedded' : 'pocketPhone', openCommand,
+    getUserAvatar() {
+      try {
+        return resolveHostUserAvatar(context());
+      } catch {
+        return resolveHostUserAvatar(null);
+      }
+    },
     captureChat() {
       const ctx = context();
       const character = ctx.characters?.[ctx.characterId];
       let currentMessages = ctx.chat || [];
+      const userAvatar = resolveHostUserAvatar(ctx);
       const target = {
         id: ctx.chatId ?? ctx.getCurrentChatId?.(),
         groupId: ctx.groupId,
@@ -47,7 +109,9 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
           currentMessages = Array.isArray(value) ? value : [];
         },
         character: character ? { name: character.name, avatar: character.avatar, description: character.description || character.data?.description || '', personality: character.personality || character.data?.personality || '', scenario: character.scenario || character.data?.scenario || '', world: character.data?.extensions?.world || '' } : null,
-        user: ctx.name1 || '我', personaWorld: ctx.powerUserSettings?.persona_description_lorebook || '',
+        user: ctx.name1 || '我',
+        userAvatar,
+        personaWorld: ctx.powerUserSettings?.persona_description_lorebook || '',
         host,
         async saveMetadata() {
           if (!target.id) {
@@ -91,6 +155,12 @@ export function createHostAdapter({ contextProvider = () => (globalThis.SillyTav
     },
     onChatChanged(callback) {
       const ctx = context(), name = ctx.eventTypes?.CHAT_CHANGED;
+      if (!name || !ctx.eventSource) return () => {};
+      ctx.eventSource.on(name, callback);
+      return () => ctx.eventSource.removeListener(name, callback);
+    },
+    onPersonaChanged(callback) {
+      const ctx = context(), name = ctx.eventTypes?.PERSONA_CHANGED || 'persona_changed';
       if (!name || !ctx.eventSource) return () => {};
       ctx.eventSource.on(name, callback);
       return () => ctx.eventSource.removeListener(name, callback);

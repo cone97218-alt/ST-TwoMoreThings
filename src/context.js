@@ -567,10 +567,25 @@ export function createBackflowService({
         }).join('\n'));
       }
       const reference = parts.join('\n\n');
+      const hasSmsOrTodos = conversations.length > 0 || todos.length > 0;
       // 按 Unicode 字符计数，超过门槛就停止；不复制大数组，也不把内部编号或图片文件计入。
       let characters = 0;
       for (const _ of reference) if (++characters > 3000) break;
-      if (characters <= 3000) return reference.trim();
+      const isShort = characters <= 3000;
+
+      // 若没有短信与待办（仅有日历/地图/作息线索），直接注入原文
+      if (!hasSmsOrTodos) {
+        return reference.trim();
+      }
+
+      // 方案一：
+      // 1. 手动模式 (manual)：只要有手动填写的总结，始终优先注入该总结（不再受 3000 字拦截）；未填写总结时短内容回退原文
+      // 2. 自动模式 (auto)：若开启短内容始终总结 (summaryAlwaysSummarize)，即使是短内容也生成摘要；未开启时短内容直接注入原文
+      if (state.summaryMode === 'manual' && state.manualSummary?.text) {
+        // 优先进入下方的手动总结注入逻辑
+      } else if (isShort && (state.summaryMode === 'manual' || !state.summaryAlwaysSummarize)) {
+        return reference.trim();
+      }
 
       let summary = '';
       if (state.summaryMode === 'manual') {
@@ -593,8 +608,10 @@ export function createBackflowService({
         }
       }
 
-      if (!summary) return '';
-      if (!summary) return '';
+      if (!summary) {
+        if (isShort) return reference.trim();
+        return '';
+      }
       const current = store.read();
       if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled && !current.injectMapEnabled && !Boolean(current.calendar?.workdayConfig?.enabled && current.calendar?.workdayConfig?.injectStory))) return '';
       for (const conversation of conversations) {

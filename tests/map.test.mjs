@@ -327,3 +327,107 @@ test('map-engine: AI/custom places merge into the BaiBai hierarchy instead of du
   assert.equal(inn.parentId, west[0].id);
   assert.equal(proj.userPosition.placeId, west[0].id);
 });
+
+test('map-engine: basemap sticky binding and usedAssetIds prevent reuse and jumping', () => {
+  const state = {
+    map: {
+      basemap: 'auto',
+      currentLocation: '',
+      items: [
+        { id: 'c1', name: '临安城', role: 'area', mapLevel: 'city' },
+        { id: 'c2', name: '建康城', role: 'area', mapLevel: 'city' },
+        { id: 'p1', name: '西湖水榭', role: 'site', parentId: 'c1' },
+        { id: 'p2', name: '玄武湖门', role: 'site', parentId: 'c2' },
+      ],
+      deletedIds: [],
+      sheetAssets: {},
+    },
+  };
+  const proj = buildMapProjection({ state });
+  assert.ok(proj.sheets.length >= 2);
+  assert.ok(proj.sheetAssets);
+  const sheetKeys = Object.keys(proj.sheetAssets);
+  assert.ok(sheetKeys.length >= 2);
+  const asset1 = proj.sheetAssets[sheetKeys[0]];
+  const asset2 = proj.sheetAssets[sheetKeys[1]];
+  // 两张不同图幅避免随机到相同底图
+  assert.notStrictEqual(asset1, asset2);
+
+  // 再次投影时复用已有记忆
+  const stateWithSticky = {
+    map: {
+      ...state.map,
+      sheetAssets: { ...proj.sheetAssets },
+    },
+  };
+  const proj2 = buildMapProjection({ state: stateWithSticky });
+  assert.strictEqual(proj2.sheetAssets[sheetKeys[0]], asset1);
+  assert.strictEqual(proj2.sheetAssets[sheetKeys[1]], asset2);
+});
+
+test('map-engine: label collision avoidance sets labelAbove and labelAlign correctly', () => {
+  const state = {
+    map: {
+      basemap: 'modern',
+      items: [
+        { id: 's1', name: '中央大厦', role: 'site' },
+        { id: 's2', name: '中心公园', role: 'site' },
+      ],
+    },
+  };
+  const proj = buildMapProjection({ state });
+  const allSites = proj.layoutGroups.flatMap(g => g.sites || []);
+  assert.ok(allSites.length >= 2);
+  for (const s of allSites) {
+    assert.ok(['start', 'center', 'end'].includes(s.labelAlign));
+    assert.strictEqual(typeof s.labelAbove, 'boolean');
+  }
+});
+
+test('map-engine: avatar pins cluster and spatial trajectory trail are generated', () => {
+  const baibai = {
+    location: '藏书阁',
+    locationPath: ['藏经楼', '藏书阁'],
+    scenes: [
+      { id: 's1', name: '山门广场', path: ['山门广场'] },
+      { id: 's2', name: '主殿走廊', path: ['主殿走廊'] },
+      { id: 's3', name: '藏书阁', path: ['藏书阁'] },
+    ],
+    npcs: [
+      { id: 'npc1', name: '白浅', location: '藏书阁', follow: true, relation: '师徒' },
+      { id: 'npc2', name: '陆雪琪', location: '山门广场', follow: false, title: '守阁人' },
+    ],
+    items: [],
+  };
+  const state = {
+    contacts: [
+      { id: 'c1', name: '白浅', avatar: 'https://example.com/baiqian.png', tone: 'cyan' },
+      { id: 'c2', name: '陆雪琪', avatar: 'https://example.com/luxueqi.png', tone: 'blue' },
+    ],
+    userProfile: { name: '张小凡', avatar: 'https://example.com/xiaofan.png' },
+    map: {
+      items: [
+        { id: 'p1', name: '山门广场', role: 'site' },
+        { id: 'p2', name: '主殿走廊', role: 'site' },
+        { id: 'p3', name: '藏书阁', role: 'site' },
+      ],
+      trail: ['p1', 'p2', 'p3'],
+    },
+  };
+  const proj = buildMapProjection({ state, baibaiSnapshot: baibai });
+  const library = proj.layoutGroups.flatMap(g => g.sites || []).find(s => s.name === '藏书阁');
+  assert.ok(library);
+  assert.ok(library.charactersHere?.length >= 2);
+  const userChar = library.charactersHere.find(c => c.isUser);
+  assert.strictEqual(userChar.name, '张小凡');
+  assert.strictEqual(userChar.avatar, 'https://example.com/xiaofan.png');
+  const baiqian = library.charactersHere.find(c => c.name === '白浅');
+  assert.strictEqual(baiqian.avatar, 'https://example.com/baiqian.png');
+  assert.strictEqual(baiqian.role, '同行');
+
+  // 移动轨迹
+  assert.ok(Array.isArray(proj.trajectory));
+  assert.ok(proj.trajectory.length >= 2);
+  assert.strictEqual(proj.trajectory[0].name, '山门广场');
+  assert.strictEqual(proj.trajectory[proj.trajectory.length - 1].name, '藏书阁');
+});

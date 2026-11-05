@@ -1,8 +1,23 @@
 export const displayName = person => person?.nickname || person?.name || '我';
 
+export function normalizeAvatarUrl(url) {
+  const str = String(url || '').trim();
+  if (!str) return '';
+  if (/^(?:User Avatars|characters|img|thumbnail)\//i.test(str)) return `/${str}`;
+  return str;
+}
+
 export function avatarSource(value) {
-  const source = String(value || '').trim();
-  return /^(?:https?:\/\/|data:image\/(?:png|jpeg|webp|gif|avif);base64,|data:image\/svg\+xml(?:;charset=utf-8)?(?:;base64)?,)/i.test(source) ? source : '';
+  const source = normalizeAvatarUrl(value);
+  if (!source) return '';
+  if (/^(?:https?:\/\/|data:image\/(?:png|jpeg|webp|gif|avif);base64,|data:image\/svg\+xml(?:;charset=utf-8)?(?:;base64)?,)/i.test(source)) {
+    return source;
+  }
+  // 支持酒馆内常用相对头像路径（/User Avatars/..., /characters/..., /thumbnail..., ./...）
+  if (/^(?:\/|\.\/)/i.test(source)) {
+    return source;
+  }
+  return '';
 }
 
 export function cleanProfile(draft, contact = false) {

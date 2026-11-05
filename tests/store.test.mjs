@@ -57,3 +57,91 @@ test('incoming message notices refer only to the messages this operation actuall
   await assert.rejects(store.appendMessage('lin', { id: 'failed', role: 'assistant', text: '没存成。' }));
   assert.deepEqual(notices, ['lin', 'zhou']);
 });
+
+test('character-bound switches persist into global characterPreferences and load in new chats', async () => {
+  const h = createHarness({
+    settings: { pocketPhone: {} },
+    metadata: { pocketPhone: { contacts: [{ id: 'lin', name: '林舟' }] } },
+  });
+  const target = h.host.captureChat();
+  const store = createPhoneStore({ target, host: h.host });
+
+  // Toggle character preferences
+  await store.setInjectionEnabled(true);
+  await store.setInjectCalendarEnabled(true);
+  await store.setInjectMapEnabled(true);
+  await store.setContactSocialEnabled(false);
+  await store.setGroupSocialEnabled(false);
+  await store.setSummaryMode('manual');
+  await store.setSummaryMaxCharacters(250);
+  await store.setSummaryAutoTruncate(false);
+  await store.setSummaryAlwaysSummarize(true);
+
+  // Check characterPreferences in global extension settings
+  const charKey = 'character:林舟.png';
+  const charPrefs = h.context.extensionSettings.pocketPhone.characterPreferences[charKey];
+  assert.ok(charPrefs, 'characterPreferences created for character');
+  assert.equal(charPrefs.injectEnabled, true);
+  assert.equal(charPrefs.injectCalendarEnabled, true);
+  assert.equal(charPrefs.injectMapEnabled, true);
+  assert.equal(charPrefs.contactSocialEnabled, false);
+  assert.equal(charPrefs.groupSocialEnabled, false);
+  assert.equal(charPrefs.summaryMode, 'manual');
+  assert.equal(charPrefs.summaryMaxCharacters, 250);
+  assert.equal(charPrefs.summaryAutoTruncate, false);
+  assert.equal(charPrefs.summaryAlwaysSummarize, true);
+
+  // Simulate starting a new chat with the same character (pocketPhone metadata empty/undefined)
+  const newChatTarget = {
+    ...h.host.captureChat(),
+    id: '新聊天',
+    metadata: {},
+  };
+  const newStore = createPhoneStore({ target: newChatTarget, host: h.host });
+  const readState = newStore.read();
+  assert.equal(readState.injectEnabled, true, 'injectEnabled bound to character');
+  assert.equal(readState.injectCalendarEnabled, true, 'injectCalendarEnabled bound to character');
+  assert.equal(readState.injectMapEnabled, true, 'injectMapEnabled bound to character');
+  assert.equal(readState.contactSocialEnabled, false, 'contactSocialEnabled bound to character');
+  assert.equal(readState.groupSocialEnabled, false, 'groupSocialEnabled bound to character');
+  assert.equal(readState.summaryMode, 'manual', 'summaryMode bound to character');
+  assert.equal(readState.summaryMaxCharacters, 250, 'summaryMaxCharacters bound to character');
+  assert.equal(readState.summaryAutoTruncate, false, 'summaryAutoTruncate bound to character');
+  assert.equal(readState.summaryAlwaysSummarize, true, 'summaryAlwaysSummarize bound to character');
+
+  // Another character starts with default settings
+  const otherCharTarget = {
+    ...h.host.captureChat(),
+    character: { name: '周予', avatar: '周予.png' },
+    id: '周予聊天',
+    metadata: {},
+  };
+  const otherStore = createPhoneStore({ target: otherCharTarget, host: h.host });
+  const otherState = otherStore.read();
+  assert.equal(otherState.injectEnabled, false, 'other character has default injectEnabled');
+  assert.equal(otherState.injectCalendarEnabled, false, 'other character has default injectCalendarEnabled');
+  assert.equal(otherState.contactSocialEnabled, true, 'other character has default contactSocialEnabled');
+  assert.equal(otherState.summaryMode, 'auto', 'other character has default summaryMode');
+  assert.equal(otherState.summaryAlwaysSummarize, false, 'other character has default summaryAlwaysSummarize');
+});
+
+test('userProfile avatar falls back to SillyTavern Persona avatar when unset', async () => {
+  const h = createHarness({
+    settings: { pocketPhone: {} },
+    metadata: {},
+  });
+  const target = h.host.captureChat();
+  target.userAvatar = '/User Avatars/my-persona.png';
+  target.user = '旅行者';
+
+  const store = createPhoneStore({ target, host: h.host });
+  const state = store.read();
+  assert.equal(state.userProfile?.name, '旅行者');
+  assert.equal(state.userProfile?.avatar, '/User Avatars/my-persona.png');
+
+  // Custom user profile takes precedence over fallback
+  await store.saveUserProfile({ name: '自定义昵称', avatar: 'https://example.com/custom.png' });
+  const updatedState = store.read();
+  assert.equal(updatedState.userProfile?.name, '自定义昵称');
+  assert.equal(updatedState.userProfile?.avatar, 'https://example.com/custom.png');
+});

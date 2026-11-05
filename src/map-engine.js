@@ -381,7 +381,7 @@ export function resolveBasemapId(requestedId, places = [], scopeNode = null) {
  * 根据解析出的 basemapId（可能是主题风格如 'old-town'、真实城市如 'seoul' 或具体库资产如 'modern-coast'）
  * 进一步通过 selectQianchuangMapAsset 解析出对应的高精底图资产 ID
  */
-export function resolveMapAssetId(basemapId, places = [], scopeNode = null) {
+export function resolveMapAssetId(basemapId, places = [], scopeNode = null, previousAssetId = null, usedAssetIds = []) {
   if (!basemapId) return 'modern-inland';
   if (CITY_MAPS[basemapId]) return basemapId;
   if (QIANCHUANG_MAP_ASSETS[basemapId]) return basemapId;
@@ -393,6 +393,8 @@ export function resolveMapAssetId(basemapId, places = [], scopeNode = null) {
     entityId: entityKey,
     style: styleId,
     layout: layoutHint,
+    previousAssetId,
+    usedAssetIds,
   });
   return selected || STYLE_THEME_DEFS.find(t => t.id === styleId)?.defaultAssetId || 'modern-inland';
 }
@@ -866,7 +868,7 @@ export function computeMapLayout(basemapId = 'modern', groups = []) {
     ? citySchematicLayout(layoutKey, qcInputGroups)
     : qianchuangMapLayout(layoutKey, qcInputGroups);
 
-  return rawLayout.map((laidOut, gIdx) => {
+  const layoutResult = rawLayout.map((laidOut, gIdx) => {
     const originalGroup = groups[gIdx] || {};
     const pointById = new Map((laidOut.points || []).filter(Boolean).map(pt => [pt.id, pt]));
     const placedSites = (originalGroup.sites || []).map((site, sIdx) => {
@@ -889,6 +891,47 @@ export function computeMapLayout(basemapId = 'modern', groups = []) {
       sites: placedSites,
     };
   });
+
+  // 标签碰撞避让与朝向计算 (Label Collision Avoidance & Dynamic Alignment)
+  const allPlacedSites = layoutResult.flatMap(g => g.sites || []);
+  for (const site of allPlacedSites) {
+    // 基础朝向规则（契合千窗规范）：边缘处向画布内部收敛，靠底部的标签放上方
+    site.labelAlign = site.x < 28 ? 'start' : site.x > 72 ? 'end' : 'center';
+    site.labelAbove = site.y > 68;
+  }
+
+  // 密集区域碰撞检测：当两个点位相距过近时错开垂直朝向与水平对齐
+  for (let i = 0; i < allPlacedSites.length; i++) {
+    for (let j = i + 1; j < allPlacedSites.length; j++) {
+      const a = allPlacedSites[i];
+      const b = allPlacedSites[j];
+      const dx = Math.abs(a.x - b.x);
+      const dy = Math.abs(a.y - b.y);
+
+      if (dx < 18 && dy < 14) {
+        if (a.labelAbove === b.labelAbove) {
+          if (a.y < b.y) {
+            a.labelAbove = true;
+            b.labelAbove = false;
+          } else {
+            a.labelAbove = false;
+            b.labelAbove = true;
+          }
+        }
+        if (dx < 12) {
+          if (a.x <= b.x) {
+            if (a.x > 18) a.labelAlign = 'end';
+            if (b.x < 82) b.labelAlign = 'start';
+          } else {
+            if (b.x > 18) b.labelAlign = 'end';
+            if (a.x < 82) a.labelAlign = 'start';
+          }
+        }
+      }
+    }
+  }
+
+  return layoutResult;
 }
 
 function matchPlaceByText(text, places) {
@@ -913,6 +956,7 @@ function matchPlaceByText(text, places) {
  */
 export function buildMapProjection({
   state = {},
+  context = {},
   baibaiSnapshot = null,
   messages = [],
   worldbookPlaces = [],
@@ -990,6 +1034,14 @@ export function buildMapProjection({
     map.set(key, arr);
   }
 
+  const contactsList = Array.isArray(state?.contacts) ? state.contacts : [];
+  function resolvePersonAvatar(name, fallbackAvatar = '') {
+    if (fallbackAvatar) return fallbackAvatar;
+    const clean = normKey(name);
+    const matched = contactsList.find(c => normKey(c.name) === clean || normKey(c.nickname) === clean || (clean.length >= 2 && (normKey(c.name).includes(clean) || clean.includes(normKey(c.name)))));
+    return matched?.avatar || '';
+  }
+
   for (const npc of baibaiSnapshot?.npcs || []) {
     const name = String(npc?.name || '').trim();
     if (!name) continue;
@@ -1000,9 +1052,11 @@ export function buildMapProjection({
       targetPlace = matchPlaceByText(npc.location, places);
     }
     if (targetPlace) {
+      const npcAvatar = resolvePersonAvatar(name, npc.avatar);
       pushMapItem(npcsByPlaceId, targetPlace.id, {
         id: npc.id || name,
         name,
+        avatar: npcAvatar,
         title: String(npc.title || '').trim(),
         relation: String(npc.relation || '').trim(),
         follow: Boolean(npc.follow),
@@ -1011,6 +1065,7 @@ export function buildMapProjection({
         pushMapItem(npcsByPlaceId, targetPlace.parentId, {
           id: npc.id || name,
           name,
+          avatar: npcAvatar,
           title: String(npc.title || '').trim(),
           relation: String(npc.relation || '').trim(),
           follow: Boolean(npc.follow),
@@ -1107,6 +1162,37 @@ export function buildMapProjection({
     const items = itemsByPlaceId.get(p.id) || [];
     const todos = todosByPlaceId.get(p.id) || [];
     const isCurrent = userPosition.placeId === p.id || userPosition.pinPlaceId === p.id;
+    const charactersHere = [];
+    if (isCurrent) {
+      charactersHere.push({
+        id: 'user',
+        name: state?.userProfile?.name || '我',
+        avatar: state?.userProfile?.avatar || '',
+        role: '主角',
+        isUser: true,
+      });
+      const partner = context?.character || (state?.contacts || []).find(c => c.source === 'card') || state?.contacts?.[0];
+      if (partner && !npcs.some(n => n.name === partner.name)) {
+        charactersHere.push({
+          id: partner.id || 'partner',
+          name: partner.name,
+          avatar: partner.avatar || '',
+          role: '同行',
+          isUser: false,
+        });
+      }
+    }
+    for (const npc of npcs) {
+      charactersHere.push({
+        id: npc.id,
+        name: npc.name,
+        avatar: npc.avatar || resolvePersonAvatar(npc.name, npc.avatar),
+        role: npc.follow ? '同行' : (npc.title || '在场'),
+        relation: npc.relation || '',
+        isUser: false,
+      });
+    }
+
     return {
       ...p,
       facilityTags: p.facilityTags || extractPlaceFacilityTags(p),
@@ -1115,6 +1201,7 @@ export function buildMapProjection({
       npcs,
       items,
       todos,
+      charactersHere,
       isCurrent,
       hasDrilldown: p.role === 'area' && subPlaces.length > 0,
     };
@@ -1133,13 +1220,79 @@ export function buildMapProjection({
     : places;
   const sheetRoot = activeSheet?.rootPlaceId ? byId.get(activeSheet.rootPlaceId) : null;
   const requestedBasemap = stateMap.basemap;
+
+  // 1. 底图记忆与防重用机制 (Basemap Sticky Binding & usedAssetIds)
+  const stickySheetAssets = { ...(stateMap.sheetAssets || {}) };
+  const usedAssetIds = [];
+
+  for (const s of sheetList) {
+    const sPlaces = s.id !== 'legacy' ? (s.placeIds || []).map(id => byId.get(id)).filter(Boolean) : places;
+    const sRoot = s.rootPlaceId ? byId.get(s.rootPlaceId) : null;
+    let sBasemapId = resolveBasemapId(requestedBasemap, sPlaces.length ? sPlaces : places, sRoot);
+    if ((!requestedBasemap || requestedBasemap === 'auto') && s.assetId && MAP_BASEMAPS[s.assetId] && !sRoot?.mapStyle) {
+      sBasemapId = s.assetId;
+    }
+    const previous = stickySheetAssets[s.id] || null;
+    const resolvedAsset = resolveMapAssetId(sBasemapId, sPlaces, sRoot, previous, usedAssetIds);
+    s.assetId = resolvedAsset;
+    stickySheetAssets[s.id] = resolvedAsset;
+    if (resolvedAsset && !usedAssetIds.includes(resolvedAsset)) {
+      usedAssetIds.push(resolvedAsset);
+    }
+  }
+
   let basemapId = resolveBasemapId(requestedBasemap, sheetPlaces.length ? sheetPlaces : places, sheetRoot);
-  if ((!requestedBasemap || requestedBasemap === 'auto') && activeSheet?.assetId && MAP_BASEMAPS[activeSheet.assetId] && !sheetRoot?.mapStyle) {
+  if ((!requestedBasemap || requestedBasemap === 'auto') && activeSheet?.cityId && CITY_MAPS[activeSheet?.assetId] && !sheetRoot?.mapStyle) {
     basemapId = activeSheet.assetId;
   }
-  const assetId = resolveMapAssetId(basemapId, sheetPlaces, sheetRoot);
-  const basemap = MAP_BASEMAPS[assetId] || MAP_BASEMAPS[basemapId] || MAP_BASEMAPS.modern;
-  const layoutGroups = computeMapLayout(assetId, groups);
+  const activeAssetId = activeSheet?.assetId || stickySheetAssets[resolvedSheetId] || resolveMapAssetId(basemapId, sheetPlaces, sheetRoot, stickySheetAssets[resolvedSheetId], usedAssetIds);
+  const basemap = MAP_BASEMAPS[activeAssetId] || MAP_BASEMAPS[basemapId] || MAP_BASEMAPS.modern;
+  const layoutGroups = computeMapLayout(activeAssetId, groups);
+
+  // 3. 空间移动轨迹 (Spatial Movement Trajectory)
+  const trailRaw = Array.isArray(stateMap.trail) && stateMap.trail.length
+    ? stateMap.trail
+    : (baibaiSnapshot?.scenes || []).map(s => {
+        if (Array.isArray(s?.path) && s.path.length) return s.path[s.path.length - 1];
+        return s?.name || s?.desc || '';
+      }).filter(Boolean);
+
+  const siteLookup = new Map();
+  for (const g of layoutGroups) {
+    for (const s of g.sites || []) {
+      siteLookup.set(s.id, s);
+      siteLookup.set(normKey(s.name), s);
+      for (const a of s.aliases || []) siteLookup.set(normKey(a), s);
+    }
+  }
+
+  const trajectory = [];
+  let stepIndex = 1;
+  for (const item of trailRaw) {
+    const rawStr = typeof item === 'string' ? item : item?.placeId || item?.name || '';
+    const site = siteLookup.get(rawStr) || siteLookup.get(normKey(rawStr));
+    if (site && (!trajectory.length || trajectory[trajectory.length - 1].id !== site.id)) {
+      trajectory.push({
+        id: site.id,
+        name: site.name,
+        x: site.x,
+        y: site.y,
+        step: stepIndex++,
+      });
+    }
+  }
+  if (currentPlace) {
+    const currSite = siteLookup.get(currentPlace.id) || siteLookup.get(normKey(currentPlace.name));
+    if (currSite && (!trajectory.length || trajectory[trajectory.length - 1].id !== currSite.id)) {
+      trajectory.push({
+        id: currSite.id,
+        name: currSite.name,
+        x: currSite.x,
+        y: currSite.y,
+        step: stepIndex++,
+      });
+    }
+  }
   // 5. 搜索过滤目录树
   const q = normKey(searchQuery);
   const directoryTree = topNodes
@@ -1161,7 +1314,8 @@ export function buildMapProjection({
 
   return {
     basemapId,
-    assetId,
+    assetId: activeAssetId,
+    sheetAssets: stickySheetAssets,
     basemapSelection: stateMap.basemap || 'auto',
     basemap,
     places,
@@ -1173,6 +1327,7 @@ export function buildMapProjection({
     scopeBreadcrumb,
     layoutGroups,
     directoryTree,
+    trajectory,
     baibaiConnected: Boolean(baibaiSnapshot),
     stats: {
       totalPlaces: places.length,

@@ -50,6 +50,9 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
     entries.refreshVisibility();
     if (phone?.isOpen) open();
   });
+  const unsubscribePersona = host.onPersonaChanged?.(() => {
+    if (phone?.isOpen) open();
+  });
   const onBusyChange = value => { activeRequests += value ? 1 : -1; entries.fab.setBusy(activeRequests > 0); };
   const unsubscribe = host.onBeforeMainGeneration(async (type, _params, dryRun) => {
     if (dryRun || ['quiet', 'impersonate'].includes(type)) return;
@@ -118,7 +121,7 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
     const contextReader = createContextReader({ target, store, qqjBridgeProvider, calendar, wrapperSettingsProvider, memorySources });
     const calendarAi = createCalendarAiService({ contextReader, modelClient, target, store });
     const mapAi = createMapAiService({ contextReader, modelClient, target, store });
-    currentPhone = mountPhone({ mount: documentRef.documentElement, store, qqjBridgeProvider, defaultUser: target.user, readTime: () => readPhoneTime(target.messages), readTimeline: () => readTimeline(target.messages),
+    currentPhone = mountPhone({ mount: documentRef.documentElement, store, qqjBridgeProvider, defaultUser: target.user, defaultUserAvatar: target.userAvatar || host?.getUserAvatar?.() || '', readTime: () => readPhoneTime(target.messages), readTimeline: () => readTimeline(target.messages),
       readChatMessages: () => target.messages,
       host,
       messages: createMessageService({ target, store, contextReader, modelClient }),

@@ -189,3 +189,13 @@ test('a portrait save failure leaves the original profile intact and propagates 
   assert.equal(store.read(), original);
   assert.equal(h.metadataSaves, 0);
 });
+
+test('avatarSource supports SillyTavern relative avatar paths', () => {
+  assert.equal(avatarSource('/User Avatars/persona.png'), '/User Avatars/persona.png');
+  assert.equal(avatarSource('User Avatars/persona.png'), '/User Avatars/persona.png');
+  assert.equal(avatarSource('/characters/card.png'), '/characters/card.png');
+  assert.equal(avatarSource('characters/card.png'), '/characters/card.png');
+  assert.equal(avatarSource('/thumbnail?type=persona&file=foo.png'), '/thumbnail?type=persona&file=foo.png');
+  assert.equal(avatarSource('https://example.com/avatar.jpg'), 'https://example.com/avatar.jpg');
+  assert.equal(avatarSource('invalid-file'), '');
+});

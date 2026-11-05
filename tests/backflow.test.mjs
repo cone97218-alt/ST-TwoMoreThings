@@ -394,3 +394,70 @@ test('summaryAutoTruncate gracefully slices output when AI exceeds maxCharacters
   assert.equal(Array.from(res).length, 100);
   assert.equal(res, overLengthSummary.slice(0, 100));
 });
+
+test('manual summary on short SMS (< 3000 chars) is used instead of dumping raw chat', async () => {
+  const { target, store, batch } = setup([{ is_user: false, mes: '正文消息。<!-- QQJ-end | date=2026-10-18 | time=18:00 -->' }]);
+  await store.appendMessage('lin', { id: 'm1', role: 'user', text: '今晚八点见。', batch });
+  await store.setSummaryMode('manual');
+  await store.saveManualSummary('用户与林舟相约今晚八点见面。');
+
+  const requests = [];
+  const service = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete(req) {
+        requests.push(req);
+        return JSON.stringify({ summary: '不要调用' });
+      },
+    },
+  });
+
+  const res = await service.prepare();
+  assert.equal(res, '用户与林舟相约今晚八点见面。', 'manual summary must be injected even for short SMS');
+  assert.equal(requests.length, 0, 'no extra model call in manual mode when summary exists');
+});
+
+test('auto summary with summaryAlwaysSummarize === true on short SMS (< 3000 chars) summarizes via AI', async () => {
+  const { target, store, batch } = setup([{ is_user: false, mes: '正文消息。<!-- QQJ-end | date=2026-10-18 | time=18:00 -->' }]);
+  await store.appendMessage('lin', { id: 'm1', role: 'user', text: '今晚八点见。', batch });
+  await store.setSummaryMode('auto');
+  await store.setSummaryAlwaysSummarize(true);
+
+  summaryCache.delete(target);
+  const requests = [];
+  const service = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete(req) {
+        requests.push(req);
+        return JSON.stringify({ summary: 'AI自动提炼的简短摘要。' });
+      },
+    },
+  });
+
+  const res = await service.prepare();
+  assert.equal(res, 'AI自动提炼的简短摘要。');
+  assert.equal(requests.length, 1, 'model client called because summaryAlwaysSummarize is true');
+
+  // When summaryAlwaysSummarize is false, short SMS injects raw transcript
+  summaryCache.delete(target);
+  await store.setSummaryAlwaysSummarize(false);
+  const rawRequests = [];
+  const rawService = createBackflowService({
+    target,
+    store,
+    modelClient: {
+      complete(req) {
+        rawRequests.push(req);
+        return JSON.stringify({ summary: '不该调用' });
+      },
+    },
+  });
+
+  const rawRes = await rawService.prepare();
+  assert.match(rawRes, /\[私聊：林舟\]/);
+  assert.match(rawRes, /今晚八点见。/);
+  assert.equal(rawRequests.length, 0, 'short SMS directly injects raw transcript without AI call when summaryAlwaysSummarize is false');
+});

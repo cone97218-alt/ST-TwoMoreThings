@@ -81,6 +81,77 @@ function renderPolygonPoints(points = [], vbWidth = 1000, vbHeight = 1000) {
   return points.map(([x, y]) => `${Math.round(x * sx * 10) / 10},${Math.round(y * sy * 10) / 10}`).join(' ');
 }
 
+function renderTrajectoryPathSvg(trajectory = [], vbWidth = 1000, vbHeight = 1000) {
+  if (!Array.isArray(trajectory) || trajectory.length < 2) return '';
+  const pts = trajectory.map(t => [t.x * vbWidth / 100, t.y * vbHeight / 100]);
+  let d = `M ${Math.round(pts[0][0])},${Math.round(pts[0][1])}`;
+  for (let i = 1; i < pts.length; i++) {
+    const prev = pts[i - 1];
+    const curr = pts[i];
+    d += ` Q ${Math.round(prev[0])},${Math.round(curr[1])} ${Math.round(curr[0])},${Math.round(curr[1])}`;
+  }
+  return d;
+}
+
+function renderTrajectoryMarkersSvg(trajectory = [], vbWidth = 1000, vbHeight = 1000) {
+  if (!Array.isArray(trajectory) || trajectory.length < 2) return '';
+  return trajectory.map(t => {
+    const cx = Math.round(t.x * vbWidth / 100);
+    const cy = Math.round(t.y * vbHeight / 100);
+    return `
+      <g class="qc-trajectory-milestone" transform="translate(${cx}, ${cy})">
+        <circle r="12" class="qc-traj-bg"/>
+        <text text-anchor="middle" dominant-baseline="central" class="qc-traj-num">${t.step}</text>
+      </g>
+    `;
+  }).join('');
+}
+
+function renderSiteAvatarCluster(characters = []) {
+  if (!Array.isArray(characters) || !characters.length) return '';
+  const visible = characters.slice(0, 2);
+  const extraCount = characters.length - visible.length;
+  return `
+    <span class="qc-pin-avatar-cluster" title="${escape(characters.map(c => `${c.role}：${c.name}`).join('、'))}">
+      ${visible.map(c => `
+        <span class="qc-cluster-avatar ${c.isUser ? 'is-user' : 'is-npc'}" data-role="${escape(c.role || '')}">
+          ${avatar({ name: c.name, avatar: c.avatar }, true)}
+        </span>
+      `).join('')}
+      ${extraCount > 0 ? `<span class="qc-cluster-more">+${extraCount}</span>` : ''}
+    </span>
+  `;
+}
+
+function renderExpandedAvatarCard(site) {
+  const characters = site.charactersHere || [];
+  if (!characters.length) return '';
+  return `
+    <div class="qc-pin-avatar-card" role="dialog" aria-label="${escape(site.name)}在场人员">
+      <div class="qc-avatar-card-head">
+        <strong class="qc-avatar-card-title">${escape(site.name)}</strong>
+        <span class="qc-avatar-card-badge">${characters.length}人在此</span>
+      </div>
+      <div class="qc-avatar-card-list">
+        ${characters.map(c => `
+          <div class="qc-avatar-card-item ${c.isUser ? 'is-user' : ''}">
+            <div class="qc-card-avatar-wrap">
+              ${avatar({ name: c.name, avatar: c.avatar }, true)}
+            </div>
+            <div class="qc-card-avatar-info">
+              <span class="qc-card-char-name">
+                <b>${escape(c.name)}</b>
+                <small class="qc-badge role-${c.isUser ? 'user' : 'npc'}">${escape(c.role || '在场')}</small>
+              </span>
+              ${c.relation ? `<small class="qc-card-char-rel">${escape(c.relation)}</small>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderPlaceBadges(place) {
   const badges = [];
   if (place.isCurrent) {
@@ -286,6 +357,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
     scopeBreadcrumb,
     layoutGroups,
     directoryTree,
+    trajectory = [],
     baibaiConnected,
   } = mapProjection;
 
@@ -541,25 +613,46 @@ export function renderMap(state, { ui, mapProjection, busy }) {
     })
     .join('');
 
+  const trajectorySvg = ui.mapShowTrajectory && trajectory.length >= 2
+    ? `
+      <g class="qc-trajectory-group">
+        <path d="${renderTrajectoryPathSvg(trajectory, vbWidth, vbHeight)}" class="qc-trajectory-path"/>
+        ${renderTrajectoryMarkersSvg(trajectory, vbWidth, vbHeight)}
+      </g>
+    `
+    : '';
+
   const sitePinsHtml = layoutGroups
     .flatMap(g => g.sites || [])
     .map(site => {
       const isSelected = ui.mapSelectedPlaceId === site.id;
       const isCurrent = Boolean(site.isCurrent);
+      const isExpanded = ui.mapExpandedAvatarPlaceId === site.id;
+      const hasChars = Boolean(site.charactersHere?.length);
+      const avatarClusterHtml = hasChars
+        ? renderSiteAvatarCluster(site.charactersHere)
+        : (isCurrent ? `<span class="qc-pin-avatar">${userAvatarHtml}</span>` : '');
+      const expandedCardHtml = isExpanded ? renderExpandedAvatarCard(site) : '';
+
       return `
-        <button type="button"
-          class="qc-pin ${isCurrent ? 'is-current' : ''} ${isSelected ? 'is-selected' : ''}"
-          style="left:${site.x}%;top:${site.y}%"
-          data-action="select-map-place"
-          data-place-id="${escape(site.id)}"
-          aria-label="${escape(site.name)}">
-          ${isCurrent ? `<span class="qc-pin-avatar">${userAvatarHtml}</span>` : ''}
-          <span class="qc-pin-dot">
-            ${site.todos?.length ? '<i class="qc-pin-badge is-todo"></i>' : ''}
-            ${site.npcs?.length ? '<i class="qc-pin-badge is-npc"></i>' : ''}
-          </span>
-          <span class="qc-pin-label">${escape(site.name)}</span>
-        </button>
+        <div class="qc-pin-wrapper" style="left:${site.x}%;top:${site.y}%;">
+          <button type="button"
+            class="qc-pin ${isCurrent ? 'is-current' : ''} ${isSelected ? 'is-selected' : ''} ${isExpanded ? 'is-expanded' : ''}"
+            data-action="select-map-place"
+            data-place-id="${escape(site.id)}"
+            data-label-align="${site.labelAlign || 'center'}"
+            data-label-above="${site.labelAbove ? 'true' : 'false'}"
+            data-has-characters="${hasChars ? 'true' : 'false'}"
+            aria-label="${escape(site.name)}${hasChars ? '，点击展开在场人物' : ''}">
+            ${avatarClusterHtml}
+            <span class="qc-pin-dot">
+              ${site.todos?.length ? '<i class="qc-pin-badge is-todo"></i>' : ''}
+              ${site.npcs?.length ? '<i class="qc-pin-badge is-npc"></i>' : ''}
+            </span>
+            <span class="qc-pin-label">${escape(site.name)}</span>
+          </button>
+          ${expandedCardHtml}
+        </div>
       `;
     })
     .join('');
@@ -599,6 +692,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           <svg viewBox="0 0 ${vbWidth} ${vbHeight}" class="qc-basemap-svg qc-theme-${escape(basemap?.family || basemapId)} ${isRealCity ? 'qqj-real-basemap' : ''}" aria-hidden="true">
             ${activeSvgInner}
             ${regionPolysSvg}
+            ${trajectorySvg}
           </svg>
           <div class="qc-map-overlay">
             ${areaLabelsHtml}
@@ -606,8 +700,18 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           </div>
         </div>
         <div class="qc-map-caption">
-          <span>${escape(activeAssetLabel)}${isRealCity ? ' · © OpenStreetMap contributors · ODbL' : ''}</span>
-          <span>${places.length ? `共 ${places.length} 处地点` : '点击右上角 ✨ 由 AI 自动构建地图'}</span>
+          <div class="qc-caption-left">
+            <span>${escape(activeAssetLabel)}${isRealCity ? ' · © OpenStreetMap contributors · ODbL' : ''}</span>
+            <span>${places.length ? `共 ${places.length} 处地点` : `点击右上角 <span class="qc-caption-sparkle">${icon('sparkles')}</span> 由 AI 自动构建地图`}</span>
+          </div>
+          <div class="qc-caption-actions">
+            ${trajectory.length >= 2 ? `
+              <button type="button" class="qc-caption-toggle-btn ${ui.mapShowTrajectory ? 'is-active' : ''}"
+                data-action="toggle-map-trajectory" title="${ui.mapShowTrajectory ? '隐藏行动轨迹' : '显示剧情移动轨迹'}">
+                ${icon('compass')} <span>行动轨迹 (${trajectory.length})</span>
+              </button>
+            ` : ''}
+          </div>
         </div>
       </section>
 
@@ -627,7 +731,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           <div class="qc-empty-box">
             <p>${ui.mapSearch ? `没有找到匹配「${escape(ui.mapSearch)}」的地点。` : '当前尚无场景地点数据。'}</p>
             <div class="qc-empty-actions">
-              <button type="button" class="save-button" style="width:auto;padding:6px 16px;margin:0;" data-action="open-map-ai">✨ AI 自动整理地图</button>
+              <button type="button" class="save-button" style="width:auto;padding:6px 16px;margin:0;gap:6px;" data-action="open-map-ai">${icon('sparkles')}<span>AI 自动整理地图</span></button>
               <button type="button" class="quiet-button" data-action="open-map-form">+ 手动添加地点</button>
             </div>
           </div>

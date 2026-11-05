@@ -78,7 +78,7 @@ const pages = {
   'social-profile': renderSocialProfile,
 };
 
-export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, mapAi = { async organizeMap() { return { places: [] }; } }, readChatMessages = () => [], logger = null, previewBackflow = null, summarizeBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', onClose, onContextChange = () => {}, host }) {
+export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, mapAi = { async organizeMap() { return { places: [] }; } }, readChatMessages = () => [], logger = null, previewBackflow = null, summarizeBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', defaultUserAvatar = '', onClose, onContextChange = () => {}, host }) {
   const doc = mount.ownerDocument;
   const element = doc.createElement('div');
   element.id = mode === 'embedded' ? 'pocket-phone-card-host' : 'pocket-phone-host';
@@ -106,7 +106,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     ...(mode === 'embedded' ? { successText: '两三事已更新，可继续使用。' } : {}) });
   // 这里只持有未保存的页面状态；联系人和消息始终从 store 读取。
   const ui = {
-    view: 'home', feedback: null, defaultUser, conflict: control.hasConflict?.(doc) === true,
+    view: 'home', feedback: null, defaultUser, defaultUserAvatar, conflict: control.hasConflict?.(doc) === true,
     contactId: '', groupId: '', postId: '',
     drafts: new Map(), visibleMessages: 60, batch: null,
     historyOpen: false, visibleHistory: 60,
@@ -337,6 +337,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     const mapProjection = ui.view === 'map'
       ? buildMapProjection({
           state,
+          context: host?.readCurrentTarget?.() || {},
           baibaiSnapshot: readBaiBaiBookMapSnapshot(doc.defaultView || globalThis),
           messages: readChatMessages(),
           activeSheetId: ui.mapSheetId,
@@ -344,6 +345,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           searchQuery: ui.mapSearch,
         })
       : null;
+    if (mapProjection?.sheetAssets) {
+      const savedAssets = state?.map?.sheetAssets || {};
+      for (const [sId, aId] of Object.entries(mapProjection.sheetAssets)) {
+        if (aId && savedAssets[sId] !== aId) {
+          store.setMapSheetAsset(sId, aId);
+        }
+      }
+    }
     surface.innerHTML = renderShell({
       content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, mapProjection, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview, host }),
       view: ui.view, enabled, weather,
@@ -706,7 +715,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   function editProfile(kind, id = '') {
     ui.editor = kind; ui.editId = id;
     const state = store.read();
-    const person = kind === 'user' ? state.userProfile || { name: defaultUser } : state.contacts.find(item => item.id === id) || {};
+    const person = kind === 'user' ? state.userProfile || { name: defaultUser, avatar: ui.defaultUserAvatar || '' } : state.contacts.find(item => item.id === id) || {};
     ui.profileDraft = Object.fromEntries(['name', 'nickname', 'avatar', ...(kind === 'contact' ? ['expression', 'language', 'background'] : [])].map(key => [key, person[key] || '']));
     ui.view = `${kind}-profile`; ui.chatMenu = false; ui.inboxMenu = false; ui.feedback = null; render();
   }
@@ -1775,11 +1784,21 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const placeId = button.dataset.placeId;
         if (!placeId) break;
         ui.mapSelectedPlaceId = placeId;
+        if (button.dataset.hasCharacters === 'true') {
+          ui.mapExpandedAvatarPlaceId = ui.mapExpandedAvatarPlaceId === placeId ? '' : placeId;
+        } else {
+          ui.mapExpandedAvatarPlaceId = '';
+        }
         if (!button.matches('summary')) {
           render();
           const card = root.querySelector(`[data-place-card="${CSS.escape(placeId)}"]`);
           card?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
         }
+        break;
+      }
+      case 'toggle-map-trajectory': {
+        ui.mapShowTrajectory = !ui.mapShowTrajectory;
+        render();
         break;
       }
       case 'select-map-sheet': {
@@ -3061,6 +3080,13 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const enabled = event.target.checked;
       void perform('summary-truncate', async () => {
         await store.setSummaryAutoTruncate(enabled);
+        onContextChange();
+      });
+    }
+    if (event.target.id === 'summary-always-summarize') {
+      const enabled = event.target.checked;
+      void perform('summary-always', async () => {
+        await store.setSummaryAlwaysSummarize(enabled);
         onContextChange();
       });
     }

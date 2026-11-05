@@ -563,7 +563,6 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
     </span>
   </label>
   <small class="field-label">临近 7 天内的节日、纪念日与工作日/时段作息可作为背景线索带入正文或提示词。</small>
-  <small class="field-label">短材料由主楼一起判断；超过3000字才额外生成摘要。</small>
   <label class="compact-switch-row" for="summary-mode">
     <span>短信总结方式</span>
     <select id="summary-mode">
@@ -571,6 +570,14 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
       <option value="manual" ${state.summaryMode === 'manual' ? 'selected' : ''}>手动挡（加号菜单中点击「总结短信」）</option>
     </select>
   </label>
+  <label class="compact-switch-row">
+    <span>短内容始终生成摘要</span>
+    <span class="switch">
+      <input id="summary-always-summarize" type="checkbox" role="switch" aria-label="短内容始终生成摘要" ${state.summaryAlwaysSummarize === true ? 'checked' : ''}>
+      <span></span>
+    </span>
+  </label>
+  <small class="field-label">自动挡开启时，无论短信多少字均提炼为精炼摘要；关闭时，少于3000字直接带入完整对话流水账。（手动挡下若有已保存的手动摘要，始终优先注入该摘要）</small>
   <label class="compact-switch-row" for="summary-max-characters">
     <span>摘要字数上限</span>
     <input id="summary-max-characters" type="number" min="50" max="1000" step="50" style="width: 80px; text-align: right;" value="${state.summaryMaxCharacters || 100}">

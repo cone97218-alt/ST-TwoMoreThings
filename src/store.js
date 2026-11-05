@@ -8,7 +8,18 @@ import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
 import { defaultGregorianCalendar, defaultWorkdayConfig } from './calendar-engine.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 
-const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, map: { basemap: 'auto', currentLocation: '', items: [], deletedIds: [] }, injectEnabled: false, injectCalendarEnabled: false, injectMapEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, manualSummary: null });
+const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, map: { basemap: 'auto', currentLocation: '', items: [], deletedIds: [], sheetAssets: {}, trail: [] }, injectEnabled: false, injectCalendarEnabled: false, injectMapEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, summaryAlwaysSummarize: false, manualSummary: null });
+const CHARACTER_PREFERENCE_KEYS = [
+  'injectEnabled',
+  'injectCalendarEnabled',
+  'injectMapEnabled',
+  'contactSocialEnabled',
+  'groupSocialEnabled',
+  'summaryMode',
+  'summaryMaxCharacters',
+  'summaryAutoTruncate',
+  'summaryAlwaysSummarize',
+];
 const fillDefaultAvatars = people => {
   let filled = people;
   for (let index = 0; index < people.length; index++) {
@@ -125,12 +136,20 @@ export function createPhoneStore({
     const raw = target.metadata?.pocketPhone;
     const phoneSettings = getPhoneSettings();
 
+    const hostUserAvatar = target?.userAvatar || (typeof host?.getUserAvatar === 'function' ? host.getUserAvatar() : '');
+    const hostUserName = target?.user || '我';
+    let userProfile = raw?.userProfile;
+    if (userProfile) {
+      if (!userProfile.avatar && hostUserAvatar) userProfile = { ...userProfile, avatar: hostUserAvatar };
+      if (!userProfile.name && hostUserName) userProfile = { ...userProfile, name: hostUserName };
+    } else if (hostUserAvatar) {
+      userProfile = { name: hostUserName, nickname: '', avatar: hostUserAvatar };
+    }
+
     if (!phoneSettings) {
-      if (raw === undefined) return empty;
-      if (raw?.promptPresets) {
-        return { ...raw, promptPresets: normalizePromptPresets(raw.promptPresets) };
-      }
-      return raw;
+      if (raw === undefined) return userProfile ? { ...empty, userProfile } : empty;
+      const res = raw?.promptPresets ? { ...raw, promptPresets: normalizePromptPresets(raw.promptPresets) } : raw;
+      return userProfile ? { ...res, userProfile } : res;
     }
 
     let globalChanged = false;
@@ -231,11 +250,32 @@ export function createPhoneStore({
     // 地图数据只属于当前聊天：新聊天从空白开始，不再按角色卡绑定或回灌。
     const map = raw?.map;
 
+    // 6. 注入与摘要相关开关与角色绑定 (characterPreferences)
+    if (!phoneSettings.characterPreferences) {
+      phoneSettings.characterPreferences = {};
+    }
+    if (!phoneSettings.characterPreferences[charKey]) {
+      phoneSettings.characterPreferences[charKey] = {};
+    }
+    const boundPrefs = phoneSettings.characterPreferences[charKey];
+    const resolvedPrefs = {};
+    for (const key of CHARACTER_PREFERENCE_KEYS) {
+      if (raw?.[key] !== undefined) {
+        if (boundPrefs[key] === undefined) {
+          boundPrefs[key] = raw[key];
+          globalChanged = true;
+        }
+      } else if (boundPrefs[key] !== undefined) {
+        resolvedPrefs[key] = boundPrefs[key];
+      }
+    }
+
     if (globalChanged) {
       void saveGlobalExtensionSettings();
     }
 
-    const needsMerge = prompts !== undefined || promptPresets !== undefined || activePresetId !== undefined || calendar !== raw?.calendar || map !== raw?.map;
+    const hasPrefMerge = Object.keys(resolvedPrefs).length > 0;
+    const needsMerge = prompts !== undefined || promptPresets !== undefined || activePresetId !== undefined || calendar !== raw?.calendar || map !== raw?.map || hasPrefMerge || userProfile !== raw?.userProfile;
 
     if (!needsMerge) {
       if (raw === undefined) return empty;
@@ -245,11 +285,13 @@ export function createPhoneStore({
     const base = raw !== undefined ? raw : empty;
     return {
       ...base,
+      ...resolvedPrefs,
       ...(prompts !== undefined ? { prompts } : {}),
       ...(promptPresets !== undefined ? { promptPresets: normalizePromptPresets(promptPresets) } : {}),
       ...(activePresetId !== undefined ? { activePresetId } : {}),
       ...(calendar !== undefined ? { calendar } : {}),
       ...(map !== undefined ? { map } : {}),
+      ...(userProfile !== undefined ? { userProfile } : {}),
     };
   };
   // Serialize normal phone saves so sending while a reply arrives keeps both changes.
@@ -324,6 +366,17 @@ export function createPhoneStore({
                 ? structuredClone(next.calendar.items.filter(it => !it.todoId))
                 : [],
             };
+            globalChanged = true;
+          }
+        }
+
+        // 6. 注入与摘要相关开关同步到角色卡绑定 (characterPreferences)
+        if (!phoneSettings.characterPreferences) phoneSettings.characterPreferences = {};
+        if (!phoneSettings.characterPreferences[charKey]) phoneSettings.characterPreferences[charKey] = {};
+        const charPrefs = phoneSettings.characterPreferences[charKey];
+        for (const key of CHARACTER_PREFERENCE_KEYS) {
+          if (next[key] !== undefined && charPrefs[key] !== next[key]) {
+            charPrefs[key] = next[key];
             globalChanged = true;
           }
         }
@@ -1191,20 +1244,46 @@ export function createPhoneStore({
       return update(state => ({
         ...state,
         map: {
-          ...(state.map || { items: [], deletedIds: [] }),
+          ...(state.map || { items: [], deletedIds: [], sheetAssets: {}, trail: [] }),
           basemap: value,
         },
       }));
     },
+    setMapSheetAsset(sheetId, assetId) {
+      const sId = String(sheetId || '').trim();
+      const aId = String(assetId || '').trim();
+      if (!sId || !aId) return update(s => s);
+      return update(state => {
+        const map = state.map || { basemap: 'auto', items: [], deletedIds: [], sheetAssets: {}, trail: [] };
+        const sheetAssets = { ...(map.sheetAssets || {}) };
+        sheetAssets[sId] = aId;
+        return {
+          ...state,
+          map: {
+            ...map,
+            sheetAssets,
+          },
+        };
+      });
+    },
     setMapCurrentLocation(location) {
       const value = String(location ?? '').trim();
-      return update(state => ({
-        ...state,
-        map: {
-          ...(state.map || { basemap: 'auto', items: [], deletedIds: [] }),
-          currentLocation: value,
-        },
-      }));
+      return update(state => {
+        const map = state.map || { basemap: 'auto', items: [], deletedIds: [], sheetAssets: {}, trail: [] };
+        let trail = Array.isArray(map.trail) ? [...map.trail] : [];
+        if (value && (!trail.length || trail[trail.length - 1] !== value)) {
+          trail.push(value);
+          if (trail.length > 20) trail = trail.slice(-20);
+        }
+        return {
+          ...state,
+          map: {
+            ...map,
+            currentLocation: value,
+            trail,
+          },
+        };
+      });
     },
     saveMapPlace(place = {}) {
       const name = String(place.name || '').trim();
@@ -1362,6 +1441,7 @@ export function createPhoneStore({
     setSummaryMode(mode) { return update(state => ({ ...state, summaryMode: mode === 'manual' ? 'manual' : 'auto' })); },
     setSummaryMaxCharacters(val) { return update(state => ({ ...state, summaryMaxCharacters: Math.max(50, Math.min(2000, Number(val) || 100)) })); },
     setSummaryAutoTruncate(enabled) { return update(state => ({ ...state, summaryAutoTruncate: Boolean(enabled) })); },
+    setSummaryAlwaysSummarize(enabled) { return update(state => ({ ...state, summaryAlwaysSummarize: Boolean(enabled) })); },
     saveManualSummary(summary) {
       return update(state => ({
         ...state,

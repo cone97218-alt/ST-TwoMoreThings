@@ -31,15 +31,19 @@ function renderCalendarWidget(calendar) {
 export function renderDesktop(state, { apps, calendar }) {
   const image = homeImage(state);
   const pending = pendingTodoCount(state);
+  const originPending = (state.origin?.tasks || []).filter(t => t.status === 'active').length;
   return `<img class="desktop-wallpaper ${image.custom ? 'is-custom' : ''}"
       src="${escape(image.src)}" alt="" draggable="false">
     <div class="desktop-content">
       ${renderCalendarWidget(calendar)}
       <nav class="desktop-apps" aria-label="桌面应用">
-        ${apps.map(({ id, label }) => `<button type="button" class="desktop-app" data-tab="${id}" aria-label="${id === 'calendar' && pending ? `${label}，${pending} 项未完成` : label}">
-          <span class="desktop-app-icon desktop-app-${id}">${icon(id)}${id === 'calendar' && pending ? `<b class="desktop-app-badge" aria-hidden="true">${pending > 99 ? '99+' : pending}</b>` : ''}</span>
+        ${apps.map(({ id, label }) => {
+          const badgeCount = id === 'calendar' ? pending : id === 'origin' ? originPending : 0;
+          return `<button type="button" class="desktop-app" data-tab="${id}" aria-label="${badgeCount ? `${label}，${badgeCount} 项未完成` : label}">
+          <span class="desktop-app-icon desktop-app-${id}">${icon(id)}${badgeCount ? `<b class="desktop-app-badge" aria-hidden="true">${badgeCount > 99 ? '99+' : badgeCount}</b>` : ''}</span>
           <span>${label}</span>
-        </button>`).join('')}
+        </button>`;
+        }).join('')}
       </nav>
       <span class="desktop-page-dot" aria-hidden="true"></span>
     </div>`;

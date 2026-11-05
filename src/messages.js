@@ -16,6 +16,8 @@ import {
   useItem as buckshotUseItem,
   getAiBuckshotDecision,
 } from './games/buckshot-roulette.js';
+import { SYSTEM_CONTACT_ID } from './origin-engine.js';
+import { buildSystemChatPrompt } from './origin-chat.js';
 
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
@@ -27,7 +29,7 @@ export function record(role, text, clock, translation, batch) {
   };
 }
 
-export function createMessageService({ target, store, contextReader, modelClient }) {
+export function createMessageService({ target, store, contextReader, modelClient, originService = null }) {
   return {
     async sendCard(id, draft, { replyToId } = {}) {
       const content = normalizeContent(draft);
@@ -40,6 +42,7 @@ export function createMessageService({ target, store, contextReader, modelClient
       await store.appendMessage(id, { ...record('user', content.text, batch.clock, '', batch), ...content, ...replyToMessage(thread, replyToId) });
     },
     async refineOnlineStyle(id) {
+      if (id === SYSTEM_CONTACT_ID) throw new Error('系统人格可在系统设置中直接切换。');
       const contact = store.read().contacts.find(person => person.id === id);
       if (!contact) throw new Error('这个联系人已不存在，请返回短信重新选择。');
       const state = store.read();
@@ -156,6 +159,116 @@ export function createMessageService({ target, store, contextReader, modelClient
       return thought;
     },
     async continueChat(id) {
+      if (id === SYSTEM_CONTACT_ID) {
+        const state = store.read();
+        const activePreset = getActivePreset(state);
+        const rawThread = state.conversations[id] || [];
+        const context = await contextReader.readForContact(id);
+        const clock = context.clock;
+        const storyHistoryText = (context.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
+        const phoneContextData = sanitizePhoneContext(context);
+        const latestUserInput = extractLatestUserInput(rawThread, {
+          contactName: state.origin?.sysName || '系统',
+          userName: state.userProfile?.name || '<user>',
+        });
+
+        const promptData = buildSystemChatPrompt({
+          originState: state.origin,
+          userProfile: state.userProfile,
+          conversation: rawThread,
+          customChatPrompt: getPrompt('origin_chat', state),
+        });
+
+        const messagesPayload = compilePromptPreset(activePreset, {
+          worldbook: context.worldbook || '',
+          storyHistory: storyHistoryText,
+          storyMemory: context.storyMemory || '',
+          calendar: context.calendar,
+          phoneContext: phoneContextData,
+          charPersonality: `【随身系统】${state.origin?.sysName || '系统'} · 人格风格：${state.origin?.personality || '冷澈'}`,
+          latestUserInput,
+          originPromptText: promptData.system,
+          state,
+        }, 'origin-chat', state);
+
+        const collapsed = collapseMessages(messagesPayload);
+        const systemMessages = collapsed.filter(m => m.role === 'system');
+        const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || promptData.system;
+        const otherMessages = collapsed.filter(m => m.role !== 'system');
+        const modelMessages = otherMessages.length > 0 ? otherMessages : promptData.messages;
+
+        const reply = await modelClient.complete({
+          label: '系统专属私聊',
+          system: systemPrompt,
+          messages: modelMessages,
+          entries: messagesPayload,
+          collapsedMessages: collapsed,
+        });
+
+        let cleanReply = String(reply || '')
+          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+          .replace(/<origin>[\s\S]*?<\/origin>/gi, '')
+          .trim();
+
+        // 路线 A：解析系统私聊回复中的任务发布与属性/积分结算指令
+        const taskMatches = cleanReply.match(/【(?:新任务|发布任务)[：:]([\s\S]*?)】/g);
+        if (taskMatches && originService?.saveTask) {
+          for (const tm of taskMatches) {
+            const inner = tm.replace(/^【(?:新任务|发布任务)[：:]/, '').replace(/】$/, '').trim();
+            const parts = inner.split('|').map(s => s.trim());
+            if (parts.length >= 2) {
+              const [typeOrTitle, titleOrCond, cond, reward, penalty, limit] = parts;
+              const isType = ['主线', '支线', '日常'].includes(typeOrTitle);
+              const taskType = isType ? typeOrTitle : '支线';
+              const taskTitle = isType ? titleOrCond : typeOrTitle;
+              const taskCond = isType ? (cond || '') : (titleOrCond || '');
+              const taskReward = isType ? (reward || '') : (cond || '');
+              const taskPenalty = isType ? (penalty || '') : (reward || '');
+              const rawLimit = String(isType ? limit : penalty || '');
+              const taskLimit = parseInt(rawLimit.replace(/[^0-9]/g, ''), 10) || 0;
+              await originService.saveTask(null, {
+                type: taskType,
+                title: taskTitle || '新任务',
+                cond: taskCond,
+                reward: taskReward,
+                penalty: taskPenalty,
+                limit: taskLimit,
+              });
+            }
+          }
+        }
+
+        const rewardMatches = cleanReply.match(/【(?:奖励|获得)[：:]([\s\S]*?)】/g);
+        if (rewardMatches && originService) {
+          for (const rm of rewardMatches) {
+            const inner = rm.replace(/^【(?:奖励|获得)[：:]/, '').replace(/】$/, '').trim();
+            const ptsMatch = inner.match(/积分([+-]?\d+)/);
+            if (ptsMatch) {
+              const delta = parseInt(ptsMatch[1], 10);
+              if (delta) {
+                await store.updateOrigin(curr => {
+                  curr.points = Math.max(0, (curr.points || 0) + delta);
+                  return curr;
+                });
+              }
+            }
+            const statMatches = inner.matchAll(/([\u4e00-\u9fa5a-zA-Z]+)([+-]\d+)/g);
+            for (const sm of statMatches) {
+              if (sm[1] !== '积分') {
+                await originService.updateStat(sm[1], parseInt(sm[2], 10));
+              }
+            }
+          }
+        }
+
+        const batch = readTimeline(target.messages);
+        const sysMsg = {
+          ...record('assistant', cleanReply, clock, '', batch),
+          text: cleanReply,
+        };
+        await store.appendMessages(id, [sysMsg]);
+        return [sysMsg];
+      }
       const context = await contextReader.readForContact(id);
       const clock = context.clock;
       const state = store.read();

@@ -2,7 +2,7 @@ import { action, avatar, empty, escape, icon, pageHeading, renderEmojiText, rend
 import { displayName } from '../profiles.js';
 import { partitionHistory } from '../timeline.js';
 import { messageText, isFinishedGameAction } from '../content.js';
-import { renderAttachments, renderCardActions, renderCardBody } from './cards.js';
+import { renderAttachments, renderCardActions, renderCardBody, renderOriginTaskCardsInText } from './cards.js';
 import { renderGameBoard } from './game-board.js';
 import { chatBackgroundStyle } from '../backgrounds.js';
 import { renderTodoCandidate } from './todos.js';
@@ -215,7 +215,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
   const forwardedBlock = message.forwarded
     ? `<div class="message-forwarded-head"><small>↪ 转发自 ${escape(message.forwardedFrom?.senderName || '聊天记录')}${message.forwardedFrom?.isGroup && message.forwardedFrom?.chatName ? ` · ${escape(message.forwardedFrom.chatName)}` : ''}</small></div>`
     : '';
-  const body = !message.type ? `<span class="message-original">${renderMentionText(message.text, groupPeople)}</span>${message.translation ? `<span class="message-translation" lang="zh-CN">${renderMentionText(message.translation, groupPeople)}</span>` : ''}` : renderCardBody(message, busy.has(`image:${message.id}`));
+  const body = !message.type ? `<span class="message-original">${renderOriginTaskCardsInText(message.text, groupPeople)}</span>${message.translation ? `<span class="message-translation" lang="zh-CN">${renderMentionText(message.translation, groupPeople)}</span>` : ''}` : renderCardBody(message, busy.has(`image:${message.id}`));
 
   const quickEmojis = getQuickReactions(state);
   const moreOpen = ui.reactionMoreMessageId === message.id;

@@ -30,6 +30,7 @@ import { UPDATE_NOTICE_PATH } from './release.js';
 import { VERSION } from './version.js';
 import { createMemorySources } from './memory-sources.js';
 import { collapseMessages } from './preset-engine.js';
+import { createOriginService } from './origin.js';
 export { createPhoneControl, createPhoneImageService };
 
 export function initialize({ mode = 'standalone', host = createHostAdapter({ mode }), documentRef = document, qqjBridgeProvider, preset, coreUrl, release, updateError, replaceCore } = {}) {
@@ -72,7 +73,15 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
     }
     catch (error) { host.reportError(`手机参考准备失败，本次正文未带入手机消息。${error.message || '请检查手机生成连接后重试。'}`); }
   });
-  const unsubscribeTime = host.onStoryChanged(() => phone?.refreshTime());
+  const unsubscribeTime = host.onStoryChanged(async () => {
+    phone?.refreshTime();
+    try {
+      const target = host.captureChat();
+      const store = makeStore(target);
+      const originService = createOriginService({ target, store, host, logger, notifyPhone: n => phone?.pushPhoneNotice?.(n) });
+      await originService.harvestLastMessage();
+    } catch (_) {}
+  });
   function open() {
     const target = host.captureChat();
     // 宿主首次加载聊天会替换 metadata 根；重开时让窗口绑定实际载入的档案。
@@ -121,13 +130,23 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
     const contextReader = createContextReader({ target, store, qqjBridgeProvider, calendar, wrapperSettingsProvider, memorySources });
     const calendarAi = createCalendarAiService({ contextReader, modelClient, target, store });
     const mapAi = createMapAiService({ contextReader, modelClient, target, store });
+    const origin = createOriginService({
+      target,
+      store,
+      host,
+      logger,
+      notifyPhone: n => currentPhone?.pushPhoneNotice?.(n),
+      modelClient,
+      contextReader,
+    });
     currentPhone = mountPhone({ mount: documentRef.documentElement, store, qqjBridgeProvider, defaultUser: target.user, defaultUserAvatar: target.userAvatar || host?.getUserAvatar?.() || '', readTime: () => readPhoneTime(target.messages), readTimeline: () => readTimeline(target.messages),
       readChatMessages: () => target.messages,
       host,
-      messages: createMessageService({ target, store, contextReader, modelClient }),
+      messages: createMessageService({ target, store, contextReader, modelClient, originService: origin }),
       groups: createGroupService({ target, store, contextReader, modelClient }),
       directory: createDirectoryService({ store, contextReader, modelClient }),
       forum: createForumService({ store, contextReader, modelClient }), apiSettings, calendar, calendarAi, mapAi, logger,
+      origin,
       previewBackflow: async () => {
         const backflowService = createBackflowService({ target, store, modelClient, isEnabled: control.isEnabled, wrapperSettingsProvider, calendar, memorySources, qqjBridgeProvider, host });
         return await backflowService.prepare('normal');

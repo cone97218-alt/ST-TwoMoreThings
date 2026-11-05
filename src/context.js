@@ -1,6 +1,6 @@
 import { sanitizeStoryBody } from './shared-body-wrappers.js';
 import { parseJsonObject } from './api.js';
-import { getPrompt, SUMMARY_PROMPT } from './prompts.js';
+import { getPrompt, SUMMARY_PROMPT, ORIGIN_SYSTEM_PROMPT } from './prompts.js';
 import { latestAiFloor } from './time.js';
 import { readTimeline, currentMessages } from './timeline.js';
 import { contextMessage, messageText, filterFinishedGameActions } from './content.js';
@@ -15,6 +15,7 @@ import { replyContext } from './replies.js';
 import { createMemorySources } from './memory-sources.js';
 import { getActivePreset, compilePromptPreset, collapseMessages, sanitizePhoneContext } from './preset-engine.js';
 import { buildMapProjection, formatMapContextPrompt, readBaiBaiBookMapSnapshot } from './map-engine.js';
+import { buildOriginInjection } from './origin-injection.js';
 
 function recentStory(messages, beforeIndex = messages.length, wrappers = {}, layers = 1) {
   const maxLayers = Math.max(1, Number(layers) || 1);
@@ -459,7 +460,8 @@ export function createBackflowService({
       const injectMap = Boolean(state.injectMapEnabled);
       const workdayConfig = state.calendar?.workdayConfig;
       const injectWorkday = Boolean(workdayConfig?.enabled && workdayConfig?.injectStory);
-      if (!isEnabled() || (!injectSms && !injectCal && !injectWorkday && !injectMap)) return '';
+      const injectOrigin = Boolean(state.origin?.enabled && (state.injectOriginEnabled ?? true));
+      if (!isEnabled() || (!injectSms && !injectCal && !injectWorkday && !injectMap && !injectOrigin)) return '';
       // 重生成事件发生时旧回答可能尚未移除；参考取自该回答之前的短信卡口。
       const last = target.messages.at(-1);
       const replacing = ['regenerate', 'swipe'].includes(type) && last && !last.is_user && !last.is_system && !['user', 'system'].includes(last.role);
@@ -540,8 +542,24 @@ export function createBackflowService({
         }
       }
 
-      if (!conversations.length && !todos.length && !calendarLines && !workdayLines && !mapLines) return '';
+      // 金手指系统与任务线索（若开启系统带入正文）
+      let originLines = '';
+      if (injectOrigin) {
+        try {
+          const sysPrompt = getPrompt('origin_system', state) || ORIGIN_SYSTEM_PROMPT;
+          const text = buildOriginInjection(state.origin, {
+            currentTurn: beforeIndex,
+            systemPrompt: sysPrompt,
+          });
+          if (text) {
+            originLines = text.trim();
+          }
+        } catch {}
+      }
+
+      if (!conversations.length && !todos.length && !calendarLines && !workdayLines && !mapLines && !originLines) return '';
       const parts = [];
+      if (originLines) parts.push(originLines);
       if (workdayLines) parts.push(workdayLines);
       if (calendarLines) parts.push(calendarLines);
       if (mapLines) parts.push(mapLines);

@@ -1,4 +1,4 @@
-import { action, escape, icon, renderBilingual } from './shared.js';
+import { action, escape, icon, renderBilingual, renderMentionText } from './shared.js';
 import { findSticker, stickerPacks, stickers } from '../stickers.js';
 import { displayName } from '../profiles.js';
 import { imageSource } from '../image-files.js';
@@ -49,6 +49,59 @@ export function renderCardBody(message, generating = false) {
       </div>`;
   }
   return renderBilingual(message.text, message.translation);
+}
+
+export function renderOriginTaskCardsInText(text, people = []) {
+  if (!text || typeof text !== 'string') return '';
+  const taskRegex = /【(?:新任务|发布任务|任务)[：:]([\s\S]*?)】/g;
+  if (!taskRegex.test(text)) {
+    return renderMentionText(text, people);
+  }
+
+  taskRegex.lastIndex = 0;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = taskRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(renderMentionText(text.slice(lastIndex, match.index), people));
+    }
+    const inner = match[1].trim();
+    const segs = inner.split('|').map(s => s.trim());
+    const isType = ['主线', '支线', '日常'].includes(segs[0]);
+    const type = isType ? segs[0] : '支线';
+    const title = isType ? segs[1] : segs[0];
+    const cond = isType ? (segs[2] || '') : (segs[1] || '');
+    const reward = isType ? (segs[3] || '') : (segs[2] || '');
+    const penalty = isType ? (segs[4] || '') : (segs[3] || '');
+    const limit = isType ? (segs[5] || '') : (segs[4] || '');
+
+    parts.push(`<div class="origin-task-sms-card" data-action="origin-jump-app" role="button" tabindex="0" title="点击前往系统 App 查看任务">
+      <div class="origin-task-sms-card__header">
+        <div class="origin-task-sms-card__title-row">
+          <span class="origin-task-sms-card__icon">${icon('origin')}</span>
+          <strong class="origin-task-sms-card__title">${escape(title || '新任务')}</strong>
+        </div>
+        <span class="origin-tag tg-${escape(type)}">${escape(type)}</span>
+      </div>
+      ${cond ? `<div class="origin-task-sms-card__cond"><small>目标条件</small><span>${escape(cond)}</span></div>` : ''}
+      <div class="origin-task-sms-card__footer">
+        ${reward ? `<div class="origin-task-sms-card__reward-row">${icon('gift')} <span>${escape(reward)}</span></div>` : ''}
+        <div class="origin-task-sms-card__meta-row">
+          ${limit && limit !== '0' && limit !== '无' ? `<span class="origin-task-sms-card__limit">${icon('clock')} <span>${escape(limit)}</span></span>` : '<span></span>'}
+          <span class="origin-task-sms-card__jump">前往系统 ${icon('arrow-right')}</span>
+        </div>
+      </div>
+    </div>`);
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(renderMentionText(text.slice(lastIndex), people));
+  }
+
+  return parts.join('');
 }
 
 export function renderCardActions(message, { readOnly, busy }) {

@@ -46,7 +46,7 @@ const briefPost = post => ({ authorId: post.authorId, text: post.text,
 });
 
 function chooseFriends(contacts, random) {
-  const candidates = [...contacts];
+  const candidates = [...contacts.filter(c => !c.isSystem && c.id !== 'contact:origin-system')];
   for (let index = candidates.length - 1; index > 0; index--) {
     const selected = Math.floor(random() * (index + 1));
     [candidates[index], candidates[selected]] = [candidates[selected], candidates[index]];

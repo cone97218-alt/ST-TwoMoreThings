@@ -357,6 +357,20 @@ test('userDrawCard, aiDrawCard, and system notices use participant names and sup
   const game = createOldMaidGame({ userName: '小明', contactName: '林舟' });
   assert(game.lastAction.description.includes('【小明】') || game.lastAction.description.includes('【林舟】'));
 
+  // Ensure hands have enough non-matching cards so neither player empties hand prematurely
+  game.userCards = [
+    { id: 'u1', rank: '2', suit: '♠' },
+    { id: 'u2', rank: '3', suit: '♠' },
+    { id: 'u3', rank: '4', suit: '♠' },
+  ];
+  game.aiCards = [
+    { id: 'a1', rank: '5', suit: '♥' },
+    { id: 'a2', rank: '6', suit: '♥' },
+    { id: 'a3', isJoker: true, rank: 'Joker' },
+  ];
+  game.turn = 'user';
+  game.status = 'playing';
+
   // User draw
   const userStep = userDrawCard(game, 0, { userName: '小明', contactName: '林舟' });
   assert(userStep.game.lastAction.description.includes('【小明】'));

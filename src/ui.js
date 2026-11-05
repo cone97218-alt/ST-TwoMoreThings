@@ -17,6 +17,8 @@ import { renderAuthoring } from './ui/authoring.js';
 import { LOCAL_CORE_URL, REMOTE_CORE_URL } from './authoring.js';
 import { renderCalendar } from './ui/calendar.js';
 import { renderMap } from './ui/map.js';
+import { renderOrigin } from './ui/origin.js';
+import { SYSTEM_CONTACT_ID } from './origin-engine.js';
 import { buildMapProjection, readBaiBaiBookMapSnapshot } from './map-engine.js';
 import { createCalendarReader } from './calendar.js';
 import { defaultWorkdayConfig } from './calendar-engine.js';
@@ -51,6 +53,7 @@ import { readBaiBaiExcludeSettings, saveBaiBaiExcludeSettings, SHARED_EXCLUDES_E
 // 新应用在这里注册入口和页面，页面模板保留在 src/ui/。
 const apps = [
   { id: 'messages', label: '短信', view: 'inbox' },
+  { id: 'origin', label: '系统', view: 'origin' },
   { id: 'forum', label: '论坛', view: 'forum' },
   { id: 'calendar', label: '日历', view: 'calendar' },
   { id: 'map', label: '地图', view: 'map' },
@@ -67,6 +70,7 @@ const pages = {
   'delete-confirm': renderDeletion,
   forum: renderForum,
   post: renderPost,
+  origin: renderOrigin,
   settings: renderSettings,
   'contact-profile': renderProfile,
   'user-profile': renderProfile,
@@ -78,7 +82,7 @@ const pages = {
   'social-profile': renderSocialProfile,
 };
 
-export function mountPhone({ mount, store, messages, groups, directory, forum, social, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, mapAi = { async organizeMap() { return { places: [] }; } }, readChatMessages = () => [], logger = null, previewBackflow = null, summarizeBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', defaultUserAvatar = '', onClose, onContextChange = () => {}, host }) {
+export function mountPhone({ mount, store, messages, groups, directory, forum, social, origin: originService = {}, apiSettings, imageProviders, wallpaper, entries, appearance, images, authoring, mode, updates, renderUpdateMarkdown, notifyUpdate, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, calendar = createCalendarReader(), calendarAi = { async conceiveFestivals() { return []; }, async deduceSchedules() { return []; } }, mapAi = { async organizeMap() { return { places: [] }; } }, readChatMessages = () => [], logger = null, previewBackflow = null, summarizeBackflow = null, control = { isEnabled: () => true }, readWeather = readLockWeather, readTime, readTimeline, defaultUser = '我', defaultUserAvatar = '', onClose, onContextChange = () => {}, host }) {
   const doc = mount.ownerDocument;
   const element = doc.createElement('div');
   element.id = mode === 'embedded' ? 'pocket-phone-card-host' : 'pocket-phone-host';
@@ -289,6 +293,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     const promptCardsScroll = ui.savedPromptCardsScroll !== undefined ? ui.savedPromptCardsScroll : root.querySelector('.prompt-cards-list')?.scrollTop;
     const socialScroll = ['social', 'social-profile'].includes(ui.view) ? root.querySelector(`.view-${ui.view}`)?.scrollTop : undefined;
     const calendarScroll = ['calendar', 'todos'].includes(ui.view) ? root.querySelector(`.view-${ui.view}`)?.scrollTop : undefined;
+    const originScroll = ui.savedOriginScroll !== undefined ? ui.savedOriginScroll : (ui.view === 'origin' ? root.querySelector('.phone-main')?.scrollTop : undefined);
     let state = store.read();
     const enabled = control.isEnabled();
     element.dataset.enabled = String(enabled);
@@ -433,6 +438,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       ui.calendarScroll = calendarScroll;
       root.querySelector('.phone-main').scrollTop = calendarScroll;
     }
+    if (originScroll !== undefined && ui.view === 'origin') {
+      const mainEl = root.querySelector('.phone-main');
+      if (mainEl) mainEl.scrollTop = originScroll;
+    }
     if (ui.pinnedPromptId) {
       const card = root.querySelector(`[data-prompt-id="${CSS.escape(ui.pinnedPromptId)}"]`);
       if (card) {
@@ -442,10 +451,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     const pinnedPromptId = ui.pinnedPromptId;
     const targetSettingsScroll = settingsScroll;
     const targetPromptCardsScroll = promptCardsScroll;
-    if (!busy.has('prompt-save') && !busy.has('prompt-reset')) {
+    if (!busy.has('prompt-save') && !busy.has('prompt-reset') && !Array.from(busy).some(b => typeof b === 'string' && b.startsWith('origin-'))) {
       delete ui.pinnedPromptId;
       delete ui.savedSettingsScroll;
       delete ui.savedPromptCardsScroll;
+      delete ui.savedOriginScroll;
     }
     if (typeof requestAnimationFrame === 'function') {
       requestAnimationFrame(() => {
@@ -459,6 +469,12 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           const listEl = root.querySelector('.prompt-cards-list');
           if (listEl && Math.abs(listEl.scrollTop - targetPromptCardsScroll) > 1) {
             listEl.scrollTop = targetPromptCardsScroll;
+          }
+        }
+        if (originScroll !== undefined && ui.view === 'origin') {
+          const mainEl = root.querySelector('.phone-main');
+          if (mainEl && Math.abs(mainEl.scrollTop - originScroll) > 1) {
+            mainEl.scrollTop = originScroll;
           }
         }
         if (pinnedPromptId) {
@@ -604,6 +620,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   function showPage(view, { bottom = false } = {}) {
     if (ui.view === 'social' && view !== 'social') ui.socialScroll = root.querySelector('.view-social')?.scrollTop || 0;
     if (['calendar', 'todos'].includes(ui.view) && !['calendar', 'todos'].includes(view)) ui.calendarScroll = root.querySelector('.phone-main')?.scrollTop || 0;
+    if (ui.view === 'origin' && view !== 'origin') ui.originScroll = root.querySelector('.phone-main')?.scrollTop || 0;
     dismissMenus();
     if (!['chat', 'group-chat'].includes(view)) {
       ui.replyToId = '';
@@ -618,6 +635,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     recoverVisibleImages();
     if (view === 'social') root.querySelector('.view-social').scrollTop = ui.socialScroll;
     if (['calendar', 'todos'].includes(view) && ui.calendarScroll) root.querySelector('.phone-main').scrollTop = ui.calendarScroll;
+    if (view === 'origin' && ui.originScroll) root.querySelector('.phone-main').scrollTop = ui.originScroll;
     readVisibleSocialReplies();
   }
   function openConversation(id, isGroup = false) {
@@ -644,6 +662,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   // 返回先收起当前聊天的清空确认，再按页面父级走，不另存应用历史栈。
   function goBack() {
     if (inChat() && ui.confirmClear) { ui.confirmClear = false; render(); return; }
+    if (ui.view === 'origin' && ui.originShowSettings) { ui.originShowSettings = false; render(); return; }
     let parent = 'desktop';
     switch (ui.view) {
       case 'chat':
@@ -786,6 +805,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (event.target.matches('.photo-viewer')) { ui.photo = null; render(); return; }
     if (event.target.matches('.calendar-modal-backdrop')) { ui.calendarAiOpen = false; render(); return; }
+    if (event.target.matches('.origin-modal-backdrop')) { ui.originModal = null; ui.originModalData = null; render(); return; }
+    const originJumpNode = event.target.closest('[data-action="origin-jump-app"]');
+    if (originJumpNode) {
+      ui.view = 'origin';
+      ui.originTab = 'tasks';
+      render();
+      return;
+    }
     if (event.target.matches('.chat-modal-backdrop')) {
       ui.editingMessageId = '';
       ui.editingMessageDraft = undefined;
@@ -1265,6 +1292,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       return;
     }
 
+    const closeOriginModal = event.target.closest('[data-action="origin-close-modal"]');
+    if (closeOriginModal && (event.target === closeOriginModal || closeOriginModal.tagName === 'BUTTON' || closeOriginModal.classList.contains('origin-modal-backdrop'))) {
+      ui.originModal = null;
+      ui.originModalData = null;
+      render();
+      return;
+    }
+
     const button = event.target.closest('button');
     if (!button || button.disabled) return;
     if (button.dataset.wallpaper !== undefined) { const theme = store.read().theme; void perform('wallpaper', () => store.setWallpaper(theme, button.dataset.wallpaper)); return; }
@@ -1352,6 +1387,9 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (button.dataset.post) { ui.postId = button.dataset.post; ui.view = 'post'; ui.feedback = null; render(); return; }
     const id = conversationId(), service = ui.view === 'group-chat' ? groups : messages;
+    if (button.dataset.action?.startsWith('origin-') && ui.view === 'origin') {
+      ui.savedOriginScroll = root.querySelector('.phone-main')?.scrollTop;
+    }
     switch (button.dataset.action) {
       case 'dismiss-phone-notice': dismissPhoneNotice(); break;
       case 'open-phone-notice': {
@@ -1424,6 +1462,121 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const draft = ui.view === 'group-profile' ? ui.groupDraft : ui.profileDraft;
         draft.background = ''; render(); break;
       }
+      // 系统操作
+      case 'origin-back':
+      case 'back-desktop':
+        if (ui.originShowSettings) {
+          ui.originShowSettings = false;
+          render();
+        } else {
+          showPage('desktop');
+        }
+        break;
+      case 'origin-close-settings':
+        ui.originShowSettings = false;
+        render();
+        break;
+      case 'origin-enable-system':
+        void perform('origin-enable', () => originService.updateSettings({ enabled: true }), () => {
+          ui.feedback = { text: '系统已成功激活，已同步生成专属短信私聊！' };
+          onContextChange();
+        });
+        break;
+      case 'origin-switch-tab': ui.originTab = button.dataset.originTab || button.dataset.tab; render(); break;
+      case 'origin-toggle-settings': ui.originShowSettings = !ui.originShowSettings; render(); break;
+      case 'origin-open-sms': openConversation(SYSTEM_CONTACT_ID, false); break;
+      case 'origin-jump-app': ui.view = 'origin'; ui.originTab = 'tasks'; render(); break;
+      case 'origin-filter-tasks': ui.taskFilter = button.dataset.originFilter || button.dataset.filter; render(); break;
+      case 'origin-open-new-task': ui.originModal = 'edit-task'; ui.originModalData = {}; render(); break;
+      case 'origin-edit-task': {
+        const taskId = button.dataset.taskId;
+        ui.originModal = 'edit-task';
+        ui.originModalData = (store.read().origin?.tasks || []).find(t => String(t.id) === String(taskId)) || {};
+        render(); break;
+      }
+      case 'origin-complete-task':
+        void perform('origin-task', () => originService.completeTask(button.dataset.taskId), () => { ui.feedback = { text: '任务已结算达成！' }; onContextChange(); }); break;
+      case 'origin-fail-task':
+        void perform('origin-task', () => originService.failTask(button.dataset.taskId, '手动放弃'), () => { ui.feedback = { text: '任务已标记失败。' }; onContextChange(); }); break;
+      case 'origin-delete-task':
+        void perform('origin-task', () => originService.deleteTask(button.dataset.taskId), () => { ui.feedback = { text: '任务已删除。' }; onContextChange(); }); break;
+      case 'origin-mod-stat':
+        void perform('origin-stat', () => originService.updateStat(button.dataset.stat, parseInt(button.dataset.delta, 10)), onContextChange); break;
+      case 'origin-add-stat': {
+        const sName = prompt('请输入新属性名称（如：魅力、灵力、敏捷）：');
+        if (sName && sName.trim()) void perform('origin-stat', () => originService.updateStat(sName.trim(), 1), onContextChange);
+        break;
+      }
+      case 'origin-use-item':
+        void perform('origin-item', () => originService.useItem(button.dataset.item), () => { ui.feedback = { text: `已使用「${button.dataset.item}」，将在下回合剧情显现。` }; onContextChange(); }); break;
+      case 'origin-buy-item':
+        void perform('origin-buy', () => originService.buyItem(button.dataset.item), () => { ui.feedback = { text: `已兑换「${button.dataset.item}」，已放入背包！` }; onContextChange(); }); break;
+      case 'origin-refresh-shop':
+        void perform('origin-shop', () => originService.refreshShop ? originService.refreshShop(6) : originService.updateSettings({ shop: store.read().origin?.shop?.slice().reverse() || [] }), () => { ui.feedback = { text: '商城货架已随机换一批。' }; onContextChange(); }); break;
+      case 'origin-refresh-gacha':
+        void perform('origin-gacha-refresh', () => originService.refreshGacha ? originService.refreshGacha() : Promise.resolve(), () => { ui.feedback = { text: '祈愿池预览已轮换。' }; onContextChange(); }); break;
+      case 'origin-ai-conceive-shop':
+        void perform('origin-shop-ai', async () => {
+          if (!originService.conceiveShopItems) throw new Error('当前环境未启用模型进货推演能力');
+          return await originService.conceiveShopItems();
+        }, res => {
+          ui.feedback = { text: `AI 成功进货 ${res?.count || 0} 件商品并已上架！` };
+          onContextChange();
+        });
+        break;
+      case 'origin-ai-conceive-gacha':
+        void perform('origin-gacha-ai', async () => {
+          if (!originService.conceiveGachaItems) throw new Error('当前环境未启用模型奖池推演能力');
+          return await originService.conceiveGachaItems();
+        }, res => {
+          ui.feedback = { text: `AI 成功扩充 ${res?.count || 0} 件奖品入库！` };
+          onContextChange();
+        });
+        break;
+      case 'origin-open-shop-catalog':
+        ui.originModal = 'shop-catalog'; render(); break;
+      case 'origin-open-gacha-catalog':
+        ui.originModal = 'gacha-catalog'; render(); break;
+      case 'origin-delete-shop-item':
+        void perform('origin-shop-del', () => originService.deleteShopCatalogItem(button.dataset.item), onContextChange); break;
+      case 'origin-delete-gacha-item':
+        void perform('origin-gacha-del', () => originService.deleteGachaCatalogItem(button.dataset.item), onContextChange); break;
+      case 'origin-draw-gacha': {
+        const count = parseInt(button.dataset.count, 10) || 1;
+        void perform('origin-gacha', () => originService.drawGacha(count), results => {
+          ui.originModal = 'gacha-result';
+          ui.originModalData = results;
+          onContextChange();
+        });
+        break;
+      }
+      case 'origin-open-direction':
+        ui.originModal = 'direction'; render(); break;
+      case 'origin-ai-conceive-task':
+        void perform('origin-ai-task', async () => {
+          if (!originService.conceiveTask) throw new Error('当前环境未启用模型推演能力');
+          return await originService.conceiveTask();
+        }, (newTask) => {
+          ui.feedback = { text: `AI 成功构想新任务：「${newTask?.title || '新任务'}」！` };
+          onContextChange();
+        });
+        break;
+      case 'origin-ai-evaluate-stats':
+        void perform('origin-ai-stats', async () => {
+          if (!originService.evaluateStats) throw new Error('当前环境未启用模型推演能力');
+          return await originService.evaluateStats();
+        }, (res) => {
+          ui.feedback = { text: res?.summary || 'AI 已完成成长评估并结算属性！' };
+          onContextChange();
+        });
+        break;
+      case 'origin-close-modal':
+        ui.originModal = null; ui.originModalData = null; render(); break;
+      case 'origin-reset-data':
+        if (confirm('确认清空本局系统数据吗？任务、背包与积分将重置为初始状态。')) {
+          void perform('origin-reset', () => store.updateOrigin(() => ({})), () => { ui.feedback = { text: '系统数据已重置。' }; onContextChange(); });
+        }
+        break;
       case 'open-calendar':
         ui.view = 'calendar'; ui.calendarOffset = 0; ui.calendarDay = null;
         ui.feedback = null; render(); break;
@@ -3030,6 +3183,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const enabled = event.target.checked;
       void perform('injection-map', async () => { await store.setInjectMapEnabled(enabled); onContextChange(); });
     }
+    if (event.target.id === 'inject-origin-enabled') {
+      const enabled = event.target.checked;
+      void perform('injection-origin', async () => { await store.setInjectOriginEnabled(enabled); onContextChange(); });
+    }
     if (event.target.matches('[data-action="change-map-basemap"]')) {
       const val = event.target.value || 'auto';
       void perform('map-basemap', async () => { await store.setMapBasemap(val); onContextChange(); });
@@ -3202,6 +3359,93 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         if (!isReadingSocial(postId) && result.comments?.some(comment => comment.replyToId === postedId && comment.read === false)) pushPhoneNotice({ kind: 'social-reply', id: postId });
         onContextChange();
       });
+    }
+    if (event.target.matches('[data-origin-form]') && ui.view === 'origin') {
+      ui.savedOriginScroll = root.querySelector('.phone-main')?.scrollTop;
+    }
+    if (event.target.matches('[data-origin-form="task"]')) {
+      const form = event.target;
+      const id = form.elements.id?.value;
+      const draft = {
+        type: form.elements.type?.value || '支线',
+        title: form.elements.title?.value || '',
+        cond: form.elements.cond?.value || '',
+        reward: form.elements.reward?.value || '',
+        penalty: form.elements.penalty?.value || '',
+        limit: Number(form.elements.limit?.value) || 0,
+      };
+      void perform('origin-task-save', () => originService.saveTask(id, draft), () => {
+        ui.originModal = null;
+        ui.originModalData = null;
+        onContextChange();
+      });
+      return;
+    }
+    if (event.target.matches('[data-origin-form="direction"]')) {
+      const form = event.target;
+      const direction = form.elements.direction?.value || '';
+      void perform('origin-direction-save', () => originService.updateSettings({ direction }), () => {
+        ui.originModal = null;
+        ui.feedback = { text: '期望任务方向已保存。' };
+        onContextChange();
+      });
+      return;
+    }
+    if (event.target.matches('[data-origin-form="settings"]')) {
+      const form = event.target;
+      const patch = {
+        enabled: form.elements.enabled?.checked,
+        sysName: form.elements.sysName?.value || '系统',
+        bindTo: form.elements.bindTo?.value || '宿主',
+        personality: form.elements.personality?.value || '冷澈',
+        personaText: form.elements.personaText?.value || '',
+        freq: Number(form.elements.freq?.value) || 3,
+        fourthWall: Number(form.elements.fourthWall?.value) || 0,
+        blockWhenUnfinished: form.elements.blockWhenUnfinished?.checked,
+        tagRegex: form.elements.tagRegex?.value ?? '<(?:origin|系统)>([\\s\\S]*?)</(?:origin|系统)>',
+        storyRegex: form.elements.storyRegex?.value ?? '【(?:叮[！!]|系统).*?】',
+      };
+      void perform('origin-settings-save', () => originService.updateSettings(patch), () => {
+        ui.originShowSettings = false;
+        ui.feedback = { text: '系统设置已更新。' };
+        onContextChange();
+      });
+      return;
+    }
+    if (event.target.matches('[data-origin-form="shop-item"]')) {
+      const form = event.target;
+      const draft = {
+        name: form.elements.name?.value?.trim(),
+        price: Number(form.elements.price?.value) || 100,
+        desc: form.elements.desc?.value?.trim() || '',
+        effect: form.elements.effect?.value?.trim() || '',
+      };
+      if (draft.name) {
+        void perform('origin-catalog-add', () => originService.saveShopCatalogItem(draft), () => {
+          form.reset();
+          ui.feedback = { text: `商品「${draft.name}」已添加至总库！` };
+          onContextChange();
+        });
+      }
+      return;
+    }
+    if (event.target.matches('[data-origin-form="gacha-item"]')) {
+      const form = event.target;
+      const draft = {
+        name: form.elements.name?.value?.trim(),
+        tier: form.elements.tier?.value || 'R',
+        weight: Number(form.elements.weight?.value) || 10,
+        desc: form.elements.desc?.value?.trim() || '',
+        effect: form.elements.effect?.value?.trim() || '',
+      };
+      if (draft.name) {
+        void perform('origin-catalog-add', () => originService.saveGachaCatalogItem(draft), () => {
+          form.reset();
+          ui.feedback = { text: `奖品「${draft.name}」已添加至祈愿总库！` };
+          onContextChange();
+        });
+      }
+      return;
     }
     if (event.target.matches('.api-form')) void perform('api', () => apiSettings.saveManual({ ...ui.apiDraft }), () => { ui.apiDraft = {}; ui.manual = false; ui.feedback = { text: '连接已保存。' }; });
     if (event.target.matches('[data-calendar-form]')) {

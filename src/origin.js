@@ -1,0 +1,876 @@
+import {
+  SYSTEM_CONTACT_ID,
+  normalizeOriginState,
+  buyShopItem,
+  useBagItem,
+  performGachaDraw,
+  completeOriginTask,
+  failOriginTask,
+  pushOriginLog,
+  gainOriginExp,
+  applyStatEffect,
+  addItemToBag,
+  unlockAchievement,
+  refreshShopShelf,
+  refreshGachaPool,
+} from './origin-engine.js';
+import {
+  buildOriginInjection,
+  parseOriginBlock,
+  applyOriginBlock,
+  stripOriginBlock,
+} from './origin-injection.js';
+import { createSystemMessage } from './origin-chat.js';
+import { readTimeline } from './timeline.js';
+import { parseJsonObject } from './api.js';
+import { compilePromptPreset, getActivePreset, collapseMessages } from './preset-engine.js';
+
+export function extractJsonArray(text) {
+  if (!text) return null;
+  const clean = String(text).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const start = clean.indexOf('[');
+  const end = clean.lastIndexOf(']');
+  if (start !== -1 && end > start) {
+    try {
+      const arr = JSON.parse(clean.slice(start, end + 1));
+      if (Array.isArray(arr)) return arr;
+    } catch (_) {}
+  }
+  return null;
+}
+
+export function isAiMessage(m) {
+  if (!m) return false;
+  if (m.is_user || m.role === 'user') return false;
+  if (m.is_system || m.role === 'system') return false;
+  return true;
+}
+
+export function countAiTurns(messages = []) {
+  if (!Array.isArray(messages)) return 0;
+  return messages.filter(isAiMessage).length;
+}
+
+export function findLastAiMessage(messages = []) {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (isAiMessage(m)) return { message: m, index: i };
+  }
+  return null;
+}
+
+export function createOriginService({ target, store, host, logger = null, notifyPhone = () => {}, modelClient = null, contextReader = null }) {
+  function getTurn() {
+    return countAiTurns(target?.messages || []);
+  }
+
+  function getSwipeKey(m) {
+    return typeof m?.swipe_id === 'number' ? m.swipe_id : 0;
+  }
+
+  function getMessageSnapshot(m) {
+    if (!m || !m.extra) return null;
+    const key = getSwipeKey(m);
+    if (m.extra.originSnaps && m.extra.originSnaps[key]) {
+      return m.extra.originSnaps[key];
+    }
+    return m.extra.originSnap || null;
+  }
+
+  function setMessageSnapshot(m, originState) {
+    if (!m) return;
+    if (!m.extra) m.extra = {};
+    m.extra.originSnaps = m.extra.originSnaps || {};
+    const key = getSwipeKey(m);
+    const serialized = JSON.stringify(originState);
+    m.extra.originSnaps[key] = serialized;
+    m.extra.originSnap = serialized;
+  }
+
+  return {
+    getTurn,
+    isEnabled() {
+      const state = store.read();
+      return Boolean(state.origin?.enabled);
+    },
+    preparePrompt() {
+      const state = store.read();
+      const injectOrigin = Boolean(state.origin?.enabled && (state.injectOriginEnabled ?? true));
+      if (!injectOrigin) return '';
+      return buildOriginInjection(state.origin, { currentTurn: getTurn() });
+    },
+    async harvestLastMessage() {
+      const state = store.read();
+      if (!state.origin?.enabled) return;
+
+      const last = findLastAiMessage(target?.messages || []);
+      if (!last || !last.message) return;
+      const m = last.message;
+      const content = m.mes || m.text || '';
+
+      // 1. 结构化标签数据块侦听 (支持设置中自定义标签正则，如 <origin> 或 <系统> 等)
+      const tagRegex = state.origin?.tagRegex;
+      const block = parseOriginBlock(content, tagRegex);
+      if (block) {
+        let appliedResult = null;
+        await store.updateOrigin(current => {
+          current.currentTurn = getTurn();
+          appliedResult = applyOriginBlock(current, block, { currentTurn: getTurn() });
+          setMessageSnapshot(m, current);
+          return current;
+        });
+
+        // 剔除正文中的原始标签，保持阅读纯净
+        const stripped = stripOriginBlock(content, tagRegex);
+        if (stripped && stripped !== content) {
+          if ('mes' in m) m.mes = stripped;
+          if ('text' in m) m.text = stripped;
+        }
+
+        // 记录到提示词日志中供宿主查阅
+        if (appliedResult && logger?.addLog) {
+          try {
+            logger.addLog({
+              title: '系统剧情演进与结算 (结构化标签)',
+              systemPrompt: '大模型在正文回传了结构化标签数据块，系统引擎已解析并结算任务与属性。',
+              messages: [{ role: 'assistant', content: block.raw || '（解析成功）' }],
+              reply: JSON.stringify({
+                broadcasts: appliedResult.broadcasts || [],
+                privateChats: appliedResult.privateChats || [],
+                completed: (appliedResult.completed || []).map(t => t.title),
+                newTasks: (appliedResult.newTasks || []).map(t => t.title),
+              }, null, 2),
+            });
+          } catch (_) {}
+        }
+
+        // 处理系统私聊与广播
+        if (appliedResult) {
+          const { broadcasts, privateChats } = appliedResult;
+          const batch = readTimeline(target?.messages || []);
+          const clock = batch.clock;
+          const newMessages = [];
+
+          for (const bc of broadcasts) {
+            newMessages.push(createSystemMessage({
+              text: bc,
+              clock,
+              batch,
+              kind: 'broadcast',
+            }));
+          }
+          for (const pc of privateChats) {
+            newMessages.push(createSystemMessage({
+              text: pc.message,
+              clock,
+              batch,
+              kind: 'chat',
+            }));
+          }
+
+          if (newMessages.length > 0) {
+            await store.appendMessages(SYSTEM_CONTACT_ID, newMessages);
+            notifyPhone({
+              kind: 'system-notice',
+              text: newMessages[0].text,
+              count: newMessages.length,
+            });
+          }
+        }
+        return;
+      }
+
+      // 2. 路线 C：正文用户自定义正则侦听 (如 【叮！...】 或 【系统...】 或用户自定义 pattern)
+      const userRegexStr = (state.origin?.storyRegex || '').trim() || '【(?:叮[！!]|系统).*?】';
+      let regex = null;
+      try {
+        regex = new RegExp(userRegexStr, 'gu');
+      } catch (_) {
+        regex = /【(?:叮[！!]|系统).*?】/gu;
+      }
+
+      const matches = content.match(regex);
+      if (matches && matches.length > 0) {
+        const broadcasts = [];
+        const newTasks = [];
+        const completedTaskQueries = [];
+        const gainedItems = [];
+        const unlockedAchs = [];
+
+        for (const matchText of matches) {
+          broadcasts.push(matchText);
+
+          // 1. 尝试提取发布新任务：形如 【叮！触发支线任务：探索后山。奖励：积分+200】
+          const isComplete = matchText.includes('完成') || matchText.includes('达成');
+          const isGainItem = matchText.includes('获得道具') || matchText.includes('获得：') || matchText.includes('获得:');
+          const isAch = matchText.includes('成就');
+
+          if (!isComplete && !isGainItem && !isAch) {
+            const taskTypeMatch = matchText.match(/(主线|支线|日常)/);
+            const taskType = taskTypeMatch ? taskTypeMatch[1] : '支线';
+            const titleMatch = matchText.match(/(?:任务|触发|发布)[：:\s]+([^，。；\n|】]+)/);
+            const rewardMatch = matchText.match(/奖(?:励)?[：:\s]+([^，。；\n|】]+)/);
+            const ptsMatch = matchText.match(/积分([+-]?\d+)/);
+
+            if (titleMatch) {
+              const title = titleMatch[1].trim();
+              if (title && !title.includes('提示') && !title.includes('公告')) {
+                newTasks.push({
+                  type: taskType,
+                  title,
+                  reward: rewardMatch ? rewardMatch[1].trim() : (ptsMatch ? `积分${ptsMatch[1]}` : ''),
+                  cond: '依剧情推进达成',
+                });
+              }
+            }
+          }
+
+          // 2. 尝试提取任务完成：形如 【叮！完成任务：夜袭黑风寨】 或 【任务「xxx」已达成】
+          if (isComplete && !isAch) {
+            const cm = matchText.match(/(?:完成|达成)任务[：:\s]+([^，。；\n|】]+)/) ||
+                       matchText.match(/任务[「『]([^」』]+)[」』](?:已)?(?:完成|达成)/);
+            if (cm) {
+              completedTaskQueries.push(cm[1].trim());
+            }
+          }
+
+          // 3. 尝试提取道具获得（背包）：形如 【获得道具：凝神丹x2】 或 【获得：灵石一颗】
+          if (isGainItem) {
+            const im = matchText.match(/获得(?:道具)?[：:\s]+([^，。；\n|】]+)/);
+            if (im) {
+              const rawItem = im[1].trim();
+              if (!rawItem.includes('积分')) {
+                const countMatch = rawItem.match(/([^\d×x*]+)[×x*](\d+)/);
+                const itemName = (countMatch ? countMatch[1] : rawItem).trim();
+                const itemCount = countMatch ? parseInt(countMatch[2], 10) : 1;
+                if (itemName) {
+                  gainedItems.push({ name: itemName, count: itemCount });
+                }
+              }
+            }
+          }
+
+          // 4. 尝试提取成就解锁：形如 【达成成就：初露锋芒】 或 【解锁成就：逆天改命】
+          if (isAch) {
+            const am = matchText.match(/(?:达成|解锁)成就[：:\s]+([^，。；\n|】]+)/);
+            if (am) {
+              unlockedAchs.push(am[1].trim());
+            }
+          }
+        }
+
+        await store.updateOrigin(current => {
+          current.currentTurn = getTurn();
+          // 结算已完成任务
+          for (const query of completedTaskQueries) {
+            const matchTask = (current.tasks || []).find(t => t.status === 'active' && (String(t.id) === query || t.title.includes(query) || query.includes(t.title)));
+            if (matchTask) {
+              completeOriginTask(current, matchTask.id);
+            }
+          }
+          // 存入新任务
+          for (const t of newTasks) {
+            const newId = current.nextId || ((current.tasks?.length || 0) + 1);
+            current.nextId = newId + 1;
+            current.tasks = current.tasks || [];
+            current.tasks.push({
+              id: newId,
+              type: t.type,
+              title: t.title,
+              cond: t.cond,
+              reward: t.reward,
+              status: 'active',
+              startTurn: getTurn(),
+              owner: current.bindTo || '宿主',
+            });
+            pushOriginLog(current, `通过正文正则侦听捕获新任务「${t.title}」`, 'new-task');
+          }
+          // 存入背包道具
+          for (const item of gainedItems) {
+            addItemToBag(current, item);
+            pushOriginLog(current, `通过正文正则侦听获得道具「${item.name}」×${item.count}`, 'bag');
+          }
+          // 解锁成就
+          for (const achName of unlockedAchs) {
+            unlockAchievement(current, { name: achName });
+          }
+          // 属性与积分变动
+          for (const bc of broadcasts) {
+            applyStatEffect(current, bc);
+          }
+          setMessageSnapshot(m, current);
+          return current;
+        });
+
+        if (logger?.addLog) {
+          logger.addLog({
+            title: '正文系统自定义正则侦听',
+            systemPrompt: `侦听正则: ${userRegexStr}\n从正文捕获到 ${matches.length} 处系统播报片段。`,
+            messages: [{ role: 'assistant', content: matches.join('\n') }],
+            reply: JSON.stringify({
+              capturedBroadcasts: broadcasts,
+              newTasks: newTasks.map(t => t.title),
+              completedTasks: completedTaskQueries,
+              gainedItems: gainedItems.map(i => `${i.name}×${i.count}`),
+              unlockedAchievements: unlockedAchs,
+            }, null, 2),
+          });
+        }
+
+        const batch = readTimeline(target?.messages || []);
+        const clock = batch.clock;
+        const newMessages = broadcasts.map(bc => createSystemMessage({
+          text: bc,
+          clock,
+          batch,
+          kind: 'broadcast',
+        }));
+
+        if (newMessages.length > 0) {
+          await store.appendMessages(SYSTEM_CONTACT_ID, newMessages);
+          notifyPhone({
+            kind: 'system-notice',
+            text: newMessages[0].text,
+            count: newMessages.length,
+          });
+        }
+        return;
+      }
+
+      const snap = getMessageSnapshot(m);
+      if (snap) {
+        try {
+          const restored = JSON.parse(snap);
+          await store.updateOrigin(() => normalizeOriginState(restored));
+        } catch (_) {}
+      }
+    },
+    restoreFromSnapshot() {
+      const state = store.read();
+      if (!state.origin?.enabled) return;
+
+      const last = findLastAiMessage(target?.messages || []);
+      if (!last || !last.message) return;
+      const m = last.message;
+      const snapJson = getMessageSnapshot(m);
+
+      if (snapJson) {
+        try {
+          const restored = JSON.parse(snapJson);
+          store.updateOrigin(() => normalizeOriginState(restored));
+        } catch (_) {}
+      }
+    },
+    // 操作接口
+    async buyItem(itemName) {
+      return store.updateOrigin(current => {
+        buyShopItem(current, itemName);
+        return current;
+      });
+    },
+    async useItem(itemName) {
+      return store.updateOrigin(current => {
+        useBagItem(current, itemName);
+        return current;
+      });
+    },
+    async drawGacha(count = 1, isFree = false) {
+      let results = [];
+      await store.updateOrigin(current => {
+        results = performGachaDraw(current, count, isFree);
+        return current;
+      });
+      return results;
+    },
+    async completeTask(id) {
+      return store.updateOrigin(current => {
+        completeOriginTask(current, id);
+        return current;
+      });
+    },
+    async failTask(id, reason) {
+      return store.updateOrigin(current => {
+        failOriginTask(current, id, reason);
+        return current;
+      });
+    },
+    async deleteTask(id) {
+      return store.updateOrigin(current => {
+        current.tasks = (current.tasks || []).filter(t => String(t.id) !== String(id));
+        pushOriginLog(current, `删除了任务 #${id}`, 'delete-task');
+        return current;
+      });
+    },
+    async saveTask(id, draft) {
+      return store.updateOrigin(current => {
+        current.currentTurn = getTurn();
+        current.tasks = current.tasks || [];
+        const existing = current.tasks.find(t => String(t.id) === String(id));
+        if (existing) {
+          Object.assign(existing, draft);
+          if (draft.limit !== undefined) existing.limit = Math.max(0, parseInt(draft.limit, 10) || 0);
+          pushOriginLog(current, `修改了任务「${existing.title}」`, 'edit-task');
+        } else {
+          const newId = current.nextId || (current.tasks.length + 1);
+          current.nextId = newId + 1;
+          const task = {
+            id: newId,
+            type: draft.type || '支线',
+            title: draft.title || '新任务',
+            desc: draft.desc || '',
+            cond: draft.cond || '',
+            reward: draft.reward || '',
+            penalty: draft.penalty || '',
+            limit: Math.max(0, parseInt(draft.limit, 10) || 0),
+            startTurn: getTurn(),
+            progress: Number(draft.progress) || 0,
+            status: draft.status || 'active',
+            owner: draft.owner || '宿主',
+          };
+          current.tasks.push(task);
+          pushOriginLog(current, `创建了新任务「${task.title}」`, 'new-task');
+        }
+        return current;
+      });
+    },
+    async updateStat(name, delta) {
+      return store.updateOrigin(current => {
+        applyStatEffect(current, `${name}${delta >= 0 ? `+${delta}` : delta}`);
+        return current;
+      });
+    },
+    async updateSettings(patch) {
+      return store.updateOrigin(current => {
+        Object.assign(current, patch);
+        return current;
+      });
+    },
+    async conceiveTask({ direction } = {}) {
+      if (!modelClient) throw new Error('未配置大模型客户端，无法推演新任务。');
+      const state = store.read();
+      const originState = state.origin || {};
+      const sysName = originState.sysName || '系统';
+      const hostName = originState.bindTo || state.userProfile?.name || '宿主';
+      const activeTasks = (originState.tasks || []).filter(t => t.status === 'active');
+      const activeTasksSummary = activeTasks.length
+        ? activeTasks.map(t => `[${t.type}] ${t.title}`).join('；')
+        : '无进行中任务';
+      const statsSummary = (originState.stats || []).map(s => `${s.name}:${s.val}`).join('，') || '暂无属性';
+      const effectiveDirection = direction || originState.direction || '切合当前世界观与剧情，自然展开';
+
+      let storyText = '';
+      if (contextReader) {
+        try {
+          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
+          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
+        } catch (_) {}
+      }
+      if (!storyText && Array.isArray(target?.messages)) {
+        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
+      }
+
+      const defaultTaskSystemPrompt = `你是随身金手指系统【${sysName}】的任务构想中枢。
+当前宿主：${hostName}
+系统等级：Lv.${originState.level || 1}
+宿主属性：${statsSummary}
+当前进行中任务：${activeTasksSummary}
+宿主期望任务方向：${effectiveDirection}
+
+请结合最近正文剧情与期望方向，为宿主构想 1 个契合情境的新任务。
+必须严格输出合法的 JSON 格式，不输出任何思考过程或多余解释：
+{
+  "type": "主线",
+  "title": "任务简明标题",
+  "desc": "任务背景描述",
+  "cond": "具体完成目标与触发条件",
+  "reward": "任务奖励描述（例如 积分+200 敏捷+1）",
+  "penalty": "失败惩罚（例如 积分-50 或 无）",
+  "limit": 0
+}`;
+
+      const activePreset = getActivePreset(state);
+      const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
+
+      const messagesPayload = compilePromptPreset(activePreset, {
+        worldbook: '',
+        storyHistory: storyText,
+        storyMemory: '',
+        charPersonality: `【随身系统】${sysName} · 任务推演中枢\n当前宿主：${hostName}\n当前属性：${statsSummary}\n进行中任务：${activeTasksSummary}`,
+        latestUserInput: `[宿主期望新任务方向]\n${effectiveDirection}`,
+        originPromptText: originInjectionText,
+        state,
+      }, 'origin-task', state);
+
+      const collapsed = collapseMessages(messagesPayload);
+      const systemMessages = collapsed.filter(m => m.role === 'system');
+      const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || defaultTaskSystemPrompt;
+      const otherMessages = collapsed.filter(m => m.role !== 'system');
+      const modelMessages = otherMessages.length > 0 ? otherMessages : [
+        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情与期望方向（${effectiveDirection}），为宿主构想新任务并严格输出对应 JSON。` },
+      ];
+
+      const reply = await modelClient.complete({
+        label: '系统 AI 构想任务',
+        system: systemPrompt,
+        messages: modelMessages,
+        entries: messagesPayload,
+        collapsedMessages: collapsed,
+      });
+
+      const parsed = parseJsonObject(reply);
+      if (!parsed || !parsed.title) {
+        throw new Error('未能从模型回复中解析出有效的新任务，请重试。');
+      }
+
+      let newTask = null;
+      await store.updateOrigin(current => {
+        const newId = current.nextId || ((current.tasks?.length || 0) + 1);
+        current.nextId = newId + 1;
+        current.tasks = current.tasks || [];
+        newTask = {
+          id: newId,
+          type: ['主线', '支线', '日常'].includes(parsed.type) ? parsed.type : '支线',
+          title: String(parsed.title).trim(),
+          desc: String(parsed.desc || '').trim(),
+          cond: String(parsed.cond || '').trim(),
+          reward: String(parsed.reward || '').trim(),
+          penalty: String(parsed.penalty || '').trim(),
+          limit: Number(parsed.limit) || 0,
+          startTurn: getTurn(),
+          progress: 0,
+          status: 'active',
+          owner: hostName,
+        };
+        current.tasks.push(newTask);
+        pushOriginLog(current, `AI 构想并发布了新任务「${newTask.title}」`, 'new-task');
+        return current;
+      });
+
+      notifyPhone({
+        kind: 'system-notice',
+        text: `【新任务发布】[${newTask.type}] ${newTask.title}`,
+        count: 1,
+      });
+
+      return newTask;
+    },
+    async evaluateStats() {
+      if (!modelClient) throw new Error('未配置大模型客户端，无法评估属性。');
+      const state = store.read();
+      const originState = state.origin || {};
+      const sysName = originState.sysName || '系统';
+      const hostName = originState.bindTo || state.userProfile?.name || '宿主';
+      const statsSummary = (originState.stats || []).map(s => `${s.name}:${s.val}`).join('，') || '暂无数值属性';
+
+      let storyText = '';
+      if (contextReader) {
+        try {
+          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
+          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
+        } catch (_) {}
+      }
+      if (!storyText && Array.isArray(target?.messages)) {
+        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
+      }
+
+      const defaultStatsSystemPrompt = `你是随身金手指系统【${sysName}】的属性评估中枢。
+当前宿主：${hostName}
+宿主当前数值属性：${statsSummary}
+
+请根据宿主在最近剧情中的经历、战斗、探索、心境突破或人际进展，对宿主的属性成长进行评估。
+必须严格输出合法的 JSON 格式，不输出任何多余分析：
+{
+  "summary": "1-2句简炼的宿主成长评价与成长因由",
+  "statChanges": [
+    { "name": "属性名(如力量/敏捷/智力/魅力)", "delta": 1 }
+  ],
+  "pointsGain": 100
+}`;
+
+      const activePreset = getActivePreset(state);
+      const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
+
+      const messagesPayload = compilePromptPreset(activePreset, {
+        worldbook: '',
+        storyHistory: storyText,
+        storyMemory: '',
+        charPersonality: `【随身系统】${sysName} · 属性成长评估中枢\n当前宿主：${hostName}\n当前属性：${statsSummary}`,
+        latestUserInput: `[宿主最近剧情与成长诉求]\n请评估近期剧情对宿主属性、体魄、心境及积分的成长影响。`,
+        originPromptText: originInjectionText,
+        state,
+      }, 'origin-stats', state);
+
+      const collapsed = collapseMessages(messagesPayload);
+      const systemMessages = collapsed.filter(m => m.role === 'system');
+      const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || defaultStatsSystemPrompt;
+      const otherMessages = collapsed.filter(m => m.role !== 'system');
+      const modelMessages = otherMessages.length > 0 ? otherMessages : [
+        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请评估宿主属性成长并严格输出对应 JSON。` },
+      ];
+
+      const reply = await modelClient.complete({
+        label: '系统 AI 评估成长',
+        system: systemPrompt,
+        messages: modelMessages,
+        entries: messagesPayload,
+        collapsedMessages: collapsed,
+      });
+
+      const parsed = parseJsonObject(reply);
+      if (!parsed) {
+        throw new Error('未能从模型回复中解析出属性评估数据，请重试。');
+      }
+
+      const statChanges = Array.isArray(parsed.statChanges) ? parsed.statChanges : [];
+      const pointsGain = Math.max(0, Number(parsed.pointsGain) || 0);
+      const summary = String(parsed.summary || '宿主经历了近期的剧情波澜，心境与实力有所成长。').trim();
+
+      await store.updateOrigin(current => {
+        if (pointsGain > 0) {
+          current.points = (current.points || 0) + pointsGain;
+          gainOriginExp(current, Math.round(pointsGain / 2));
+        }
+        for (const sc of statChanges) {
+          if (sc.name && sc.delta) {
+            applyStatEffect(current, `${sc.name}${sc.delta >= 0 ? `+${sc.delta}` : sc.delta}`);
+          }
+        }
+        pushOriginLog(current, `AI 评估成长：${summary}`, 'eval-stats');
+        return current;
+      });
+
+      return { summary, statChanges, pointsGain };
+    },
+    async refreshShop(count = 6) {
+      return store.updateOrigin(current => {
+        refreshShopShelf(current, count);
+        pushOriginLog(current, '商城货架已随机轮换。', 'shop-refresh');
+        return current;
+      });
+    },
+    async refreshGacha() {
+      return store.updateOrigin(current => {
+        refreshGachaPool(current);
+        pushOriginLog(current, '祈愿奖池预览已轮换。', 'gacha-refresh');
+        return current;
+      });
+    },
+    async saveShopCatalogItem(draft) {
+      if (!draft || !draft.name) return;
+      return store.updateOrigin(current => {
+        current.shopCatalog = current.shopCatalog || [];
+        const existing = current.shopCatalog.find(i => i.name === draft.name);
+        if (existing) {
+          Object.assign(existing, draft);
+        } else {
+          current.shopCatalog.push({
+            name: draft.name,
+            price: Math.max(1, Number(draft.price) || 100),
+            desc: draft.desc || '',
+            effect: draft.effect || '',
+            type: draft.type || '道具',
+          });
+        }
+        refreshShopShelf(current, 6);
+        return current;
+      });
+    },
+    async deleteShopCatalogItem(name) {
+      return store.updateOrigin(current => {
+        current.shopCatalog = (current.shopCatalog || []).filter(i => i.name !== name);
+        current.shop = (current.shop || []).filter(i => i.name !== name);
+        if (current.shop.length < 6) refreshShopShelf(current, 6);
+        return current;
+      });
+    },
+    async saveGachaCatalogItem(draft) {
+      if (!draft || !draft.name) return;
+      return store.updateOrigin(current => {
+        current.gachaCatalog = current.gachaCatalog || [];
+        const existing = current.gachaCatalog.find(i => i.name === draft.name);
+        if (existing) {
+          Object.assign(existing, draft);
+        } else {
+          current.gachaCatalog.push({
+            name: draft.name,
+            tier: draft.tier || 'R',
+            weight: Math.max(1, Number(draft.weight) || 10),
+            desc: draft.desc || '',
+            effect: draft.effect || '',
+          });
+        }
+        refreshGachaPool(current);
+        return current;
+      });
+    },
+    async deleteGachaCatalogItem(name) {
+      return store.updateOrigin(current => {
+        current.gachaCatalog = (current.gachaCatalog || []).filter(i => i.name !== name);
+        current.gachaPool = (current.gachaPool || []).filter(i => i.name !== name);
+        if (current.gachaPool.length < 5) refreshGachaPool(current);
+        return current;
+      });
+    },
+    async conceiveShopItems() {
+      if (!modelClient) throw new Error('未配置大模型客户端，无法构想商城商品。');
+      const state = store.read();
+      const originState = state.origin || {};
+      const sysName = originState.sysName || '系统';
+      const hostName = originState.bindTo || state.userProfile?.name || '宿主';
+
+      let storyText = '';
+      if (contextReader) {
+        try {
+          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
+          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
+        } catch (_) {}
+      }
+      if (!storyText && Array.isArray(target?.messages)) {
+        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
+      }
+
+      const activePreset = getActivePreset(state);
+      const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
+
+      const messagesPayload = compilePromptPreset(activePreset, {
+        worldbook: '',
+        storyHistory: storyText,
+        storyMemory: '',
+        charPersonality: `【随身系统】${sysName} · 商城进货推演中枢\n当前宿主：${hostName}\n当前等级：Lv.${originState.level || 1}`,
+        latestUserInput: `[商城进货诉求]\n请结合剧情世界观与修仙/异能/日常背景，批量构想 8 到 12 种全新商品。`,
+        originPromptText: originInjectionText,
+        state,
+      }, 'origin-shop', state);
+
+      const collapsed = collapseMessages(messagesPayload);
+      const systemMessages = collapsed.filter(m => m.role === 'system');
+      const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的商城商品，输出合法 JSON 数组。';
+      const otherMessages = collapsed.filter(m => m.role !== 'system');
+      const modelMessages = otherMessages.length > 0 ? otherMessages : [
+        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统商城构想 8~12 种商品，严格输出 JSON 数组格式。` },
+      ];
+
+      const reply = await modelClient.complete({
+        label: '系统 AI 批量进货',
+        system: systemPrompt,
+        messages: modelMessages,
+        entries: messagesPayload,
+        collapsedMessages: collapsed,
+      });
+
+      const parsed = extractJsonArray(reply);
+      if (!parsed || parsed.length === 0) {
+        throw new Error('未能从模型回复中解析出商品列表，请重试。');
+      }
+
+      const validItems = parsed.filter(i => i && i.name).map(i => ({
+        name: String(i.name).trim(),
+        price: Math.max(10, Number(i.price) || 100),
+        desc: String(i.desc || '').trim(),
+        effect: String(i.effect || '').trim(),
+        type: String(i.type || '道具').trim(),
+      }));
+
+      if (validItems.length === 0) {
+        throw new Error('模型返回的商品列表缺少有效字段。');
+      }
+
+      await store.updateOrigin(current => {
+        current.shopCatalog = current.shopCatalog || [];
+        for (const it of validItems) {
+          const idx = current.shopCatalog.findIndex(x => x.name === it.name);
+          if (idx !== -1) current.shopCatalog[idx] = it;
+          else current.shopCatalog.push(it);
+        }
+        refreshShopShelf(current, 6);
+        pushOriginLog(current, `AI 进货入库：成功新增 ${validItems.length} 件新商品并刷新了货架。`, 'shop-stock');
+        return current;
+      });
+
+      return { count: validItems.length, items: validItems };
+    },
+    async conceiveGachaItems() {
+      if (!modelClient) throw new Error('未配置大模型客户端，无法构想祈愿奖品。');
+      const state = store.read();
+      const originState = state.origin || {};
+      const sysName = originState.sysName || '系统';
+      const hostName = originState.bindTo || state.userProfile?.name || '宿主';
+
+      let storyText = '';
+      if (contextReader) {
+        try {
+          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
+          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
+        } catch (_) {}
+      }
+      if (!storyText && Array.isArray(target?.messages)) {
+        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
+      }
+
+      const activePreset = getActivePreset(state);
+      const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
+
+      const messagesPayload = compilePromptPreset(activePreset, {
+        worldbook: '',
+        storyHistory: storyText,
+        storyMemory: '',
+        charPersonality: `【随身系统】${sysName} · 祈愿奖池推演中枢\n当前宿主：${hostName}\n当前等级：Lv.${originState.level || 1}`,
+        latestUserInput: `[祈愿奖池扩充诉求]\n请结合剧情世界观，批量构想 8 到 15 种涵盖 N/R/SR/SSR/UR 的祈愿奖品。`,
+        originPromptText: originInjectionText,
+        state,
+      }, 'origin-gacha', state);
+
+      const collapsed = collapseMessages(messagesPayload);
+      const systemMessages = collapsed.filter(m => m.role === 'system');
+      const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的祈愿奖池奖品，输出合法 JSON 数组。';
+      const otherMessages = collapsed.filter(m => m.role !== 'system');
+      const modelMessages = otherMessages.length > 0 ? otherMessages : [
+        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统祈愿池构想 8~15 种奖品（含各稀有度），严格输出 JSON 数组格式。` },
+      ];
+
+      const reply = await modelClient.complete({
+        label: '系统 AI 扩充奖池',
+        system: systemPrompt,
+        messages: modelMessages,
+        entries: messagesPayload,
+        collapsedMessages: collapsed,
+      });
+
+      const parsed = extractJsonArray(reply);
+      if (!parsed || parsed.length === 0) {
+        throw new Error('未能从模型回复中解析出奖品列表，请重试。');
+      }
+
+      const validItems = parsed.filter(i => i && i.name).map(i => {
+        const tier = ['UR', 'SSR', 'SR', 'R', 'N'].includes(i.tier) ? i.tier : 'R';
+        const defaultWeights = { N: 60, R: 30, SR: 15, SSR: 5, UR: 1 };
+        return {
+          name: String(i.name).trim(),
+          tier,
+          weight: Math.max(1, Number(i.weight) || defaultWeights[tier] || 10),
+          desc: String(i.desc || '').trim(),
+          effect: String(i.effect || '').trim(),
+        };
+      });
+
+      if (validItems.length === 0) {
+        throw new Error('模型返回的奖品列表缺少有效字段。');
+      }
+
+      await store.updateOrigin(current => {
+        current.gachaCatalog = current.gachaCatalog || [];
+        for (const it of validItems) {
+          const idx = current.gachaCatalog.findIndex(x => x.name === it.name);
+          if (idx !== -1) current.gachaCatalog[idx] = it;
+          else current.gachaCatalog.push(it);
+        }
+        refreshGachaPool(current);
+        pushOriginLog(current, `AI 扩充奖池：成功新增 ${validItems.length} 件奖品入库并轮换了预览。`, 'gacha-stock');
+        return current;
+      });
+
+      return { count: validItems.length, items: validItems };
+    },
+  };
+}

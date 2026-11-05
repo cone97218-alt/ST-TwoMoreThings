@@ -23,6 +23,12 @@ import {
   IMAGE_PROMPT,
   OLD_MAID_PROMPT,
   BUCKSHOT_ROULETTE_PROMPT,
+  ORIGIN_SYSTEM_PROMPT,
+  ORIGIN_CHAT_PROMPT,
+  ORIGIN_TASK_CONCEIVE_PROMPT,
+  ORIGIN_STATS_EVAL_PROMPT,
+  ORIGIN_SHOP_CONCEIVE_PROMPT,
+  ORIGIN_GACHA_CONCEIVE_PROMPT,
 } from './prompts.js';
 import { shortenMessageId, extractLatestUserInput } from './content.js';
 import { formatCalendarEventPromptLine } from './calendar-engine.js';
@@ -56,10 +62,17 @@ export const PRESET_SLOTS = [
   { macro: '{{image_prompt}}', name: '照片转绘图描述提示词', desc: '自拍或照片描述转为生图提示词' },
   { macro: '{{old_maid_prompt}}', name: '抽鬼牌对决规则', desc: '仅单聊：抽鬼牌对决规则、主动邀约、协商赌注与心理战' },
   { macro: '{{buckshot_roulette_prompt}}', name: '恶魔轮盘对决规则', desc: '仅单聊：恶魔轮盘生死对决、主动邀约、生命道具与概率博弈' },
+  { macro: '{{origin_prompt}}', name: '系统与任务线索注入', desc: '金手指系统状态、宿主属性、进行中任务及期望方向' },
+  { macro: '{{origin_chat_prompt}}', name: '系统专属私聊规则', desc: '在手机短信中与随身系统直接私聊时的回复规则' },
+  { macro: '{{origin_task_conceive_prompt}}', name: '系统推演新任务规则', desc: 'AI 构想新任务时的推演指引与 JSON 结构' },
+  { macro: '{{origin_stats_eval_prompt}}', name: '系统评估成长规则', desc: 'AI 评估宿主属性成长时的评估逻辑与输出格式' },
+  { macro: '{{origin_shop_conceive_prompt}}', name: '系统商城进货规则', desc: 'AI 结合世界观批量构想新商品时的输出规范' },
+  { macro: '{{origin_gacha_conceive_prompt}}', name: '系统祈愿扩充规则', desc: 'AI 结合世界观批量扩充五级稀有度奖池时的规范' },
 ];
 
 export const PRESET_SCOPES = [
   { id: '通用', name: '通用', desc: '全部任务通用' },
+  { id: '系统', name: '系统', desc: '系统专属私聊与金手指推演' },
   { id: '短信', name: '短信', desc: '私聊短信生成' },
   { id: '群聊', name: '群聊', desc: '群聊多角色续写' },
   { id: '心声', name: '心声', desc: '角色隐秘心声' },
@@ -293,6 +306,54 @@ export const DEFAULT_PRESET_ENTRIES = [
     content: `[用户最新发言/当前诉求：\n{{latest_user_input}}\n]`,
   },
   {
+    id: 'entry_origin_chat_rules',
+    name: '系统专属私聊规则',
+    scope: '系统',
+    role: 'system',
+    enabled: true,
+    content: `{{origin_chat_prompt}}`,
+  },
+  {
+    id: 'entry_origin_task_rules',
+    name: '系统推演新任务规则',
+    scope: '系统',
+    role: 'system',
+    enabled: true,
+    content: `{{origin_task_conceive_prompt}}`,
+  },
+  {
+    id: 'entry_origin_stats_rules',
+    name: '系统评估成长规则',
+    scope: '系统',
+    role: 'system',
+    enabled: true,
+    content: `{{origin_stats_eval_prompt}}`,
+  },
+  {
+    id: 'entry_origin_shop_rules',
+    name: '系统商城批量进货规则',
+    scope: '系统',
+    role: 'system',
+    enabled: true,
+    content: `{{origin_shop_conceive_prompt}}`,
+  },
+  {
+    id: 'entry_origin_gacha_rules',
+    name: '系统祈愿批量扩充规则',
+    scope: '系统',
+    role: 'system',
+    enabled: true,
+    content: `{{origin_gacha_conceive_prompt}}`,
+  },
+  {
+    id: 'entry_origin_context',
+    name: '系统与宿主任务线索注入',
+    scope: '短信+系统',
+    role: 'system',
+    enabled: true,
+    content: `{{origin_prompt}}`,
+  },
+  {
     id: 'entry_phone_data',
     name: '手机上下文与任务数据',
     scope: '通用',
@@ -302,7 +363,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 7;
+export const PRESET_SCHEMA_VERSION = 8;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -429,6 +490,10 @@ export function getActivePreset(state) {
  * 将预设条目严格按预设开关与顺序展开并替换插槽宏，组装成发送给模型的 messages 数组
  */
 export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat', state = null) {
+  const effectiveTaskScope = (typeof taskScope === 'string' && taskScope !== 'chat')
+    ? taskScope
+    : (contextData.taskScope || taskScope || 'chat');
+  const effectiveState = state || contextData.state || null;
   let entries = Array.isArray(preset?.entries) ? preset.entries.map(e => ({ ...e })) : structuredClone(DEFAULT_PRESET_ENTRIES);
 
   // 若为未经过 normalizePromptPresets 的残缺内置预设，按相同规则补齐未删除的默认条目
@@ -456,6 +521,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     phoneContext = '',
     charPersonality = '',
     latestUserInput = '',
+    originPromptText = '',
   } = contextData;
 
   if (phoneContext && typeof phoneContext === 'object' && !Array.isArray(phoneContext)) {
@@ -500,38 +566,52 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     if (scope !== '通用') {
       const scopes = scope.split('+').map(s => s.trim());
       const match = scopes.some(s => {
-        if (s === '短信' && taskScope === 'chat') return true;
-        if (s === '心声' && taskScope === 'thought') return true;
-        if (s === '群聊' && taskScope === 'group-chat') return true;
-        if (s === '通讯录' && taskScope === 'directory') return true;
-        if (s === '联系人' && taskScope === 'contacts') return true;
-        if (s === '动态' && ['social-feed', 'social-author'].includes(taskScope)) {
-          if (entry.content?.includes('{{comment_prompt}}')) return false;
-          if (entry.content?.includes('{{todo_suggestions_prompt}}') && taskScope === 'social-author') return false;
+        if (s === '短信' && effectiveTaskScope === 'chat') return true;
+        if (s === '系统' && ['origin', 'origin-chat', 'origin-task', 'origin-stats', 'origin-shop', 'origin-gacha', '系统'].includes(effectiveTaskScope)) {
+          if (effectiveTaskScope === 'origin-task') {
+            if (entry.content?.includes('{{origin_chat_prompt}}') || entry.content?.includes('{{origin_stats_eval_prompt}}') || entry.content?.includes('{{origin_shop_conceive_prompt}}') || entry.content?.includes('{{origin_gacha_conceive_prompt}}')) return false;
+          } else if (effectiveTaskScope === 'origin-stats') {
+            if (entry.content?.includes('{{origin_chat_prompt}}') || entry.content?.includes('{{origin_task_conceive_prompt}}') || entry.content?.includes('{{origin_shop_conceive_prompt}}') || entry.content?.includes('{{origin_gacha_conceive_prompt}}')) return false;
+          } else if (effectiveTaskScope === 'origin-shop') {
+            if (entry.content?.includes('{{origin_chat_prompt}}') || entry.content?.includes('{{origin_task_conceive_prompt}}') || entry.content?.includes('{{origin_stats_eval_prompt}}') || entry.content?.includes('{{origin_gacha_conceive_prompt}}')) return false;
+          } else if (effectiveTaskScope === 'origin-gacha') {
+            if (entry.content?.includes('{{origin_chat_prompt}}') || entry.content?.includes('{{origin_task_conceive_prompt}}') || entry.content?.includes('{{origin_stats_eval_prompt}}') || entry.content?.includes('{{origin_shop_conceive_prompt}}')) return false;
+          } else {
+            if (entry.content?.includes('{{origin_task_conceive_prompt}}') || entry.content?.includes('{{origin_stats_eval_prompt}}') || entry.content?.includes('{{origin_shop_conceive_prompt}}') || entry.content?.includes('{{origin_gacha_conceive_prompt}}')) return false;
+          }
           return true;
         }
-        if (s === '动态' && taskScope === 'social-comment') {
+        if (s === '心声' && effectiveTaskScope === 'thought') return true;
+        if (s === '群聊' && effectiveTaskScope === 'group-chat') return true;
+        if (s === '通讯录' && effectiveTaskScope === 'directory') return true;
+        if (s === '联系人' && effectiveTaskScope === 'contacts') return true;
+        if (s === '动态' && ['social-feed', 'social-author'].includes(effectiveTaskScope)) {
+          if (entry.content?.includes('{{comment_prompt}}')) return false;
+          if (entry.content?.includes('{{todo_suggestions_prompt}}') && effectiveTaskScope === 'social-author') return false;
+          return true;
+        }
+        if (s === '动态' && effectiveTaskScope === 'social-comment') {
           if (entry.content?.includes('{{social_prompt}}')) return false;
           return true;
         }
-        if (s === '论坛' && taskScope === 'forum') return true;
-        if (s === '日历' && taskScope === 'festival_conceive') {
+        if (s === '论坛' && effectiveTaskScope === 'forum') return true;
+        if (s === '日历' && effectiveTaskScope === 'festival_conceive') {
           if (entry.content?.includes('{{schedule_deduce_prompt}}')) return false;
           return true;
         }
-        if (s === '日历' && taskScope === 'schedule_deduce') {
+        if (s === '日历' && effectiveTaskScope === 'schedule_deduce') {
           if (entry.content?.includes('{{festival_conceive_prompt}}')) return false;
           return true;
         }
-        if (s === '地图' && taskScope === 'map_organize') return true;
-        if (s === '待办' && ['chat', 'group-chat', 'social-feed', 'social-comment', 'schedule_deduce'].includes(taskScope)) {
-          if (taskScope === 'schedule_deduce' && entry.content?.includes('{{todo_suggestions_prompt}}')) return false;
-          if (['chat', 'group-chat', 'social-feed', 'social-comment'].includes(taskScope) && entry.content?.includes('{{schedule_deduce_prompt}}')) return false;
+        if (s === '地图' && effectiveTaskScope === 'map_organize') return true;
+        if (s === '待办' && ['chat', 'group-chat', 'social-feed', 'social-comment', 'schedule_deduce'].includes(effectiveTaskScope)) {
+          if (effectiveTaskScope === 'schedule_deduce' && entry.content?.includes('{{todo_suggestions_prompt}}')) return false;
+          if (['chat', 'group-chat', 'social-feed', 'social-comment'].includes(effectiveTaskScope) && entry.content?.includes('{{schedule_deduce_prompt}}')) return false;
           return true;
         }
-        if (s === '摘要' && taskScope === 'summary') return true;
-        if (s === '生图' && taskScope === 'image_prompt') return true;
-        if (s === '仅手机app' && !['summary', 'image_prompt'].includes(taskScope)) return true;
+        if (s === '摘要' && effectiveTaskScope === 'summary') return true;
+        if (s === '生图' && effectiveTaskScope === 'image_prompt') return true;
+        if (s === '仅手机app' && !['summary', 'image_prompt'].includes(effectiveTaskScope)) return true;
         return false;
       });
       if (!match) continue;
@@ -548,11 +628,14 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const hasCalendarMacro = content.includes('{{calendar_prompt}}');
     const hasWorkdayMacro = content.includes('{{workday_holiday_prompt}}');
     const hasMapMacro = content.includes('{{map_prompt}}');
+    const hasOriginMacro = content.includes('{{origin_prompt}}');
     const hasLatestUserInput = content.includes('{{latest_user_input}}');
     const hasCalendar = Boolean(contextData.calendar || cleanedPhoneContext?.calendar);
     const mapPromptText = String(contextData.mapPrompt || cleanedPhoneContext?.mapPrompt || '').trim();
     const workdayPromptText = contextData.workdayHoliday?.prompt || cleanedPhoneContext?.workdayHoliday?.prompt || '';
-    const workdayEnabled = Boolean(state?.calendar?.workdayConfig?.enabled);
+    const workdayEnabled = Boolean(effectiveState?.calendar?.workdayConfig?.enabled);
+    const resolvedOriginText = String(originPromptText || contextData.originPrompt || cleanedPhoneContext?.originPrompt || '').trim();
+    const originEnabled = Boolean(effectiveState?.origin?.enabled ?? true) && (effectiveTaskScope === '系统' || (effectiveState?.injectOriginEnabled ?? true));
 
     // 如果日历插槽在当前批次无日历数据，且无其他文本包装，安全跳过
     if (hasCalendarMacro && !hasCalendar) {
@@ -569,6 +652,12 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     // 如果工作日/节假日插槽在当前未启用或无提示词，且无其他文本包装，安全跳过
     if (hasWorkdayMacro && (!workdayEnabled || !workdayPromptText)) {
       content = content.replace(/\{\{workday_holiday_prompt\}\}/g, '').trim();
+      if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
+    }
+
+    // 如果系统插槽在当前未启用或无提示词，且无其他文本包装，安全跳过
+    if (hasOriginMacro && (!originEnabled || !resolvedOriginText)) {
+      content = content.replace(/\{\{origin_prompt\}\}/g, '').trim();
       if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
     }
 
@@ -614,6 +703,13 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const imgPrompt = getPrompt('image_prompt', state) || IMAGE_PROMPT;
     const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
     const buckshotPrompt = getPrompt('buckshot_roulette', state) || BUCKSHOT_ROULETTE_PROMPT;
+    const originSysPrompt = getPrompt('origin_system', state) || ORIGIN_SYSTEM_PROMPT;
+    const originChatPrompt = getPrompt('origin_chat', state) || ORIGIN_CHAT_PROMPT;
+    const originTaskPrompt = getPrompt('origin_task_conceive', state) || ORIGIN_TASK_CONCEIVE_PROMPT;
+    const originStatsPrompt = getPrompt('origin_stats_eval', state) || ORIGIN_STATS_EVAL_PROMPT;
+    const originShopPrompt = getPrompt('origin_shop_conceive', state) || ORIGIN_SHOP_CONCEIVE_PROMPT;
+    const originGachaPrompt = getPrompt('origin_gacha_conceive', state) || ORIGIN_GACHA_CONCEIVE_PROMPT;
+    const resolvedOriginPrompt = resolvedOriginText ? `${originSysPrompt}\n${resolvedOriginText}` : originSysPrompt;
 
     content = content
       .replace(/\{\{messages_prompt\}\}/g, msgPrompt)
@@ -630,6 +726,12 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{rich_messages_prompt\}\}/g, richPrompt)
       .replace(/\{\{old_maid_prompt\}\}/g, oldMaidPrompt)
       .replace(/\{\{buckshot_roulette_prompt\}\}/g, buckshotPrompt)
+      .replace(/\{\{origin_prompt\}\}/g, resolvedOriginPrompt)
+      .replace(/\{\{origin_chat_prompt\}\}/g, originChatPrompt)
+      .replace(/\{\{origin_task_conceive_prompt\}\}/g, originTaskPrompt)
+      .replace(/\{\{origin_stats_eval_prompt\}\}/g, originStatsPrompt)
+      .replace(/\{\{origin_shop_conceive_prompt\}\}/g, originShopPrompt)
+      .replace(/\{\{origin_gacha_conceive_prompt\}\}/g, originGachaPrompt)
       .replace(/\{\{language_rule\}\}/g, langPrompt)
       .replace(/\{\{story_memory_rule\}\}/g, storyMemPrompt)
       .replace(/\{\{contacts_prompt\}\}/g, contactsPrompt)

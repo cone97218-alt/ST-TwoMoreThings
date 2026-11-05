@@ -446,6 +446,87 @@ export const BUCKSHOT_ROULETTE_PROMPT = `[小游戏功能规范：恶魔轮盘 (
     - 对局分出胜负时，系统与角色必须输出对决结算卡注明结束与胜者（如 [小游戏：恶魔轮盘对决结束，赌注：...，胜者：<user>] 或 胜者：角色）。
     - 严禁在对话正文中擅自宣判射击是实弹还是空弹、扣了多少血或擅自宣告终局胜负，所有判定均以底层系统播报与对决结算卡为准。终局后输家须在后续对话中履行约定的赌注。`;
 
+export const ORIGIN_SYSTEM_PROMPT = `[金手指系统与宿主任务线索]
+- 任务：推进金手指系统与当前宿主的剧情联动、发布与结算任务。
+- 联动指引：
+  1. 结合正文剧情推进宿主进行中的系统任务。若达成任务目标，可在正文或末尾予以结算；
+  2. 若剧情适宜，可为宿主派发贴合情境的主线、支线或日常新任务；
+  3. 宿主若使用了背包道具或触发了系统事件，角色和剧情需对此作出合乎逻辑的反应；
+  4. 保持角色独立视角，严禁无故直接替宿主强制秒结任务。
+- 数据回传与播报规范（支持以下任意一种格式）：
+  【格式一：小说式自然系统播报（推荐，沉浸感好）】
+  在正文自然段落中插入方头括号系统提示，如：
+  【叮！触发支线任务：深入后山秘境。目标：探寻遗迹；奖励：积分+200；惩罚：无】
+  【系统提示：宿主击败强敌，获得积分+100，力量+1】
+  【格式二：结构化标签块】
+  在正文末尾输出 <origin> 数据块：
+  <origin>
+  完成|任务id
+  新任务|支线|任务标题|目标条件|奖励说明|惩罚说明|时限回合数
+  提示|系统播报内容
+  </origin>`;
+
+export const ORIGIN_CHAT_PROMPT = `[金手指系统专属私聊]
+- 任务：扮演绑定在宿主身上的专属随身金手指系统，通过手机短信端与宿主进行直接私聊。
+- 回复规则：
+  1. 始终严格贯彻系统的人格口吻（如冷澈公事公办、毒舌吐槽、或温和指引）。
+  2. 解答宿主关于任务推进、商城兑换、积分获取或世界观的疑问，给予建议或吐槽。
+  3. 保持简短精炼（通常 1 到 3 句话），像真实的即时通讯私聊。
+  4. 指令响应与任务发布（路线 A）：
+     - 当宿主在私聊中请求你派发任务，或根据剧情你主动向宿主布置任务时，在回复末尾附带：
+       【新任务：类型(主线/支线/日常) | 标题 | 条件 | 奖励 | 惩罚 | 时限】
+       例如：【新任务：支线 | 探寻遗迹秘宝 | 深入后山遗迹取得灵石 | 积分+200 敏捷+1 | 无 | 0】
+     - 若宿主汇报完成了任务且符合情理，可予以认可并附带结算：【奖励：积分+100 力量+1】`;
+
+export const ORIGIN_TASK_CONCEIVE_PROMPT = `[系统新任务推演指令]
+你是随身金手指系统的任务构想中枢。请结合最近剧情正文、宿主当前状态与期望方向，为宿主构想 1 个契合情境的新任务。
+必须严格输出合法的 JSON 格式，不输出任何思考过程或多余解释：
+{
+  "type": "主线",
+  "title": "任务简明标题",
+  "desc": "任务背景描述",
+  "cond": "具体完成目标与触发条件",
+  "reward": "任务奖励描述（例如 积分+200 敏捷+1）",
+  "penalty": "失败惩罚（例如 积分-50 或 无）",
+  "limit": 0
+}`;
+
+export const ORIGIN_STATS_EVAL_PROMPT = `[系统属性成长评估指令]
+你是随身金手指系统的属性评估中枢。请根据宿主在最近剧情中的经历、战斗、探索、心境突破或人际进展，对宿主的属性成长进行评估。
+必须严格输出合法的 JSON 格式，不输出任何多余分析：
+{
+  "summary": "1-2句简炼的宿主成长评价与因由",
+  "statChanges": [
+    { "name": "属性名(如力量/敏捷/智力/魅力)", "delta": 1 }
+  ],
+  "pointsGain": 100
+}`;
+
+export const ORIGIN_SHOP_CONCEIVE_PROMPT = `[系统商城商品批量构想指令]
+你是随身金手指系统的物资中枢。请结合当前世界观背景、主线剧情走向以及宿主属性与需求，批量构想 8~12 件新颖贴合世界观的商城商品。
+必须严格输出合法的 JSON 数组，不输出任何思考过程或解释：
+[
+  {
+    "name": "商品名称",
+    "price": 300,
+    "desc": "商品背景描述与用途说明",
+    "effect": "使用后的效果（例如：体魄+5，或 好感+10，或 状态回复）"
+  }
+]`;
+
+export const ORIGIN_GACHA_CONCEIVE_PROMPT = `[系统祈愿奖池批量构想指令]
+你是随身金手指系统的万象祈愿池中枢。请结合当前世界观背景与剧情，按五级稀有度阶梯（N/R/SR/SSR/UR）批量构想 10~15 件契合世界观的祈愿奖池物品。
+必须严格输出合法的 JSON 数组，不输出任何思考过程或解释：
+[
+  {
+    "name": "物品名称",
+    "tier": "N|R|SR|SSR|UR",
+    "weight": 50,
+    "desc": "物品背景说明",
+    "effect": "获得或使用后的效果"
+  }
+]`;
+
 export const PROMPT_DEFINITIONS = [
   {
     id: 'messages',
@@ -601,6 +682,48 @@ export const PROMPT_DEFINITIONS = [
     description: '将聊天中的自拍或照片描述转化为角色生图所需的画面 danbooru 提示词。',
     defaultPrompt: IMAGE_PROMPT,
   },
+  {
+    id: 'origin_system',
+    title: '系统与宿主任务线索注入',
+    category: '待办与正文',
+    description: '指导大模型推进金手指系统任务、更新进度，并在触发任务完成或新任务时回传数据块。',
+    defaultPrompt: ORIGIN_SYSTEM_PROMPT,
+  },
+  {
+    id: 'origin_chat',
+    title: '系统专属私聊规则',
+    category: '短信与通讯',
+    description: '宿主在手机短信中与随身系统直接私聊时的系统人设、状态同步与即时回复规则。',
+    defaultPrompt: ORIGIN_CHAT_PROMPT,
+  },
+  {
+    id: 'origin_task_conceive',
+    title: '系统推演新任务规则',
+    category: '待办与正文',
+    description: '系统 APP 内 AI 构想新任务时的推演指引与 JSON 输出规范。',
+    defaultPrompt: ORIGIN_TASK_CONCEIVE_PROMPT,
+  },
+  {
+    id: 'origin_stats_eval',
+    title: '系统评估属性成长规则',
+    category: '待办与正文',
+    description: '系统 APP 内 AI 评估宿主属性成长时的评估逻辑与输出规范。',
+    defaultPrompt: ORIGIN_STATS_EVAL_PROMPT,
+  },
+  {
+    id: 'origin_shop_conceive',
+    title: '系统商城批量进货规则',
+    category: '待办与正文',
+    description: '系统 APP 内 AI 根据世界观批量构想新商品时的输出规范。',
+    defaultPrompt: ORIGIN_SHOP_CONCEIVE_PROMPT,
+  },
+  {
+    id: 'origin_gacha_conceive',
+    title: '系统祈愿批量扩充规则',
+    category: '待办与正文',
+    description: '系统 APP 内 AI 根据世界观批量扩充祈愿五级稀有度奖池时的输出规范。',
+    defaultPrompt: ORIGIN_GACHA_CONCEIVE_PROMPT,
+  },
 ];
 
 export const PROMPT_MACRO_MAP = {
@@ -626,6 +749,12 @@ export const PROMPT_MACRO_MAP = {
   language_rule: '{{language_rule}}',
   story_memory_rule: '{{story_memory_rule}}',
   image_prompt: '{{image_prompt}}',
+  origin_system: '{{origin_prompt}}',
+  origin_chat: '{{origin_chat_prompt}}',
+  origin_task_conceive: '{{origin_task_conceive_prompt}}',
+  origin_stats_eval: '{{origin_stats_eval_prompt}}',
+  origin_shop_conceive: '{{origin_shop_conceive_prompt}}',
+  origin_gacha_conceive: '{{origin_gacha_conceive_prompt}}',
 };
 
 export function getPrompt(id, state = null) {

@@ -10,8 +10,8 @@ import { createDirectoryService } from '../src/directory.js';
 import { createForumService } from '../src/forum.js';
 import { createCalendarAiService } from '../src/calendar-ai.js';
 
-test('prompts: definition registry has 22 items across 8 categories', () => {
-  assert.equal(PROMPT_DEFINITIONS.length, 22);
+test('prompts: definition registry has 28 items across 8 categories', () => {
+  assert.equal(PROMPT_DEFINITIONS.length, 28);
   const categories = new Set(PROMPT_DEFINITIONS.map(p => p.category));
   assert.ok(categories.has('短信与通讯'));
   assert.ok(categories.has('群聊'));
@@ -21,6 +21,12 @@ test('prompts: definition registry has 22 items across 8 categories', () => {
   assert.ok(categories.has('待办与正文'));
   assert.ok(categories.has('通用规则'));
   assert.ok(categories.has('小游戏'));
+  assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_system'));
+  assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_chat'));
+  assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_task_conceive'));
+  assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_stats_eval'));
+  assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_shop_conceive'));
+  assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_gacha_conceive'));
 });
 
 test('prompts: getPrompt and getAllPrompts default vs customized', () => {
@@ -31,7 +37,7 @@ test('prompts: getPrompt and getAllPrompts default vs customized', () => {
   assert.equal(getPrompt('messages', customState), '自定义短信提示词内容');
 
   const all = getAllPrompts(customState);
-  assert.equal(all.length, 22);
+  assert.equal(all.length, 28);
   const messagesItem = all.find(p => p.id === 'messages');
   assert.equal(messagesItem.isCustom, true);
   assert.equal(messagesItem.currentPrompt, '自定义短信提示词内容');

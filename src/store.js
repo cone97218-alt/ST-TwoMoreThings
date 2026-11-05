@@ -7,8 +7,10 @@ import { readTodos, todoSourceMessageIds } from './todos.js';
 import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
 import { defaultGregorianCalendar, defaultWorkdayConfig } from './calendar-engine.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
+import { defaultOriginState, normalizeOriginState, SYSTEM_CONTACT_ID } from './origin-engine.js';
+import { createSystemContact } from './origin-chat.js';
 
-const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, map: { basemap: 'auto', currentLocation: '', items: [], deletedIds: [], sheetAssets: {}, trail: [] }, injectEnabled: false, injectCalendarEnabled: false, injectMapEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, summaryAlwaysSummarize: false, manualSummary: null });
+const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, map: { basemap: 'auto', currentLocation: '', items: [], deletedIds: [], sheetAssets: {}, trail: [] }, origin: defaultOriginState(), injectEnabled: false, injectCalendarEnabled: false, injectMapEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, summaryAlwaysSummarize: false, manualSummary: null });
 const CHARACTER_PREFERENCE_KEYS = [
   'injectEnabled',
   'injectCalendarEnabled',
@@ -148,8 +150,18 @@ export function createPhoneStore({
 
     if (!phoneSettings) {
       if (raw === undefined) return userProfile ? { ...empty, userProfile } : empty;
-      const res = raw?.promptPresets ? { ...raw, promptPresets: normalizePromptPresets(raw.promptPresets) } : raw;
-      return userProfile ? { ...res, userProfile } : res;
+      let res = raw?.promptPresets ? { ...raw, promptPresets: normalizePromptPresets(raw.promptPresets) } : raw;
+      if (userProfile && res.userProfile !== userProfile) res = { ...res, userProfile };
+      if (res && !res.contacts) res = { ...res, contacts: [] };
+      if (raw?.origin?.enabled) {
+        const origin = normalizeOriginState(raw.origin);
+        let contacts = res.contacts || [];
+        if (!contacts.some(c => c.id === SYSTEM_CONTACT_ID)) {
+          contacts = [...contacts, createSystemContact(origin)];
+        }
+        res = { ...res, origin, contacts };
+      }
+      return res;
     }
 
     let globalChanged = false;
@@ -275,7 +287,8 @@ export function createPhoneStore({
     }
 
     const hasPrefMerge = Object.keys(resolvedPrefs).length > 0;
-    const needsMerge = prompts !== undefined || promptPresets !== undefined || activePresetId !== undefined || calendar !== raw?.calendar || map !== raw?.map || hasPrefMerge || userProfile !== raw?.userProfile;
+    const hasOriginEnabled = Boolean(raw?.origin?.enabled);
+    const needsMerge = prompts !== undefined || promptPresets !== undefined || activePresetId !== undefined || calendar !== raw?.calendar || map !== raw?.map || hasPrefMerge || userProfile !== raw?.userProfile || hasOriginEnabled;
 
     if (!needsMerge) {
       if (raw === undefined) return empty;
@@ -283,8 +296,22 @@ export function createPhoneStore({
     }
 
     const base = raw !== undefined ? raw : empty;
+    const origin = normalizeOriginState(base.origin || target.metadata?.origin || empty.origin);
+    let contacts = base.contacts || [];
+    if (origin.enabled) {
+      if (!contacts.some(c => c.id === SYSTEM_CONTACT_ID)) {
+        contacts = [...contacts, createSystemContact(origin)];
+      } else {
+        contacts = contacts.map(c => c.id === SYSTEM_CONTACT_ID ? { ...c, name: origin.sysName || c.name } : c);
+      }
+    } else {
+      contacts = contacts.filter(c => c.id !== SYSTEM_CONTACT_ID);
+    }
+
     return {
       ...base,
+      contacts,
+      origin,
       ...resolvedPrefs,
       ...(prompts !== undefined ? { prompts } : {}),
       ...(promptPresets !== undefined ? { promptPresets: normalizePromptPresets(promptPresets) } : {}),
@@ -1239,6 +1266,7 @@ export function createPhoneStore({
     setInjectionEnabled(enabled) { return update(state => ({ ...state, injectEnabled: Boolean(enabled) })); },
     setInjectCalendarEnabled(enabled) { return update(state => ({ ...state, injectCalendarEnabled: Boolean(enabled) })); },
     setInjectMapEnabled(enabled) { return update(state => ({ ...state, injectMapEnabled: Boolean(enabled) })); },
+    setInjectOriginEnabled(enabled) { return update(state => ({ ...state, injectOriginEnabled: Boolean(enabled) })); },
     setMapBasemap(basemap) {
       const value = String(basemap || 'auto').trim() || 'auto';
       return update(state => ({
@@ -1454,6 +1482,28 @@ export function createPhoneStore({
         delete next.manualSummary;
         return next;
       });
+    },
+    updateOrigin(updater) {
+      return update(state => {
+        assertEnabled();
+        const current = normalizeOriginState(state.origin);
+        const next = typeof updater === 'function' ? updater(current) : { ...current, ...updater };
+        const origin = normalizeOriginState(next);
+        let contacts = state.contacts || [];
+        if (origin.enabled) {
+          if (!contacts.some(c => c.id === SYSTEM_CONTACT_ID)) {
+            contacts = [createSystemContact(origin), ...contacts];
+          } else {
+            contacts = contacts.map(c => c.id === SYSTEM_CONTACT_ID ? { ...c, name: origin.sysName || c.name } : c);
+          }
+        } else {
+          contacts = contacts.filter(c => c.id !== SYSTEM_CONTACT_ID);
+        }
+        return { ...state, origin, contacts };
+      });
+    },
+    setOriginEnabled(enabled) {
+      return store.updateOrigin(current => ({ ...current, enabled: Boolean(enabled) }));
     },
     confirmTodo(id, patch = {}) {
       return update(state => {

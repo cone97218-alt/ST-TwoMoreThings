@@ -110,8 +110,9 @@ export function createAuthoringService({ store, host, readEntries = () => host.r
         })());
         return images.get(source);
       };
-      const ids = new Map(state.contacts.map((person, index) => [person.id, `card:contact-${index + 1}`]));
-      const contacts = await Promise.all(state.contacts.map(async person => ({ ...profile(person), id: ids.get(person.id), avatar: await portable(person.avatar), background: await portable(person.background), manualFields: (person.manualFields || (person.edited ? ['avatar'] : [])).includes('avatar') ? ['avatar'] : [] })));
+      const exportableContacts = state.contacts.filter(person => !person.isSystem && person.id !== 'contact:origin-system');
+      const ids = new Map(exportableContacts.map((person, index) => [person.id, `card:contact-${index + 1}`]));
+      const contacts = await Promise.all(exportableContacts.map(async person => ({ ...profile(person), id: ids.get(person.id), avatar: await portable(person.avatar), background: await portable(person.background), manualFields: (person.manualFields || (person.edited ? ['avatar'] : [])).includes('avatar') ? ['avatar'] : [] })));
       const groups = await Promise.all((state.groups || []).map(async (group, index) => ({ id: `card:group-${index + 1}`, name: group.name, avatar: await portable(group.avatar), background: await portable(group.background), memberIds: group.memberIds.map(id => ids.get(id)), userIsMember: group.userIsMember })));
       const userProfile = state.userProfile ? { ...profile(state.userProfile), avatar: await portable(state.userProfile.avatar) } : undefined;
       const preferences = readEntries();

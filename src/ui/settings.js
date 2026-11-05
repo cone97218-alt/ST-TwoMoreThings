@@ -245,7 +245,7 @@ export function renderPromptLibrarySettings(state, ui) {
 export function renderLogSettings(state, ui, { logger, backflowPreview } = {}) {
   const logs = logger?.getLogs?.() || [];
   const lastBackflow = backflowPreview !== undefined ? backflowPreview : (logger?.getLastBackflowPrompt?.() || '');
-  const isInjectEnabled = Boolean(state?.injectEnabled || state?.injectCalendarEnabled || state?.injectMapEnabled);
+  const isInjectEnabled = Boolean(state?.injectEnabled || state?.injectCalendarEnabled || state?.injectMapEnabled || (state?.origin?.enabled && (state?.injectOriginEnabled ?? true)));
   const isBackflowExpanded = Boolean(ui.backflowExpanded);
 
   return `<div class="logs-manager">
@@ -266,7 +266,7 @@ export function renderLogSettings(state, ui, { logger, backflowPreview } = {}) {
         </div>
       </div>
       ${isBackflowExpanded ? `
-        <p class="log-desc">主聊天生成时将作为「手机参考」附在正文提示词中，包含近期短信、待办与日历节日线索。</p>
+        <p class="log-desc">主聊天生成时将作为「手机参考」附在正文提示词中，包含近期短信、待办、日历节日、地图位置及系统任务线索。</p>
         <textarea class="log-textarea" readonly rows="18" placeholder="当前无待注入正文的内容（未开启短信/日历带入正文，或当前批次暂无新短信、待办，或当前无剧情日期/临近7天内无节日日程）">${escape(lastBackflow)}</textarea>
       ` : ''}
     </div>
@@ -545,6 +545,13 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
     <span>地图位置带入正文</span>
     <span class="switch">
       <input id="inject-map-enabled" type="checkbox" role="switch" aria-label="地图位置带入正文" ${state.injectMapEnabled ? 'checked' : ''}>
+      <span></span>
+    </span>
+  </label>
+  <label class="compact-switch-row">
+    <span>系统任务带入正文</span>
+    <span class="switch">
+      <input id="inject-origin-enabled" type="checkbox" role="switch" aria-label="系统任务带入正文" ${state.origin?.enabled && (state.injectOriginEnabled ?? true) ? 'checked' : ''} ${state.origin?.enabled ? '' : 'disabled'}>
       <span></span>
     </span>
   </label>

@@ -11,12 +11,48 @@ function spreadFloating(ids,inset,aspect){
  if(ids.length===2){const axis=inset.w*aspect>inset.h?'x':'y',size=axis==='x'?inset.w:inset.h;points.forEach((point,i)=>{point[axis]=inset[axis]+size*(i?.85:.15);});}
  return points;
 }
+function getRegionQuadrant(inset) {
+ if (!inset) return 'center';
+ const cx = inset.x + inset.w / 2, cy = inset.y + inset.h / 2;
+ if (cx < 42) return 'west';
+ if (cx > 58) return 'east';
+ if (cy < 42) return 'north';
+ if (cy > 58) return 'south';
+ return 'center';
+}
 const placeInSlots=(ids,slots,fallback)=>ids.length<=slots.length?ids.map((id,i)=>({id,x:slots[i][0],y:slots[i][1]})):fallback();
 export function qianchuangMapLayout(basemap,groups){
  const profile=QIANCHUANG_MAP_ASSETS[basemap]?.regions??QIANCHUANG_MAP_REGIONS[basemap]??QIANCHUANG_MAP_REGIONS.modern,aspect=QIANCHUANG_MAP_ASSETS[basemap]?QIANCHUANG_MAP_ASSETS[basemap].width/QIANCHUANG_MAP_ASSETS[basemap].height:basemap==='town'?590/540:1,named=groups.filter(g=>g.entityId),count=Math.min(5,named.length),anchors=QIANCHUANG_MAP_ASSETS[basemap]?.anchors??QIANCHUANG_MAP_ANCHORS[basemap]??QIANCHUANG_MAP_ANCHORS.modern;
  const directCount=groups.filter(g=>!g.entityId).reduce((sum,g)=>sum+g.siteIds.length,0),reserve=count>0&&directCount>anchors.neutral.length,faceCount=reserve?Math.min(5,count+1):count;
  let regions=(profile.layouts[faceCount]??[]).map((region,i)=>({...region,slots:anchors.layouts[faceCount][i]})).sort((a,b)=>b.inset.w*b.inset.h-a.inset.w*a.inset.h),reserved=reserve?regions.shift():null;
- if(reserved){
+ const candidateGroups=named.slice(0,regions.length);
+ const hasDirectionalGroup=candidateGroups.some(g=>g.quadrant||g.area?.quadrant);
+ if(hasDirectionalGroup){
+  const availableRegions=[...regions],assignedRegions=new Array(candidateGroups.length);
+  const unassigned=[];
+  candidateGroups.forEach((group,idx)=>{
+   const q=String(group.quadrant||group.area?.quadrant||'').toLowerCase();
+   if(!q){unassigned.push(idx);return;}
+   let bestIdx=-1,bestDist=Infinity;
+   availableRegions.forEach((reg,rIdx)=>{
+    if(!reg)return;
+    const rq=getRegionQuadrant(reg.inset),cx=reg.inset.x+reg.inset.w/2,cy=reg.inset.y+reg.inset.h/2;
+    let score=100;
+    if(q===rq)score=0;
+    else if(q==='west')score=cx;
+    else if(q==='east')score=100-cx;
+    else if(q==='north')score=cy;
+    else if(q==='south')score=100-cy;
+    else if(q==='center'||q==='inner')score=Math.hypot(cx-50,cy-50);
+    else if(q==='outer')score=100-Math.hypot(cx-50,cy-50);
+    if(score<bestDist){bestDist=score;bestIdx=rIdx;}
+   });
+   if(bestIdx>=0){assignedRegions[idx]=availableRegions[bestIdx];availableRegions[bestIdx]=null;}else{unassigned.push(idx);}
+  });
+  const remaining=availableRegions.filter(Boolean).sort((a,b)=>b.inset.w*b.inset.h-a.inset.w*a.inset.h);
+  unassigned.sort((a,b)=>candidateGroups[b].siteIds.length-candidateGroups[a].siteIds.length).forEach(idx=>{assignedRegions[idx]=remaining.shift();});
+  regions=assignedRegions;
+ }else if(reserved){
   const available=[...regions].sort((a,b)=>b.slots.length-a.slots.length||b.inset.w*b.inset.h-a.inset.w*a.inset.h),assigned=[];
   named.slice(0,regions.length).map((group,index)=>({group,index})).sort((a,b)=>b.group.siteIds.length-a.group.siteIds.length).forEach(({index})=>{assigned[index]=available.shift();});regions=assigned;
  }

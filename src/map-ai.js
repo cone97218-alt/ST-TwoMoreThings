@@ -135,5 +135,128 @@ export function createMapAiService({ contextReader, modelClient, target, store }
         places,
       };
     },
+    async calibrateBaiBaiMap({ instruction = '' } = {}) {
+      const sources = await contextReader.readDirectorySources({ readMemory: true });
+      const state = store?.read?.() || {};
+      const baibaiSnapshot = readBaiBaiBookMapSnapshot();
+      const rawScenes = Array.isArray(baibaiSnapshot?.scenes) ? baibaiSnapshot.scenes : [];
+      if (!rawScenes.length) {
+        throw new Error('当前未检测到百宝书场景数据，请先在百宝书中记录场景或开启百宝书。');
+      }
+
+      const sceneByName = new Map();
+      const existingScenes = rawScenes.map(s => {
+        const id = String(s.id || '').trim();
+        const name = String(s.name || '').trim();
+        const path = Array.isArray(s.path) ? s.path : [name];
+        const item = {
+          id: id ? `baibai:${id}` : `baibai:${path.join('/')}`,
+          rawId: id,
+          name,
+          path: path.join(' > '),
+          parentId: s.parentId ? `baibai:${s.parentId}` : '',
+          desc: String(s.desc || '').trim(),
+        };
+        const nk = name.toLowerCase();
+        if (nk) sceneByName.set(nk, item);
+        return item;
+      });
+
+      const payload = sanitizePhoneContext({
+        currentLocation: baibaiSnapshot?.location || '',
+        currentLocationPath: (baibaiSnapshot?.locationPath || []).join(' > '),
+        scenes: existingScenes,
+        rules: '【铁律限制】严禁添加列表中不存在的任何新地点，严禁修改已有地点名称。只针对给出的 scenes 列表，审阅世界观补齐 role（area分区/site建筑/interior室内）、quadrant（east/west/south/north/center/inner/outer）、facilities 设施标签与 relations 拓扑关系。',
+        userInstruction: instruction ? `用户补充校准要求：${instruction}` : '',
+      });
+
+      const activePreset = getActivePreset(state);
+      const storyHistoryText = (sources.story || []).map(item => `${item.speaker || ''}：${item.text}`).join('\n\n');
+      const latestUserInput = instruction
+        ? `百宝书地图方位校准指令：${instruction}`
+        : '请根据当前世界观与正文，严格在给定的百宝书地点范围内，补齐空间方位、角色层级与设施标签。';
+
+      const messagesPayload = compilePromptPreset(activePreset, {
+        worldbook: sources.worldbook || '',
+        storyHistory: storyHistoryText,
+        storyMemory: sources.storyMemory || '',
+        phoneContext: payload,
+        latestUserInput,
+      }, 'map_calibrate', state);
+
+      const collapsed = collapseMessages(messagesPayload);
+      const systemEntries = messagesPayload.filter(m => m.role === 'system');
+      const userEntries = messagesPayload.filter(m => m.role !== 'system');
+      const systemPrompt = systemEntries.map(m => m.content).join('\n\n');
+
+      const reply = await modelClient.complete({
+        label: 'AI 百宝书地图方位校准',
+        system: systemPrompt,
+        messages: userEntries.length ? userEntries : [{ role: 'user', content: JSON.stringify(payload) }],
+        entries: messagesPayload,
+        collapsedMessages: collapsed,
+      });
+
+      const parsed = parseJsonObject(reply);
+      const basemap = parsed?.basemap && MAP_BASEMAPS[parsed.basemap] ? parsed.basemap : '';
+      const rawPlaces = Array.isArray(parsed?.places) ? parsed.places : [];
+
+      const overrides = {};
+      const calibratedPlaces = [];
+
+      for (const item of rawPlaces) {
+        const name = String(item?.name || '').trim();
+        if (!name) continue;
+        const matched = sceneByName.get(name.toLowerCase());
+        if (!matched) continue;
+
+        const role = ['area', 'site', 'interior'].includes(item?.role) ? item.role : '';
+        const quadrant = ['east', 'west', 'south', 'north', 'center', 'inner', 'outer'].includes(item?.quadrant)
+          ? item.quadrant
+          : '';
+        const facilities = Array.isArray(item?.facilities)
+          ? item.facilities.map(s => String(s).trim()).filter(Boolean)
+          : [];
+        const relations = Array.isArray(item?.relations)
+          ? item.relations
+            .map(r => ({
+              targetName: String(r?.targetName || r?.place || '').trim(),
+              type: String(r?.type || '邻近').trim(),
+              note: String(r?.note || '').trim(),
+            }))
+            .filter(r => r.targetName && sceneByName.has(r.targetName.toLowerCase()))
+          : [];
+
+        const overrideData = {
+          ...(role ? { role } : {}),
+          ...(quadrant ? { quadrant } : {}),
+          ...(facilities.length ? { facilities } : {}),
+          ...(relations.length ? { relations } : {}),
+        };
+
+        overrides[matched.id] = overrideData;
+        if (matched.rawId) {
+          overrides[matched.rawId] = overrideData;
+        }
+
+        calibratedPlaces.push({
+          id: matched.id,
+          name: matched.name,
+          path: matched.path,
+          role: role || (matched.parentId ? 'site' : 'area'),
+          quadrant,
+          facilities,
+          relations,
+          selected: true,
+        });
+      }
+
+      return {
+        basemap,
+        overrides,
+        places: calibratedPlaces,
+        totalScenes: existingScenes.length,
+      };
+    },
   };
 }

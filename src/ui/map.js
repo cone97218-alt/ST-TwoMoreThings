@@ -12,6 +12,16 @@ import {
 } from '../map-engine.js';
 import { displayName } from '../profiles.js';
 
+const QUADRANT_LABELS = {
+  east: '东侧',
+  west: '西侧',
+  south: '南侧',
+  north: '北侧',
+  center: '中心',
+  inner: '内部',
+  outer: '郊外',
+};
+
 const ROLE_LABELS = {
   area: '分区',
   site: '场所',
@@ -334,11 +344,13 @@ function renderBasemapSelectOptions(options, selectedId) {
 }
 
 export function renderMap(state, { ui, mapProjection, busy }) {
+  const hasBackup = Boolean(state?.map?.backupSnapshot);
   const headingActions = `
+    ${hasBackup ? `<button type="button" class="icon-button" data-action="rollback-map-ai" aria-label="撤回" title="撤回本次 AI 地图变动">${icon('undo')}</button>` : ''}
     <button type="button" class="icon-button ${ui.mapEditMode ? 'is-active' : ''}" data-action="toggle-map-edit-mode" aria-pressed="${ui.mapEditMode ? 'true' : 'false'}" aria-label="编辑地点" title="${ui.mapEditMode ? '退出编辑' : '编辑地点'}">${icon('edit')}</button>
-    <button type="button" class="icon-button" data-action="open-map-ai" aria-label="AI地图整理" title="AI 构想与整理地图">${icon('sparkles')}</button>
+    <button type="button" class="icon-button" data-action="open-map-ai" aria-label="AI整理" title="AI 地图整理与校准">${icon('sparkles')}</button>
     <button type="button" class="icon-button" data-action="open-map-form" aria-label="新增地点" title="手动添加地点">${icon('plus')}</button>
-    <button type="button" class="icon-button" data-action="open-map-settings" aria-label="地图设置" title="底图风格与定位设置">${icon('tuning')}</button>
+    <button type="button" class="icon-button" data-action="open-map-settings" aria-label="地图设置" title="底图风格与设置">${icon('tuning')}</button>
   `;
   const heading = pageHeading('地图', headingActions);
   if (!mapProjection) return heading;
@@ -391,20 +403,20 @@ export function renderMap(state, { ui, mapProjection, busy }) {
         </div>
         <input type="hidden" name="id" value="${escape(draft.id || '')}">
         <label class="field-label" for="map-f-name">地点名称</label>
-        <input id="map-f-name" name="name" type="text" placeholder="如：归雁客栈 / 城西商业区 / 二楼雅间" value="${escape(draft.name || '')}" required maxlength="40">
+        <input id="map-f-name" name="name" type="text" placeholder="如：归雁客栈 / 城西区" value="${escape(draft.name || '')}" required maxlength="40">
         <div class="form-row">
           <div>
             <label class="field-label" for="map-f-role">层级类型</label>
             <select id="map-f-role" name="role">
-              <option value="area" ${draft.role === 'area' ? 'selected' : ''}>分区 / 城区 (Area)</option>
-              <option value="site" ${!draft.role || draft.role === 'site' ? 'selected' : ''}>具体场所 / 地标 (Site)</option>
-              <option value="interior" ${draft.role === 'interior' ? 'selected' : ''}>室内 / 房间 (Interior)</option>
+              <option value="area" ${draft.role === 'area' ? 'selected' : ''}>分区 (Area)</option>
+              <option value="site" ${!draft.role || draft.role === 'site' ? 'selected' : ''}>场所 (Site)</option>
+              <option value="interior" ${draft.role === 'interior' ? 'selected' : ''}>室内 (Interior)</option>
             </select>
           </div>
           <div>
-            <label class="field-label" for="map-f-parent">所属上级地点</label>
+            <label class="field-label" for="map-f-parent">所属上级</label>
             <select id="map-f-parent" name="parentId">
-              <option value="">（顶层独立节点）</option>
+              <option value="">（独立顶层）</option>
               ${parentOptions.map(p => `
                 <option value="${escape(p.id)}" ${draft.parentId === p.id ? 'selected' : ''}>
                   ${escape(p.name)} (${ROLE_LABELS[p.role] || '场所'})
@@ -413,9 +425,9 @@ export function renderMap(state, { ui, mapProjection, busy }) {
             </select>
           </div>
         </div>
-        <label class="field-label" for="map-f-desc">环境与场景描述（自动识别 177 类场所设施）</label>
-        <textarea id="map-f-desc" name="desc" rows="2" placeholder="简述该地点的环境氛围、建筑特点或内置设施（如：带有独立卫浴和吧台，无厨房）..." maxlength="240">${escape(draft.desc || '')}</textarea>
-        <label class="field-label">常用场所设施标签（点击可多选）</label>
+        <label class="field-label" for="map-f-desc">场景描述</label>
+        <textarea id="map-f-desc" name="desc" rows="2" placeholder="简要描述环境氛围、建筑特点或设施..." maxlength="240">${escape(draft.desc || '')}</textarea>
+        <label class="field-label">常用设施</label>
         <div class="qc-facility-picker">
           ${MAP_FACILITY_TAGS.map(tag => `
             <button type="button" class="qc-facility-pick-btn ${selectedFacilities.has(tag.id) ? 'is-active' : ''}"
@@ -425,10 +437,10 @@ export function renderMap(state, { ui, mapProjection, busy }) {
             </button>
           `).join('')}
         </div>
-        <input name="facilitiesCustom" type="text" placeholder="其他自定义设施标签（用逗号分隔，可选）"
+        <input name="facilitiesCustom" type="text" placeholder="自定义设施（逗号分隔，可选）"
           value="${escape([...selectedFacilities].filter(f => !MAP_FACILITY_TAGS.some(t => t.id === f)).join('，'))}" maxlength="60">
         <label class="compact-switch-row" style="margin-top: 6px;">
-          <span>保存后将此地点设为当前所在位置</span>
+          <span>设为当前所在位置</span>
           <span class="switch">
             <input name="setAsCurrent" type="checkbox" role="switch" ${draft.setAsCurrent ? 'checked' : ''}>
             <span></span>
@@ -453,36 +465,44 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           <h4>地图与底图设置</h4>
           <button type="button" class="icon-button" data-action="close-map-settings" aria-label="关闭">${icon('close')}</button>
         </div>
-        <label class="field-label" for="map-s-basemap">选择底图视觉风格（含 6 大主题 / 10 座真实城市 / 24 款高精底图）</label>
+        <label class="field-label" for="map-s-basemap">底图视觉风格</label>
         <select id="map-s-basemap" data-action="change-map-basemap">
           ${renderBasemapSelectOptions(basemapOptions, basemapSelection)}
         </select>
-        <small class="field-label">当前激活底图：<strong>${escape(activeAssetLabel)}</strong></small>
+        <small class="field-label">当前激活：<strong>${escape(activeAssetLabel)}</strong></small>
 
         <div class="settings-sub-divider" style="margin: 12px 0;"></div>
 
         <label class="compact-switch-row">
-          <span>将地图与位置线索带入聊天正文</span>
+          <span>向聊天正文注入位置线索</span>
           <span class="switch">
             <input type="checkbox" role="switch" data-action="toggle-map-inject" ${state?.injectMapEnabled ? 'checked' : ''}>
             <span></span>
           </span>
         </label>
-        <small class="field-label">开启后，当前所在地、所属分区与周边地标将自动作为背景线索提供给 AI。</small>
+        <small class="field-label">开启后自动将当前所在位置与周边地标作为背景线索提供给 AI。</small>
 
         ${userPosition.isManual ? `
           <div class="compact-switch-row" style="margin-top: 10px;">
             <span>当前位置已手动锁定为「${escape(userPosition.label)}」</span>
-            <button type="button" class="quiet-button" data-action="clear-map-manual-location">恢复自动跟随剧情</button>
+            <button type="button" class="quiet-button" data-action="clear-map-manual-location">恢复跟随剧情</button>
           </div>
         ` : ''}
 
         ${deletedCount > 0 ? `
           <div class="compact-switch-row" style="margin-top: 10px;">
-            <span>已隐藏 ${deletedCount} 个自动同步场景</span>
-            <button type="button" class="quiet-button" data-action="restore-deleted-map-places">全部恢复显示</button>
+            <span>已隐藏 ${deletedCount} 个同步场景</span>
+            <button type="button" class="quiet-button" data-action="restore-deleted-map-places">恢复全部场景</button>
           </div>
         ` : ''}
+
+        <div class="settings-sub-divider" style="margin: 12px 0;"></div>
+        <div class="compact-switch-row" style="margin-top: 8px; justify-content: space-between; gap: 8px;">
+          ${hasBackup ? `
+            <button type="button" class="quiet-button" data-action="rollback-map-ai" title="撤回上一次 AI 生成或校准">撤回上次 AI 变动</button>
+          ` : '<div></div>'}
+          <button type="button" class="quiet-button danger" data-action="reset-map" title="清空所有自定义地点与校准，恢复初始状态">重置地图至初始</button>
+        </div>
 
         <div class="compact-switch-row" style="margin-top: 14px; justify-content: flex-end;">
           <button type="button" class="save-button" style="margin-top: 0; width: auto; padding: 4px 18px;" data-action="close-map-settings">完成</button>
@@ -494,28 +514,44 @@ export function renderMap(state, { ui, mapProjection, busy }) {
   // 3. AI 地图构想与整理弹窗
   const isAiBusy = busy?.has?.('map-ai');
   const aiResults = ui.mapAiResults;
+  const aiMode = ui.mapAiMode || (baibaiConnected ? 'calibrate' : 'organize');
+  const isCalibrateMode = aiMode === 'calibrate';
   const aiModalHtml = ui.mapAiModalOpen ? `
     <div class="calendar-modal-backdrop" data-action="close-map-ai">
       <div class="calendar-modal-dialog">
         <div class="calendar-form-head">
-          <h4>AI 地图构想与整理</h4>
+          <h4>${isCalibrateMode ? 'AI 地图校准' : 'AI 地图构想'}</h4>
           <button type="button" class="icon-button" data-action="close-map-ai" aria-label="关闭">${icon('close')}</button>
         </div>
         <div class="calendar-ai-body">
-          <p class="calendar-ai-desc">结合世界书、近期剧情与柏宝书场景，自动梳理或构想「分区 → 场所 → 室内」三层地图结构，并匹配最契合的千窗底图与设施标签。</p>
+          <div class="qc-ai-tabs">
+            <button type="button" class="qc-ai-tab ${!isCalibrateMode ? 'is-active' : ''}" data-action="set-map-ai-mode" data-mode="organize">
+              ${icon('sparkles')}
+              <span>构想新地点</span>
+            </button>
+            <button type="button" class="qc-ai-tab ${isCalibrateMode ? 'is-active' : ''}" data-action="set-map-ai-mode" data-mode="calibrate">
+              ${icon('location')}
+              <span>校准已有地点</span>
+            </button>
+          </div>
+          <p class="qc-ai-desc">
+            ${isCalibrateMode
+              ? '为百宝书已记录地点推演层级、相对方位与设施。'
+              : '构想宏观区域、场所与室内三层结构并推演设施。'}
+          </p>
           <div class="calendar-ai-inputs">
             <div>
-              <label class="field-label" for="map-ai-instruction">补充指令或世界观重点（可选）</label>
-              <input id="map-ai-instruction" type="text" placeholder="如：补齐王都四大坊市与主要店铺 / 构想赛博黑市周边据点" value="${escape(ui.mapAiInstruction || '')}">
+              <label class="field-label" for="map-ai-instruction">补充指令（可选）</label>
+              <input id="map-ai-instruction" type="text" placeholder="${isCalibrateMode ? '如：西市在西，东市在东临水' : '如：构想商业街周边店铺'}" value="${escape(ui.mapAiInstruction || '')}">
             </div>
             <button type="button" class="save-button" data-action="run-map-ai" ${isAiBusy ? 'disabled' : ''}>
-              ${isAiBusy ? '正在推演与绘制地图版图...' : '开始 AI 地图构想与整理'}
+              ${isAiBusy ? (isCalibrateMode ? '正在推演空间方位...' : '正在绘制地图版图...') : (isCalibrateMode ? '开始校准方位' : '开始构想地图')}
             </button>
           </div>
           ${Array.isArray(aiResults?.places) && aiResults.places.length ? `
             <div class="calendar-ai-results">
               <div class="qc-ai-summary-bar">
-                <span>共构想 <strong>${aiResults.places.length}</strong> 处地点</span>
+                <span>共${isCalibrateMode ? '校准' : '构想'} <strong>${aiResults.places.length}</strong> 处地点</span>
                 ${aiResults.basemap && MAP_BASEMAPS[aiResults.basemap] ? `<span class="qc-badge">推荐底图：${escape(MAP_BASEMAPS[aiResults.basemap].label)}</span>` : ''}
               </div>
               <div class="calendar-ai-list">
@@ -526,20 +562,26 @@ export function renderMap(state, { ui, mapProjection, busy }) {
                       <strong>
                         ${escape(item.name)}
                         <span class="qc-badge role-${escape(item.role || 'site')}">${escape(ROLE_LABELS[item.role] || '场所')}</span>
-                        ${item.parentName ? `<small>所属：${escape(item.parentName)}</small>` : ''}
+                        ${item.quadrant ? `<span class="qc-badge" style="background:var(--accent-glow);color:var(--accent);">${escape(QUADRANT_LABELS[item.quadrant] || item.quadrant)}</span>` : ''}
+                        ${item.parentName || item.path ? `<small>所属：${escape(item.parentName || item.path)}</small>` : ''}
                       </strong>
                       ${item.desc ? `<p>${escape(item.desc)}</p>` : ''}
                       ${item.facilities?.length ? `<small>设施：${escape(item.facilities.join('、'))}</small>` : ''}
+                      ${item.relations?.length ? `<small>方位：${escape(item.relations.map(r => `${r.targetName}(${r.type}${r.note ? `:${r.note}` : ''})`).join('；'))}</small>` : ''}
                     </div>
                   </label>
                 `).join('')}
               </div>
               <div class="compact-switch-row" style="margin-top: 10px; justify-content: space-between; gap: 8px;">
-                <select id="map-ai-save-mode" style="width: auto; min-width: 130px;">
-                  <option value="merge">合并补充现有地图</option>
-                  <option value="replace">替换重置现有地图</option>
-                </select>
-                <button type="button" class="save-button" style="margin-top: 0; width: auto; padding: 4px 16px;" data-action="save-map-ai-results">应用选中地点</button>
+                ${isCalibrateMode ? '<div></div>' : `
+                  <select id="map-ai-save-mode" style="width: auto; min-width: 130px;">
+                    <option value="merge">增量合并</option>
+                    <option value="replace">全量替换</option>
+                  </select>
+                `}
+                <button type="button" class="save-button" style="margin-top: 0; width: auto; padding: 4px 16px;" data-action="save-map-ai-results">
+                  ${isCalibrateMode ? '应用校准并锁定' : '应用选中地点'}
+                </button>
               </div>
             </div>
           ` : ''}

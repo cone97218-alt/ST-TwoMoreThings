@@ -15,6 +15,7 @@ import {
   SCHEDULE_DEDUCE_PROMPT,
   MAP_PROMPT,
   MAP_ORGANIZE_PROMPT,
+  MAP_CALIBRATE_PROMPT,
   TODO_SUGGESTIONS_PROMPT,
   SUMMARY_PROMPT,
   RICH_MESSAGES_PROMPT,
@@ -50,6 +51,7 @@ export const PRESET_SLOTS = [
   { macro: '{{schedule_deduce_prompt}}', name: 'AI 日程推演助手', desc: '仅日历：推演日程安排规则' },
   { macro: '{{map_prompt}}', name: '地图与位置线索注入', desc: '注入当前所在位置、所属分区与周边场所线索' },
   { macro: '{{map_organize_prompt}}', name: 'AI 地图构想与整理', desc: '仅地图：整理区域、场所与室内三层地图结构' },
+  { macro: '{{map_calibrate_prompt}}', name: 'AI 百宝书地图方位校准', desc: '仅地图：对已有百宝书场景补齐空间相对方位与角色' },
   { macro: '{{todo_suggestions_prompt}}', name: '待办事项提取规则', desc: '短信提取待办与核对规则' },
   { macro: '{{rich_messages_prompt}}', name: '表情包与多媒体规则', desc: '表情包、转账与图片消息规则' },
   { macro: '{{language_rule}}', name: '语言与双语翻译规则', desc: '语种与外语中文译文规则' },
@@ -224,6 +226,14 @@ export const DEFAULT_PRESET_ENTRIES = [
     role: 'system',
     enabled: true,
     content: `{{map_organize_prompt}}`,
+  },
+  {
+    id: 'entry_map_calibrate_rules',
+    name: 'AI 百宝书地图方位校准',
+    scope: '地图',
+    role: 'system',
+    enabled: true,
+    content: `{{map_calibrate_prompt}}`,
   },
   {
     id: 'entry_map_context',
@@ -603,7 +613,11 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
           if (entry.content?.includes('{{festival_conceive_prompt}}')) return false;
           return true;
         }
-        if (s === '地图' && effectiveTaskScope === 'map_organize') return true;
+        if (s === '地图' && ['map_organize', 'map_calibrate'].includes(effectiveTaskScope)) {
+          if (effectiveTaskScope === 'map_calibrate' && entry.content?.includes('{{map_organize_prompt}}')) return false;
+          if (effectiveTaskScope === 'map_organize' && entry.content?.includes('{{map_calibrate_prompt}}')) return false;
+          return true;
+        }
         if (s === '待办' && ['chat', 'group-chat', 'social-feed', 'social-comment', 'schedule_deduce'].includes(effectiveTaskScope)) {
           if (effectiveTaskScope === 'schedule_deduce' && entry.content?.includes('{{todo_suggestions_prompt}}')) return false;
           if (['chat', 'group-chat', 'social-feed', 'social-comment'].includes(effectiveTaskScope) && entry.content?.includes('{{schedule_deduce_prompt}}')) return false;
@@ -671,6 +685,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const fstPrompt = getPrompt('festival_conceive', state) || FESTIVAL_CONCEIVE_PROMPT;
     const schPrompt = getPrompt('schedule_deduce', state) || SCHEDULE_DEDUCE_PROMPT;
     const mapOrgPrompt = getPrompt('map_organize', state) || MAP_ORGANIZE_PROMPT;
+    const mapCalibratePrompt = getPrompt('map_calibrate', state) || MAP_CALIBRATE_PROMPT;
     const mapPromptBase = getPrompt('map_context', state) || MAP_PROMPT;
     const resolvedMapPrompt = mapPromptText ? `${mapPromptBase}\n[地图与位置线索：\n${mapPromptText}\n]` : '';
     const baseTodoPrompt = getPrompt('todo_suggestions', state) || TODO_SUGGESTIONS_PROMPT;
@@ -721,6 +736,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{festival_conceive_prompt\}\}/g, fstPrompt)
       .replace(/\{\{schedule_deduce_prompt\}\}/g, schPrompt)
       .replace(/\{\{map_organize_prompt\}\}/g, mapOrgPrompt)
+      .replace(/\{\{map_calibrate_prompt\}\}/g, mapCalibratePrompt)
       .replace(/\{\{map_prompt\}\}/g, resolvedMapPrompt)
       .replace(/\{\{todo_suggestions_prompt\}\}/g, todoPrompt)
       .replace(/\{\{rich_messages_prompt\}\}/g, richPrompt)

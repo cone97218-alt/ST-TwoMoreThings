@@ -507,6 +507,35 @@ export function readInlineMessageLocation(messages = []) {
 const INTERIOR_SUFFIX_RE = /(?:卧室|房间|客房|书房|包厢|雅间|走廊|玄关|客厅|浴室|厨房|地下室|阁楼|内室|寝殿|偏殿|办公室|会议室|[一二三四五六七八九十\d]+楼|[一二三四五六七八九十\d]+层)$/;
 const AREA_SUFFIX_RE = /(?:市|城|镇|县|区|郡|州|省|国|大陆|岛|域|界|山脉|森林|街区|商圈|园区|校区)$/;
 
+export const INTERIOR_KEYWORD_RE = /(?:卧室|主卧|次卧|房间|客房|书房|包厢|雅间|走廊|玄关|客厅|浴室|厨房|灶台|洗手间|厕所|地下室|阁楼|内室|寝殿|偏殿|办公室|会议室|工位|沙发|阳台|电梯|床头|床上|大床|牢房|车内|[一二三四五六七八九十\d]+楼|[一二三四五六七八九十\d]+层)/;
+export const AREA_KEYWORD_RE = /(?:市|城|镇|县|区|郡|州|省|国|大陆|岛|域|界|山脉|森林|街区|商圈|园区|校区|园|坊|街道|板块|领地|海滨|港口)$/;
+
+export function inferPlaceRole(name = '', pathArr = []) {
+  const clean = String(name || '').trim();
+  if (!clean) return 'site';
+  // 1. 优先硬性拦截微观/室内词，绝不让“厨房”、“灶台”等变成大区
+  if (INTERIOR_KEYWORD_RE.test(clean)) return 'interior';
+  // 2. 宏观大区/分区词
+  if (AREA_KEYWORD_RE.test(clean)) return 'area';
+  // 3. 根据路径深度推导（若有四级及以上深度，叶子通常为 interior）
+  if (pathArr.length >= 4 && pathArr[pathArr.length - 1] === clean) return 'interior';
+  if (pathArr.length >= 2 && pathArr[1] === clean) return 'area';
+  return 'site';
+}
+
+export function inferDirectionalQuadrant(name = '') {
+  const clean = String(name || '').trim();
+  if (!clean) return '';
+  if (/(?:城东|东市|东区|东门|东郊|河东|海东|^东)/.test(clean)) return 'east';
+  if (/(?:城西|西市|西区|西门|西郊|河西|海西|^西)/.test(clean)) return 'west';
+  if (/(?:城南|南市|南区|南门|南郊|江南|^南)/.test(clean)) return 'south';
+  if (/(?:城北|北市|北区|北门|北郊|江北|^北)/.test(clean)) return 'north';
+  if (/(?:中心|中央|中区|核心|中腹|^中)/.test(clean)) return 'center';
+  if (/(?:内室|内院|内部|后山|深处)/.test(clean)) return 'inner';
+  if (/(?:外郊|郊外|荒野|外围)/.test(clean)) return 'outer';
+  return '';
+}
+
 function normKey(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -598,6 +627,7 @@ export function mergeMapPlaces({
   }
   // 2. 合并柏宝书 (STBaiBaiBook) 的 scenes 层级树
   const scenes = Array.isArray(baibaiSnapshot?.scenes) ? baibaiSnapshot.scenes : [];
+  const baibaiOverrides = stateMap?.baibaiOverrides || {};
   const baibaiIdToPlaceId = new Map();
 
   const sortedScenes = [...scenes].sort((a, b) => (a?.path?.length || 0) - (b?.path?.length || 0));
@@ -615,6 +645,11 @@ export function mergeMapPlaces({
       : [name];
     const pathKey = pathArr.map(normKey).join('/');
 
+    const override = baibaiOverrides[syntheticId]
+      || (rawId ? baibaiOverrides[rawId] : null)
+      || (rawId ? baibaiOverrides[`baibai:${rawId}`] : null)
+      || baibaiOverrides[normKey(name)];
+
     let existing = byId.get(syntheticId) || byPathKey.get(pathKey);
     let nameMatched = false;
     if (!existing) {
@@ -629,6 +664,14 @@ export function mergeMapPlaces({
     if (existing) {
       if (!existing.desc && scene.desc) existing.desc = String(scene.desc).trim();
       existing.baibaiId = existing.baibaiId || rawId;
+      if (override?.role) existing.role = override.role;
+      if (override?.quadrant && !existing.quadrant) existing.quadrant = override.quadrant;
+      if (Array.isArray(override?.facilities) && override.facilities.length && !existing.facilities?.length) {
+        existing.facilities = override.facilities;
+      }
+      if (Array.isArray(override?.relations) && override.relations.length && !existing.relations?.length) {
+        existing.relations = override.relations;
+      }
       if (nameMatched) {
         // 按柏宝书的路径重新挂载层级，保证 AI 生成的地点与剧情记录的层级一致
         let parentPlaceId = '';
@@ -662,17 +705,21 @@ export function mergeMapPlaces({
       if (parentPlace) parentPlaceId = parentPlace.id;
     }
 
+    const assignedRole = override?.role || inferPlaceRole(name, pathArr);
+    const assignedQuadrant = override?.quadrant || inferDirectionalQuadrant(name) || '';
+
     const place = {
       id: syntheticId,
       name,
       parentId: parentPlaceId,
-      role: '',
-      mapLevel: '',
-      mapStyle: '',
-      mapLayout: '',
+      role: assignedRole,
+      quadrant: assignedQuadrant,
+      mapLevel: override?.mapLevel || '',
+      mapStyle: override?.mapStyle || '',
+      mapLayout: override?.mapLayout || '',
       desc: String(scene?.desc || '').trim(),
-      facilities: [],
-      relations: [],
+      facilities: Array.isArray(override?.facilities) ? override.facilities : [],
+      relations: Array.isArray(override?.relations) ? override.relations : [],
       aliases: [],
       source: 'baibai',
       baibaiId: rawId,
@@ -854,6 +901,7 @@ export function computeMapLayout(basemapId = 'modern', groups = []) {
       ...group,
       entityId: group.entityId ?? group.area?.id ?? null,
       siteIds,
+      quadrant: group.quadrant || group.area?.quadrant || '',
     };
   });
 
@@ -1207,12 +1255,16 @@ export function buildMapProjection({
     };
   }
 
-  const groups = browse.groups.map(g => ({
-    entityId: g.entityId,
-    siteIds: g.siteIds.filter(id => byId.has(id)),
-    area: g.entityId && byId.has(g.entityId) ? enrichPlace(byId.get(g.entityId)) : null,
-    sites: g.siteIds.filter(id => byId.has(id)).map(id => enrichPlace(byId.get(id))),
-  })).filter(g => g.area || g.sites.length);
+  const groups = browse.groups.map(g => {
+    const areaPlace = g.entityId && byId.has(g.entityId) ? enrichPlace(byId.get(g.entityId)) : null;
+    return {
+      entityId: g.entityId,
+      siteIds: g.siteIds.filter(id => byId.has(id)),
+      area: areaPlace,
+      sites: g.siteIds.filter(id => byId.has(id)).map(id => enrichPlace(byId.get(id))),
+      quadrant: areaPlace?.quadrant || (g.entityId ? (byId.get(g.entityId)?.quadrant || '') : ''),
+    };
+  }).filter(g => g.area || g.sites.length);
   const topNodes = (browse.treeRootIds || []).map(id => byId.get(id)).filter(Boolean);
 
   const sheetPlaces = activeSheet && activeSheet.id !== 'legacy'

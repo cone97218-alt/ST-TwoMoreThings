@@ -1408,6 +1408,14 @@ export function createPhoneStore({
       if (!Array.isArray(places) || !places.length) return update(s => s);
       return update(state => {
         const map = state.map || { basemap: 'auto', currentLocation: '', items: [], deletedIds: [] };
+        const backupSnapshot = {
+          items: Array.isArray(map.items) ? JSON.parse(JSON.stringify(map.items)) : [],
+          baibaiOverrides: map.baibaiOverrides ? JSON.parse(JSON.stringify(map.baibaiOverrides)) : {},
+          basemap: map.basemap || 'auto',
+          deletedIds: Array.isArray(map.deletedIds) ? [...map.deletedIds] : [],
+          sheetAssets: map.sheetAssets ? { ...map.sheetAssets } : {},
+          timestamp: Date.now(),
+        };
         const baseItems = mode === 'replace' ? [] : (Array.isArray(map.items) ? [...map.items] : []);
         const nameToId = new Map(baseItems.map(it => [String(it.name || '').trim().toLowerCase(), it.id]));
 
@@ -1460,6 +1468,83 @@ export function createPhoneStore({
             basemap: basemap || map.basemap || 'auto',
             currentLocation: map.currentLocation || '',
             items: baseItems,
+            backupSnapshot,
+          },
+        };
+      });
+    },
+    saveBaiBaiOverrides(overrides = {}, { basemap = '' } = {}) {
+      if (!overrides || typeof overrides !== 'object') return update(s => s);
+      return update(state => {
+        const map = state.map || { basemap: 'auto', currentLocation: '', items: [], deletedIds: [] };
+        const backupSnapshot = {
+          items: Array.isArray(map.items) ? JSON.parse(JSON.stringify(map.items)) : [],
+          baibaiOverrides: map.baibaiOverrides ? JSON.parse(JSON.stringify(map.baibaiOverrides)) : {},
+          basemap: map.basemap || 'auto',
+          deletedIds: Array.isArray(map.deletedIds) ? [...map.deletedIds] : [],
+          sheetAssets: map.sheetAssets ? { ...map.sheetAssets } : {},
+          timestamp: Date.now(),
+        };
+        const currentOverrides = { ...(map.baibaiOverrides || {}) };
+        for (const [key, val] of Object.entries(overrides)) {
+          if (!key || !val || typeof val !== 'object') continue;
+          currentOverrides[key] = {
+            ...(currentOverrides[key] || {}),
+            ...val,
+          };
+        }
+        return {
+          ...state,
+          map: {
+            ...map,
+            ...(basemap ? { basemap } : {}),
+            baibaiOverrides: currentOverrides,
+            backupSnapshot,
+          },
+        };
+      });
+    },
+    rollbackMapAi() {
+      return update(state => {
+        const map = state.map || {};
+        const backup = map.backupSnapshot;
+        if (!backup) return state;
+        return {
+          ...state,
+          map: {
+            ...map,
+            items: backup.items || [],
+            baibaiOverrides: backup.baibaiOverrides || {},
+            basemap: backup.basemap || 'auto',
+            deletedIds: backup.deletedIds || [],
+            sheetAssets: backup.sheetAssets || {},
+            backupSnapshot: null,
+          },
+        };
+      });
+    },
+    resetMap() {
+      return update(state => {
+        const map = state.map || {};
+        const backupSnapshot = {
+          items: Array.isArray(map.items) ? JSON.parse(JSON.stringify(map.items)) : [],
+          baibaiOverrides: map.baibaiOverrides ? JSON.parse(JSON.stringify(map.baibaiOverrides)) : {},
+          basemap: map.basemap || 'auto',
+          deletedIds: Array.isArray(map.deletedIds) ? [...map.deletedIds] : [],
+          sheetAssets: map.sheetAssets ? { ...map.sheetAssets } : {},
+          timestamp: Date.now(),
+        };
+        return {
+          ...state,
+          map: {
+            basemap: 'auto',
+            currentLocation: '',
+            items: [],
+            deletedIds: [],
+            baibaiOverrides: {},
+            sheetAssets: {},
+            trail: [],
+            backupSnapshot,
           },
         };
       });

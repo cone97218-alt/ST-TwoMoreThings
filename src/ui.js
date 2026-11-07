@@ -1995,11 +1995,22 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         render();
         break;
       }
+      case 'set-map-ai-mode': {
+        ui.mapAiMode = button.dataset.mode === 'calibrate' ? 'calibrate' : 'organize';
+        ui.mapAiResults = null;
+        render();
+        break;
+      }
       case 'run-map-ai': {
         const instInput = root.querySelector('#map-ai-instruction');
         if (instInput) ui.mapAiInstruction = instInput.value;
+        const isCalibrate = ui.mapAiMode === 'calibrate';
         void perform('map-ai', async () => {
-          ui.mapAiResults = await mapAi.organizeMap({ instruction: ui.mapAiInstruction });
+          if (isCalibrate && typeof mapAi.calibrateBaiBaiMap === 'function') {
+            ui.mapAiResults = await mapAi.calibrateBaiBaiMap({ instruction: ui.mapAiInstruction });
+          } else {
+            ui.mapAiResults = await mapAi.organizeMap({ instruction: ui.mapAiInstruction });
+          }
         });
         break;
       }
@@ -2012,16 +2023,51 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           render();
           break;
         }
-        const modeSelect = root.querySelector('#map-ai-save-mode');
-        const mode = modeSelect?.value === 'replace' ? 'replace' : 'merge';
-        void perform('map-ai-save', () => store.saveMapFromAi({
-          basemap: results.basemap,
-          currentLocation: results.currentLocation,
-          places: selectedPlaces,
-        }, { mode }), () => {
-          ui.mapAiModalOpen = false;
+        if (results.overrides && typeof store.saveBaiBaiOverrides === 'function') {
+          const filteredOverrides = {};
+          for (const p of selectedPlaces) {
+            if (results.overrides[p.id]) {
+              filteredOverrides[p.id] = results.overrides[p.id];
+            }
+          }
+          void perform('map-ai-save', () => store.saveBaiBaiOverrides(filteredOverrides, {
+            basemap: results.basemap,
+          }), () => {
+            ui.mapAiModalOpen = false;
+            ui.mapAiResults = null;
+            ui.feedback = { text: `已成功校准并锁定 ${selectedPlaces.length} 处百宝书地点的空间方位与层级。` };
+            onContextChange();
+          });
+        } else {
+          const modeSelect = root.querySelector('#map-ai-save-mode');
+          const mode = modeSelect?.value === 'replace' ? 'replace' : 'merge';
+          void perform('map-ai-save', () => store.saveMapFromAi({
+            basemap: results.basemap,
+            currentLocation: results.currentLocation,
+            places: selectedPlaces,
+          }, { mode }), () => {
+            ui.mapAiModalOpen = false;
+            ui.mapAiResults = null;
+            ui.feedback = { text: `已将 ${selectedPlaces.length} 处地点应用到地图。` };
+            onContextChange();
+          });
+        }
+        break;
+      }
+      case 'rollback-map-ai': {
+        void perform('map-rollback', () => store.rollbackMapAi(), () => {
           ui.mapAiResults = null;
-          ui.feedback = { text: `已将 ${selectedPlaces.length} 处地点应用到地图。` };
+          ui.feedback = { text: '已撤回本次 AI 地图变动，恢复到上一状态。' };
+          onContextChange();
+        });
+        break;
+      }
+      case 'reset-map': {
+        if (!confirm('确定要将地图重置为初始状态吗？这将清空所有 AI 构想地点与方位校准便签（原百宝书剧情不受影响，且可再次撤回）。')) break;
+        void perform('map-reset', () => store.resetMap(), () => {
+          ui.mapAiResults = null;
+          ui.mapSettingsOpen = false;
+          ui.feedback = { text: '地图已重置为初始状态（如需恢复可点击撤回）。' };
           onContextChange();
         });
         break;

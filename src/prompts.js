@@ -342,6 +342,21 @@ export const MAP_ORGANIZE_PROMPT = `[地图构想与整理助手]
       - 输出要求: 只输出合法的 JSON 格式，不要输出任何多余解释文本。
       - JSON 格式: {"basemap":"modern|modern-town|old-town|palace|terrain|sci-fi|beijing|shanghai|tokyo|seoul等","currentLocation":"当前主角所在地点名或空","places":[{"name":"地点名称","parentName":"上级地点名称或空","role":"area|site|interior","mapStyle":"可选风格","mapLayout":"可选细分地貌","desc":"简短环境描述（30字以内）","facilities":["餐饮","住宿"],"relations":[{"targetName":"关联地点名","type":"邻近|相对|通往","note":"简短方位说明"}]}]}`;
 
+export const MAP_CALIBRATE_PROMPT = `[百宝书地图方位与属性校准助手]
+- 功能: 严禁新增任何新地点，严禁修改已有地点名称。只针对给定的百宝书剧情地点列表，审阅世界观、正文与设定，补齐每个地点的空间相对方位（东西南北中）、三级角色层级（area/site/interior）、设施标签与拓扑关系。
+  - 功能介绍:
+      - 严格保留: 只能对已给出的地点列表进行标注，绝对不得新增列表中不存在的地点，绝对不得删除或修改地点名称。
+      - 空间方位 (quadrant): 判断该地点所属的空间相对方位（"east" 东/右、"west" 西/左、"south" 南/下、"north" 北/上、"center" 中央/核心、"inner" 内部内室、"outer" 郊外外围）。
+      - 层级类型 (role):
+          * "area": 城市、城区、街区、坊市、山脉等大中型分区板块；
+          * "site": 具体建筑、场所、商铺、地标（挂在所属 area 下，图钉落在此处）；
+          * "interior": 场所内部房间、楼层、包厢（折叠在所属 site 下，不占大地图独立区域）。
+      - 设施标签 (facilities): 为建筑场所挑选1~3个最合适的设施标签（如餐饮、住宿、购物、交通、休闲、防务、医疗、学府等）。
+      - 推荐底图 (basemap): 挑选最契合该世界观的千窗底图（modern, old-town, sci-fi, palace, terrain, 或 beijing, shanghai, tokyo 等）。
+  - 功能格式:
+      - 输出要求: 只输出合法的 JSON 格式，不要输出任何多余解释文本。
+      - JSON 格式: {"basemap":"推荐底图风格","places":[{"name":"已有地点名称（原样返回）","role":"area|site|interior","quadrant":"east|west|south|north|center|inner|outer","facilities":["餐饮","住宿"],"relations":[{"targetName":"另一已有地点名","type":"邻近|相对|通往","note":"相对方位或距离说明"}]}]}`;
+
 export const TODO_SUGGESTIONS_PROMPT = `[待办事项提取规则]
 - 功能: 从短信中自动分析并提取需办理的待办约定事项。
   - 功能介绍:
@@ -641,6 +656,13 @@ export const PROMPT_DEFINITIONS = [
     defaultPrompt: MAP_ORGANIZE_PROMPT,
   },
   {
+    id: 'map_calibrate',
+    title: 'AI 百宝书地图方位校准',
+    category: '地图与场景',
+    description: '严禁新增地点，仅对百宝书已记录的地点补齐空间相对方位、层级角色与设施标签。',
+    defaultPrompt: MAP_CALIBRATE_PROMPT,
+  },
+  {
     id: 'todo_suggestions',
     title: '待办事项提取规则',
     category: '待办与正文',
@@ -741,6 +763,7 @@ export const PROMPT_MACRO_MAP = {
   schedule_deduce: '{{schedule_deduce_prompt}}',
   map_context: '{{map_prompt}}',
   map_organize: '{{map_organize_prompt}}',
+  map_calibrate: '{{map_calibrate_prompt}}',
   todo_suggestions: '{{todo_suggestions_prompt}}',
   summary: '{{summary_prompt}}',
   rich_messages: '{{rich_messages_prompt}}',

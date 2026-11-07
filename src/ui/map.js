@@ -138,13 +138,30 @@ function renderExpandedAvatarCard(site) {
   if (!characters.length) return '';
   const x = Number(site.x) || 50;
   const y = Number(site.y) || 50;
-  const alignClass = x < 35 ? 'align-left' : x > 65 ? 'align-right' : 'align-center';
-  const posClass = y > 52 ? 'pos-top' : 'pos-bottom';
+  const isRightSide = x > 50;
+  const isBottomHalf = y > 48;
+  const alignClass = isRightSide ? 'align-right' : 'align-left';
+  const posClass = isBottomHalf ? 'pos-top' : 'pos-bottom';
+
+  const horizontalStyle = isRightSide
+    ? `right: max(8px, calc(100% - ${x}% - 14px)); left: auto;`
+    : `left: max(8px, calc(${x}% + 14px)); right: auto;`;
+
+  const verticalStyle = isBottomHalf
+    ? `bottom: max(8px, calc(100% - ${y}% + 14px)); top: auto; max-height: calc(min(72%, calc(${y}% - 14px)));`
+    : `top: max(8px, calc(${y}% + 14px)); bottom: auto; max-height: calc(min(72%, calc(100% - ${y}% - 14px)));`;
+
   return `
-    <div class="qc-pin-avatar-card ${alignClass} ${posClass}" role="dialog" aria-label="${escape(site.name)}在场人员">
+    <div class="qc-pin-avatar-card ${alignClass} ${posClass}"
+      style="${horizontalStyle} ${verticalStyle}"
+      role="dialog"
+      aria-label="${escape(site.name)}在场人员">
       <div class="qc-avatar-card-head">
-        <strong class="qc-avatar-card-title">${escape(site.name)}</strong>
-        <span class="qc-avatar-card-badge">${characters.length}人在此</span>
+        <strong class="qc-avatar-card-title" title="${escape(site.name)}">${escape(site.name)}</strong>
+        <div class="qc-avatar-card-head-actions">
+          <span class="qc-avatar-card-badge">${characters.length}人在此</span>
+          <button type="button" class="icon-button qc-avatar-card-close" data-action="close-avatar-card" aria-label="关闭">${icon('close')}</button>
+        </div>
       </div>
       <div class="qc-avatar-card-list">
         ${characters.map(c => `
@@ -668,8 +685,11 @@ export function renderMap(state, { ui, mapProjection, busy }) {
     `
     : '';
 
-  const sitePinsHtml = layoutGroups
-    .flatMap(g => g.sites || [])
+  const allSites = layoutGroups.flatMap(g => g.sites || []);
+  const expandedSite = allSites.find(s => s.id === ui.mapExpandedAvatarPlaceId);
+  const expandedCardHtml = expandedSite ? renderExpandedAvatarCard(expandedSite) : '';
+
+  const sitePinsHtml = allSites
     .map(site => {
       const isSelected = ui.mapSelectedPlaceId === site.id;
       const isCurrent = Boolean(site.isCurrent);
@@ -678,7 +698,6 @@ export function renderMap(state, { ui, mapProjection, busy }) {
       const avatarClusterHtml = hasChars
         ? renderSiteAvatarCluster(site.charactersHere)
         : (isCurrent ? `<span class="qc-pin-avatar">${userAvatarHtml}</span>` : '');
-      const expandedCardHtml = isExpanded ? renderExpandedAvatarCard(site) : '';
 
       return `
         <div class="qc-pin-wrapper" style="left:${site.x}%;top:${site.y}%;">
@@ -697,7 +716,6 @@ export function renderMap(state, { ui, mapProjection, busy }) {
             </span>
             <span class="qc-pin-label">${escape(site.name)}</span>
           </button>
-          ${expandedCardHtml}
         </div>
       `;
     })
@@ -743,6 +761,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
           <div class="qc-map-overlay">
             ${areaLabelsHtml}
             ${sitePinsHtml}
+            ${expandedCardHtml}
           </div>
         </div>
         <div class="qc-map-caption">

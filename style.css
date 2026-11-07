@@ -2611,48 +2611,19 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 
 .qc-pin-avatar-card {
   position: absolute;
-  min-width: 135px;
-  max-width: 200px;
+  width: 215px;
+  max-width: calc(100% - 16px);
   background: var(--pp-surface);
   border: 1px solid var(--pp-bronze);
-  border-radius: 8px;
+  border-radius: 9px;
   padding: 8px 10px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
   pointer-events: auto;
-  z-index: 25;
-  animation: qc-pop-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* 垂直方向定位：靠下地点向上弹出，靠上地点向下弹出 */
-.qc-pin-avatar-card.pos-bottom,
-.qc-pin-avatar-card:not(.pos-top) {
-  top: calc(100% + 6px);
-  bottom: auto;
-}
-
-.qc-pin-avatar-card.pos-top {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
-
-/* 水平方向自适应对齐：防止边缘截断 */
-.qc-pin-avatar-card.align-center,
-.qc-pin-avatar-card:not(.align-left):not(.align-right) {
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-}
-
-.qc-pin-avatar-card.align-left {
-  left: -8px;
-  right: auto;
-  transform: none;
-}
-
-.qc-pin-avatar-card.align-right {
-  left: auto;
-  right: -8px;
-  transform: none;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  animation: qc-pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes qc-pop-in {
@@ -2674,14 +2645,25 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   margin-bottom: 6px;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--pp-divider-soft);
+  flex-shrink: 0;
+}
+
+.qc-avatar-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .qc-avatar-card-title {
-  font-size: 11px;
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--pp-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .qc-avatar-card-badge {
@@ -2691,18 +2673,55 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   background: color-mix(in srgb, var(--pp-bronze) 14%, transparent);
   color: var(--pp-bronze);
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+.qc-avatar-card-close {
+  width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  max-height: 18px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 4px;
+  color: var(--pp-muted);
+  cursor: pointer;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.qc-avatar-card-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+.qc-avatar-card-close:hover {
+  color: var(--pp-ink);
+  background: var(--pp-surface-soft) !important;
 }
 
 .qc-avatar-card-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding-right: 2px;
+  min-height: 0;
+  flex: 1;
 }
 
 .qc-avatar-card-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+}
+
+.qc-card-avatar-wrap {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .qc-card-avatar-wrap .avatar {
@@ -2715,6 +2734,8 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
+  gap: 1px;
 }
 
 .qc-card-char-name {
@@ -2727,9 +2748,12 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 }
 
 .qc-card-char-rel {
-  font-size: 9px;
+  font-size: 9.5px;
   color: var(--pp-muted);
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .qc-pin-dot {

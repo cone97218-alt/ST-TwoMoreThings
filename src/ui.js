@@ -1984,7 +1984,13 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         render();
         break;
       }
+      case 'close-avatar-card': {
+        ui.mapExpandedAvatarPlaceId = '';
+        render();
+        break;
+      }
       case 'open-map-ai': {
+        const state = store.read();
         const baibaiConnected = Boolean(state?.map?.baibaiConnected || state?.map?.stBaiBaiState || state?.map?.baibaiSnapshot);
         if (!ui.mapAiMode) {
           ui.mapAiMode = baibaiConnected ? 'calibrate' : 'organize';
@@ -2008,6 +2014,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'run-map-ai': {
         const instInput = root.querySelector('#map-ai-instruction');
         if (instInput) ui.mapAiInstruction = instInput.value;
+        const state = store.read();
         const baibaiConnected = Boolean(state?.map?.baibaiConnected || state?.map?.stBaiBaiState || state?.map?.baibaiSnapshot);
         const mode = button.dataset.mode || ui.mapAiMode || (baibaiConnected ? 'calibrate' : 'organize');
         const isCalibrate = mode === 'calibrate';

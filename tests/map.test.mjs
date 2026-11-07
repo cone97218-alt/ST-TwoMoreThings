@@ -613,3 +613,91 @@ test('store: rollbackMapAi and resetMap undo AI modifications back to initial st
   await store.rollbackMapAi();
   assert.strictEqual(store.read().map.items.length, 1);
 });
+
+test('map: adaptive avatar card positioning and map_calibrate macro resolution', async () => {
+  const h = createHarness();
+  const target = h.host.captureChat();
+  const store = createPhoneStore({ target, host: h.host });
+  const state = store.read();
+
+  // 1. 验证预设宏解析与隔离：在 map_calibrate 任务中，即便同一条目中放了两个宏，也严格互斥解析
+  const customPreset = {
+    id: 'test_preset',
+    name: '测试预设',
+    entries: [
+      {
+        id: 'e_mixed',
+        name: '混合地图条目',
+        scope: '地图',
+        role: 'system',
+        enabled: true,
+        content: '校准指令：{{map_calibrate_prompt}}\n构想指令：{{map_organize_prompt}}',
+      },
+    ],
+  };
+
+  const compiledCalibrate = compilePromptPreset(customPreset, {}, 'map_calibrate', state);
+  const calibrateContent = compiledCalibrate.find(m => m.id === 'e_mixed')?.content || '';
+  assert.ok(calibrateContent.includes('[百宝书地图方位与属性校准助手]'), 'Should contain calibrate prompt');
+  assert.ok(!calibrateContent.includes('[地图与层级结构整理助手]'), 'Should NOT leak organize prompt in calibrate mode');
+
+  const compiledOrganize = compilePromptPreset(customPreset, {}, 'map_organize', state);
+  const organizeContent = compiledOrganize.find(m => m.id === 'e_mixed')?.content || '';
+  assert.ok(organizeContent.includes('[地图构想与整理助手]'), 'Should contain organize prompt');
+  assert.ok(!organizeContent.includes('[百宝书地图方位与属性校准助手]'), 'Should NOT leak calibrate prompt in organize mode');
+
+  // 2. 验证地图人物卡片在边缘角落的自适应对齐类名
+  const mockProjection = {
+    places: [{ id: 'site_1', name: '角落店铺', role: 'site' }],
+    hierarchyTree: [],
+    scopeNode: null,
+    scopePath: [],
+    basemap: { id: 'modern', family: 'modern' },
+    basemapId: 'modern',
+    assetId: 'modern-grid',
+    layoutGroups: [
+      {
+        entityId: 'area_1',
+        name: '边缘城区',
+        contour: null,
+        labelBox: null,
+        sites: [
+          {
+            id: 'site_corner_tl',
+            name: '西北角落',
+            x: 5,
+            y: 8,
+            charactersHere: [{ id: 'char_1', name: '主角', isUser: true }],
+          },
+          {
+            id: 'site_corner_br',
+            name: '东南角落',
+            x: 95,
+            y: 85,
+            charactersHere: [{ id: 'char_2', name: '同伴', isUser: false }],
+          },
+        ],
+      },
+    ],
+    userPosition: {},
+    trajectory: [],
+    facilitiesSummary: [],
+    sheets: [],
+  };
+
+  // 展开西北角落
+  const htmlTL = renderMap(state, {
+    ui: { mapExpandedAvatarPlaceId: 'site_corner_tl' },
+    mapProjection: mockProjection,
+    busy: new Set(),
+  });
+  assert.ok(htmlTL.includes('qc-pin-avatar-card align-left pos-bottom'), 'Top-left corner must be align-left pos-bottom');
+
+  // 展开东南角落
+  const htmlBR = renderMap(state, {
+    ui: { mapExpandedAvatarPlaceId: 'site_corner_br' },
+    mapProjection: mockProjection,
+    busy: new Set(),
+  });
+  assert.ok(htmlBR.includes('qc-pin-avatar-card align-right pos-top'), 'Bottom-right corner must be align-right pos-top');
+});

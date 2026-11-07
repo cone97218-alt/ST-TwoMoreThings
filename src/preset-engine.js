@@ -373,7 +373,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 8;
+export const PRESET_SCHEMA_VERSION = 9;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -614,8 +614,8 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
           return true;
         }
         if (s === '地图' && ['map_organize', 'map_calibrate'].includes(effectiveTaskScope)) {
-          if (effectiveTaskScope === 'map_calibrate' && entry.content?.includes('{{map_organize_prompt}}')) return false;
-          if (effectiveTaskScope === 'map_organize' && entry.content?.includes('{{map_calibrate_prompt}}')) return false;
+          if (effectiveTaskScope === 'map_calibrate' && entry.content?.includes('{{map_organize_prompt}}') && !entry.content?.includes('{{map_calibrate_prompt}}')) return false;
+          if (effectiveTaskScope === 'map_organize' && entry.content?.includes('{{map_calibrate_prompt}}') && !entry.content?.includes('{{map_organize_prompt}}')) return false;
           return true;
         }
         if (s === '待办' && ['chat', 'group-chat', 'social-feed', 'social-comment', 'schedule_deduce'].includes(effectiveTaskScope)) {
@@ -684,8 +684,10 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const frmPrompt = getPrompt('forum', state) || FORUM_PROMPT;
     const fstPrompt = getPrompt('festival_conceive', state) || FESTIVAL_CONCEIVE_PROMPT;
     const schPrompt = getPrompt('schedule_deduce', state) || SCHEDULE_DEDUCE_PROMPT;
-    const mapOrgPrompt = getPrompt('map_organize', state) || MAP_ORGANIZE_PROMPT;
-    const mapCalibratePrompt = getPrompt('map_calibrate', state) || MAP_CALIBRATE_PROMPT;
+    const isCalibrate = effectiveTaskScope === 'map_calibrate';
+    const isOrganize = effectiveTaskScope === 'map_organize';
+    const mapOrgPrompt = isCalibrate ? '' : (getPrompt('map_organize', state) || MAP_ORGANIZE_PROMPT);
+    const mapCalibratePrompt = isOrganize ? '' : (getPrompt('map_calibrate', state) || MAP_CALIBRATE_PROMPT);
     const mapPromptBase = getPrompt('map_context', state) || MAP_PROMPT;
     const resolvedMapPrompt = mapPromptText ? `${mapPromptBase}\n[地图与位置线索：\n${mapPromptText}\n]` : '';
     const baseTodoPrompt = getPrompt('todo_suggestions', state) || TODO_SUGGESTIONS_PROMPT;

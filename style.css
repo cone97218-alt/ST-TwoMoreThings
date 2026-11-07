@@ -2498,9 +2498,12 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   z-index: 4;
 }
 
-.qc-pin-wrapper:has(.qc-pin.is-current),
-.qc-pin-wrapper:has(.qc-pin.is-expanded) {
+.qc-pin-wrapper:has(.qc-pin.is-current) {
   z-index: 6;
+}
+
+.qc-pin-wrapper:has(.qc-pin.is-expanded) {
+  z-index: 20;
 }
 
 .qc-pin {
@@ -2608,29 +2611,58 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 
 .qc-pin-avatar-card {
   position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: 140px;
-  max-width: 210px;
+  min-width: 135px;
+  max-width: 200px;
   background: var(--pp-surface);
   border: 1px solid var(--pp-bronze);
   border-radius: 8px;
   padding: 8px 10px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
   pointer-events: auto;
-  z-index: 10;
+  z-index: 25;
   animation: qc-pop-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 垂直方向定位：靠下地点向上弹出，靠上地点向下弹出 */
+.qc-pin-avatar-card.pos-bottom,
+.qc-pin-avatar-card:not(.pos-top) {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+.qc-pin-avatar-card.pos-top {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+/* 水平方向自适应对齐：防止边缘截断 */
+.qc-pin-avatar-card.align-center,
+.qc-pin-avatar-card:not(.align-left):not(.align-right) {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+.qc-pin-avatar-card.align-left {
+  left: -8px;
+  right: auto;
+  transform: none;
+}
+
+.qc-pin-avatar-card.align-right {
+  left: auto;
+  right: -8px;
+  transform: none;
 }
 
 @keyframes qc-pop-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-4px) scale(0.95);
+    scale: 0.96;
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    scale: 1;
   }
 }
 

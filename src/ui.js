@@ -1985,6 +1985,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
       }
       case 'open-map-ai': {
+        const baibaiConnected = Boolean(state?.map?.baibaiConnected || state?.map?.stBaiBaiState || state?.map?.baibaiSnapshot);
+        if (!ui.mapAiMode) {
+          ui.mapAiMode = baibaiConnected ? 'calibrate' : 'organize';
+        }
         ui.mapAiModalOpen = true;
         render();
         break;
@@ -2004,7 +2008,9 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'run-map-ai': {
         const instInput = root.querySelector('#map-ai-instruction');
         if (instInput) ui.mapAiInstruction = instInput.value;
-        const isCalibrate = ui.mapAiMode === 'calibrate';
+        const baibaiConnected = Boolean(state?.map?.baibaiConnected || state?.map?.stBaiBaiState || state?.map?.baibaiSnapshot);
+        const mode = button.dataset.mode || ui.mapAiMode || (baibaiConnected ? 'calibrate' : 'organize');
+        const isCalibrate = mode === 'calibrate';
         void perform('map-ai', async () => {
           if (isCalibrate && typeof mapAi.calibrateBaiBaiMap === 'function') {
             ui.mapAiResults = await mapAi.calibrateBaiBaiMap({ instruction: ui.mapAiInstruction });

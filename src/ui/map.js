@@ -136,8 +136,12 @@ function renderSiteAvatarCluster(characters = []) {
 function renderExpandedAvatarCard(site) {
   const characters = site.charactersHere || [];
   if (!characters.length) return '';
+  const x = Number(site.x) || 50;
+  const y = Number(site.y) || 50;
+  const alignClass = x < 35 ? 'align-left' : x > 65 ? 'align-right' : 'align-center';
+  const posClass = y > 52 ? 'pos-top' : 'pos-bottom';
   return `
-    <div class="qc-pin-avatar-card" role="dialog" aria-label="${escape(site.name)}在场人员">
+    <div class="qc-pin-avatar-card ${alignClass} ${posClass}" role="dialog" aria-label="${escape(site.name)}在场人员">
       <div class="qc-avatar-card-head">
         <strong class="qc-avatar-card-title">${escape(site.name)}</strong>
         <span class="qc-avatar-card-badge">${characters.length}人在此</span>
@@ -362,13 +366,13 @@ export function renderMap(state, { ui, mapProjection, busy }) {
     basemapSelection,
     places,
     userPosition,
-    sheets,
+    sheets = [],
     activeSheetId,
     scopePlaceId,
     scopeNode,
-    scopeBreadcrumb,
-    layoutGroups,
-    directoryTree,
+    scopeBreadcrumb = [],
+    layoutGroups = [],
+    directoryTree = [],
     trajectory = [],
     baibaiConnected,
   } = mapProjection;
@@ -544,7 +548,7 @@ export function renderMap(state, { ui, mapProjection, busy }) {
               <label class="field-label" for="map-ai-instruction">补充指令（可选）</label>
               <input id="map-ai-instruction" type="text" placeholder="${isCalibrateMode ? '如：西市在西，东市在东临水' : '如：构想商业街周边店铺'}" value="${escape(ui.mapAiInstruction || '')}">
             </div>
-            <button type="button" class="save-button" data-action="run-map-ai" ${isAiBusy ? 'disabled' : ''}>
+            <button type="button" class="save-button" data-action="run-map-ai" data-mode="${aiMode}" ${isAiBusy ? 'disabled' : ''}>
               ${isAiBusy ? (isCalibrateMode ? '正在推演空间方位...' : '正在绘制地图版图...') : (isCalibrateMode ? '开始校准方位' : '开始构想地图')}
             </button>
           </div>

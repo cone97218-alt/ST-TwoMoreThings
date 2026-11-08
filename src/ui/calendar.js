@@ -26,7 +26,10 @@ export function renderCalendar(state, { ui, calendar }) {
     const text = (isAncient ? (ANCIENT_WEATHER_TEXT[weatherInfo.type] || weatherInfo.cn) : weatherInfo.cn) || '晴朗';
     const tempText = isAncient ? '' : ` ${weatherInfo.temp}°C`;
     const lockText = weatherInfo.isManual ? ' 🔒' : '';
-    const fullDesc = weatherInfo.prompt || '';
+    const locTip = weatherInfo.location
+      ? `【地点：${weatherInfo.location}${weatherInfo.locationSourceLabel ? ` · 来源：${weatherInfo.locationSourceLabel}` : ''}】\n`
+      : '';
+    const fullDesc = `${locTip}${weatherInfo.prompt || ''}`.trim();
     weatherBadgeHtml = `
       <span class="calendar-weather-inline" title="${escape(fullDesc)}">
         <span class="weather-svg-icon" aria-hidden="true">${weatherSvgIcon(weatherInfo.type)}</span>
@@ -280,6 +283,16 @@ export function renderCalendar(state, { ui, calendar }) {
           <small style="color: var(--pp-muted); display: block; font-size: 11px;">支持现实气象 (Open-Meteo) 与四季古代/架空模拟</small>
         </div>
         <input id="cal-we-enabled" type="checkbox" ${weatherConfig.enabled ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--pp-bronze); cursor: pointer; flex-shrink: 0;">
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 9px; border-radius: 6px; background: var(--pp-control-surface); border: 1px solid var(--pp-divider-soft); font-size: 11.5px; margin-top: 8px;">
+        <span style="display: flex; align-items: center; gap: 5px;">
+          <span style="color: var(--pp-muted);">当前识别地点：</span>
+          <strong style="color: var(--pp-text);">${escape(weatherInfo?.location || weatherConfig.defaultCity || '未识别')}</strong>
+        </span>
+        <span style="font-size: 10.5px; color: var(--pp-bronze); background: var(--pp-pale); padding: 1px 6px; border-radius: 4px;">
+          ${escape(weatherInfo?.locationSourceLabel ? `来源：${weatherInfo.locationSourceLabel}` : (weatherConfig.defaultCity ? '来源：默认城市' : '未定位'))}
+        </span>
       </div>
 
       <div class="form-row" style="margin-top: 10px;">

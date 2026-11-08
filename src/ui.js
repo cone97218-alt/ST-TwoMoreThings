@@ -3292,7 +3292,15 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const currentActiveId = store.read()?.activePresetId || 'default_preset';
         const entryId = button.dataset.entryId;
         if (!entryId) break;
-        void store.deletePresetEntry(currentActiveId, entryId).then(() => render());
+        const currentPreset = (store.read()?.promptPresets || []).find(p => p.id === currentActiveId);
+        const entry = currentPreset?.entries?.find(e => e.id === entryId);
+        const entryName = entry?.name ? `「${entry.name}」` : '此条目';
+        if (typeof confirm === 'function' && !confirm(`确定要从当前装配管线中删除条目 ${entryName} 吗？`)) break;
+        void perform('prompt-preset', () => store.deletePresetEntry(currentActiveId, entryId), () => {
+          if (ui.expandedPresetEntries instanceof Set) ui.expandedPresetEntries.delete(entryId);
+          ui.feedback = { text: `已删除条目 ${entryName}。` };
+          render();
+        });
         break;
       }
       case 'insert-slot-macro': {

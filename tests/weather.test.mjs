@@ -261,3 +261,39 @@ test('weather: injectPrompt switch controls prompt injection', () => {
   store.state.calendar.weatherConfig.injectPrompt = true;
   assert.ok(reader.weatherPrompt()?.prompt);
 });
+
+test('weather: parseTopFormatLocation extracts primary location from top format and respects movement arrows', async () => {
+  const { parseTopFormatLocation, resolveStoryLocation } = await import('../src/calendar.js');
+
+  const mes1 = '✧2026年11月8日 10:30 星期日|北京市 - 海淀区 - 颐和园|秋高气爽✧\n今天阳光正好。';
+  assert.equal(parseTopFormatLocation(mes1), '北京市');
+
+  const mes2 = '✧2026年11月8日 10:30 星期日|北京市 - 首都机场 → 上海市 - 浦东国际机场|晴朗✧\n飞机平稳落地。';
+  assert.equal(parseTopFormatLocation(mes2), '上海市');
+
+  const ancientMes = '✧天顺元年三月初三 惊蛰 午时|临安府 - 钱塘门外 - 西湖断桥|细雨绵绵✧\n游人如织。';
+  assert.equal(parseTopFormatLocation(ancientMes), '临安府');
+
+  const resolved = resolveStoryLocation([{ message: { mes: mes1 } }]);
+  assert.equal(resolved.location, '北京市');
+  assert.equal(resolved.source, 'top_format');
+  assert.equal(resolved.sourceLabel, '剧情顶部时间栏');
+});
+
+test('weather: resolveStoryLocation reads location from BaiBaiBook state or history leaf', async () => {
+  const { resolveStoryLocation } = await import('../src/calendar.js');
+
+  // mock globalThis.STBaiBaiBook
+  globalThis.STBaiBaiBook = {
+    getSnapshot() {
+      return { state: { location: '苏州市 - 姑苏区 - 平江路' } };
+    },
+  };
+
+  const resolved = resolveStoryLocation([]);
+  assert.equal(resolved.location, '苏州市');
+  assert.equal(resolved.source, 'baibaibook');
+  assert.equal(resolved.sourceLabel, '柏宝书');
+
+  delete globalThis.STBaiBaiBook;
+});

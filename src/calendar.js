@@ -4,15 +4,106 @@ import { readTodos } from './todos.js';
 import { displayName } from './profiles.js';
 import { defaultWeatherConfig, rollWeather, formatWeatherPrompt, resolveWeatherForDate, getSolarTerm, getHourlyTemperature } from './weather.js';
 
-export function extractStoryLocation(messages) {
-  if (!Array.isArray(messages) || !messages.length) return '';
-  const lastMes = latestAiFloor(messages)?.message?.mes || '';
-  if (!lastMes) return '';
-  const worldMatch = /\[\[WORLD\]\][\s\S]*?location=([^|\]\r\n]+)/iu.exec(lastMes);
-  if (worldMatch?.[1]?.trim()) return worldMatch[1].trim();
-  const tagMatch = /(?:【|\(|\[|`|\b)(?:地点|位置|Location)\s*[:：=＝]\s*([^】\)\]`\r\n]+)(?:】|\)|\]|`|\b)/iu.exec(lastMes);
-  if (tagMatch?.[1]?.trim()) return tagMatch[1].trim();
+export function parseTopFormatLocation(body) {
+  if (typeof body !== 'string' || !body.includes('✧')) return '';
+  const bars = [...body.matchAll(/✧([^✧\r\n]+?[|｜][^✧\r\n]+?)✧/gu)];
+  for (let i = bars.length - 1; i >= 0; i--) {
+    const rawBar = bars[i][1];
+    const parts = rawBar.split(/[|｜]/);
+    if (parts.length >= 2) {
+      let locField = parts[1].trim();
+      if (locField.includes('→')) {
+        const arrowParts = locField.split('→');
+        const dest = arrowParts[arrowParts.length - 1]?.trim();
+        if (dest) locField = dest;
+      }
+      const hierarchy = locField.split(/\s*[-—／/]\s*/);
+      const mainLoc = hierarchy[0]?.trim();
+      if (mainLoc) return mainLoc;
+    }
+  }
   return '';
+}
+
+export function parseLocationHierarchy(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  let str = raw.trim();
+  if (str.includes('→')) {
+    const parts = str.split('→');
+    str = parts[parts.length - 1]?.trim() || str;
+  }
+  const hierarchy = str.split(/\s*[-—／/]\s*/);
+  return hierarchy[0]?.trim() || str;
+}
+
+export function readBaiBaiBookLocation(messages = []) {
+  const latest = latestAiFloor(messages)?.message;
+  const directLeaf = latest?.extra?.bbs_leaf;
+  if (directLeaf && typeof directLeaf === 'object') {
+    const loc = directLeaf.locationEnd || directLeaf.delta?.location || directLeaf.locationStart || directLeaf.locationLabel || directLeaf.location;
+    if (typeof loc === 'string' && loc.trim()) return parseLocationHierarchy(loc);
+  }
+
+  const api = globalThis.STBaiBaiBook || (typeof window !== 'undefined' ? window.STBaiBaiBook : null);
+  if (api) {
+    try {
+      const stateLoc = api.getVar?.('state.location')
+        || api.getSnapshot?.()?.location
+        || api.getSnapshot?.()?.state?.location;
+      if (typeof stateLoc === 'string' && stateLoc.trim()) return parseLocationHierarchy(stateLoc);
+    } catch {}
+    try {
+      const history = api.getInjectedHistory?.() || api.getHistory?.();
+      const nodes = Array.isArray(history?.nodes) ? history.nodes : [];
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const n = nodes[i];
+        const candidate = n?.locationEnd || n?.delta?.location || n?.locationStart || n?.locationLabel || n?.location;
+        if (typeof candidate === 'string' && candidate.trim()) return parseLocationHierarchy(candidate);
+      }
+    } catch {}
+  }
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const l = messages[i]?.extra?.bbs_leaf;
+    if (l && typeof l === 'object') {
+      const loc = l.locationEnd || l.delta?.location || l.locationStart || l.locationLabel || l.location;
+      if (typeof loc === 'string' && loc.trim()) return parseLocationHierarchy(loc);
+    }
+  }
+  return '';
+}
+
+export function resolveStoryLocation(messages, state = null) {
+  if (Array.isArray(messages) && messages.length) {
+    const floor = latestAiFloor(messages);
+    const lastMes = floor?.message?.mes
+      || (typeof messages[messages.length - 1]?.mes === 'string' ? messages[messages.length - 1].mes : '')
+      || (typeof messages[messages.length - 1]?.message?.mes === 'string' ? messages[messages.length - 1].message.mes : '')
+      || '';
+    if (lastMes) {
+      const topLoc = parseTopFormatLocation(lastMes);
+      if (topLoc) return { location: topLoc, source: 'top_format', sourceLabel: '剧情顶部时间栏' };
+
+      const worldMatch = /\[\[WORLD\]\][\s\S]*?location=([^|\]\r\n]+)/iu.exec(lastMes);
+      if (worldMatch?.[1]?.trim()) return { location: parseLocationHierarchy(worldMatch[1].trim()), source: 'world_tag', sourceLabel: '剧情WORLD标签' };
+
+      const tagMatch = /(?:【|\(|\[|`|\b)(?:地点|位置|当前位置|所在位置|Location)\s*[:：=＝]\s*([^】\)\]`\r\n]+)(?:】|\)|\]|`|\b)/iu.exec(lastMes);
+      if (tagMatch?.[1]?.trim()) return { location: parseLocationHierarchy(tagMatch[1].trim()), source: 'story_tag', sourceLabel: '剧情正文标注' };
+    }
+  }
+
+  const bbsLoc = readBaiBaiBookLocation(messages);
+  if (bbsLoc) return { location: bbsLoc, source: 'baibaibook', sourceLabel: '柏宝书' };
+
+  if (state?.userProfile?.location) {
+    return { location: parseLocationHierarchy(String(state.userProfile.location)), source: 'user_profile', sourceLabel: '个人资料' };
+  }
+
+  return { location: '', source: 'none', sourceLabel: '' };
+}
+
+export function extractStoryLocation(messages, state = null) {
+  return resolveStoryLocation(messages, state).location;
 }
 
 export const CALENDAR_PROMPT = 'calendar是已有的节日和纪念日，仅作可选话题线索。结合当前剧情、人物关系及各人实际知情判断是否提起，不因日历可见就让所有人知道私人纪念日，不强制提醒或安排活动；未来日期不代表庆祝或约定已经发生。若事项跨越多天（注明共几天、当前为第几天），应贴合当前所处的天数阶段自然推进话题，避免将多日行程或节庆每天当成首日重复开场。';
@@ -229,7 +320,10 @@ export function createCalendarReader({
       const year = today?.year || new Date().getFullYear();
       const isAncient = weatherConfig.worldEra === 'ancient' || (weatherConfig.worldEra === 'auto' && Boolean(calendar.era));
       const era = isAncient ? 'ancient' : 'modern';
-      const loc = extractStoryLocation(messages) || weatherConfig.defaultCity || '';
+      const locInfo = resolveStoryLocation(messages, state);
+      const loc = locInfo.location || weatherConfig.defaultCity || '';
+      const locSource = locInfo.location ? locInfo.source : (weatherConfig.defaultCity ? 'default_city' : 'none');
+      const locSourceLabel = locInfo.location ? locInfo.sourceLabel : (weatherConfig.defaultCity ? '默认城市' : '');
       const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const manual = weatherConfig.weatherOverrides?.[dateKey] || weatherConfig.weatherOverrides?.[`${month}-${day}`];
       if (manual) {
@@ -247,6 +341,8 @@ export function createCalendarReader({
         weather = rollWeather(month, { seed });
       }
       weather.location = loc;
+      weather.locationSource = locSource;
+      weather.locationSourceLabel = locSourceLabel;
       weather.worldEra = era;
       const solarTerm = (weatherConfig.solarTermsEnabled !== false && calendar.kind !== 'custom')
         ? getSolarTerm(year, month, day)
@@ -345,7 +441,10 @@ export function createCalendarReader({
       const year = today?.year || new Date().getFullYear();
       const isAncient = weatherConfig.worldEra === 'ancient' || (weatherConfig.worldEra === 'auto' && Boolean(calendar.era));
       const era = isAncient ? 'ancient' : 'modern';
-      const loc = extractStoryLocation(messages) || weatherConfig.defaultCity || '';
+      const locInfo = resolveStoryLocation(messages, state);
+      const loc = locInfo.location || weatherConfig.defaultCity || '';
+      const locSource = locInfo.location ? locInfo.source : (weatherConfig.defaultCity ? 'default_city' : 'none');
+      const locSourceLabel = locInfo.location ? locInfo.sourceLabel : (weatherConfig.defaultCity ? '默认城市' : '');
       const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const manual = weatherConfig.weatherOverrides?.[dateKey] || weatherConfig.weatherOverrides?.[`${month}-${day}`];
       if (manual) {
@@ -363,6 +462,8 @@ export function createCalendarReader({
         weather = rollWeather(month, { seed });
       }
       weather.location = loc;
+      weather.locationSource = locSource;
+      weather.locationSourceLabel = locSourceLabel;
       weather.worldEra = era;
       const solarTerm = (weatherConfig.solarTermsEnabled !== false && calendar.kind !== 'custom')
         ? getSolarTerm(year, month, day)
@@ -470,7 +571,10 @@ export function createCalendarReader({
       const year = parsed?.year || new Date().getFullYear();
       const isAncient = weatherConfig.worldEra === 'ancient' || (weatherConfig.worldEra === 'auto' && Boolean(calendar.era));
       const era = isAncient ? 'ancient' : 'modern';
-      const loc = extractStoryLocation(msgs) || weatherConfig.defaultCity || '';
+      const locInfo = resolveStoryLocation(msgs, state);
+      const loc = locInfo.location || weatherConfig.defaultCity || '';
+      const locSource = locInfo.location ? locInfo.source : (weatherConfig.defaultCity ? 'default_city' : 'none');
+      const locSourceLabel = locInfo.location ? locInfo.sourceLabel : (weatherConfig.defaultCity ? '默认城市' : '');
       const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const manual = weatherConfig.weatherOverrides?.[dateKey] || weatherConfig.weatherOverrides?.[`${month}-${day}`];
       let weather = null;
@@ -489,6 +593,8 @@ export function createCalendarReader({
         weather = rollWeather(month, { seed });
       }
       weather.location = loc;
+      weather.locationSource = locSource;
+      weather.locationSourceLabel = locSourceLabel;
       weather.worldEra = era;
       const solarTerm = (weatherConfig.solarTermsEnabled !== false && calendar.kind !== 'custom')
         ? getSolarTerm(year, month, day)

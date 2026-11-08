@@ -1231,10 +1231,12 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .preset-content-editor { font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; line-height: 1.45; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--pp-divider-soft); background: var(--pp-paper); color: var(--pp-ink); width: 100%; min-height: 240px; box-sizing: border-box; resize: vertical; outline: none; }
 .preset-content-editor:focus { border-color: var(--pp-active); }
 
-.preset-drawer-footer { display: flex; align-items: center; justify-content: flex-end; padding-top: 6px; border-top: 1px dashed var(--pp-divider-soft); }
-.preset-drawer-reorder { display: inline-flex; align-items: center; gap: 6px; }
+.preset-drawer-footer { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px dashed var(--pp-divider-soft); gap: 8px; flex-wrap: wrap; }
+.preset-drawer-reorder { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 .preset-drawer-tip { font-size: 10.5px; color: var(--pp-muted); }
 .preset-tool-btn.preset-move-btn { width: auto; height: 22px; padding: 0 8px; font-size: 11px; gap: 2px; }
+.preset-tool-btn.preset-drawer-delete-btn { width: auto; height: 22px; padding: 0 8px; font-size: 11px; color: #e05252; border-color: rgba(224, 82, 82, 0.3); background: transparent; }
+.preset-tool-btn.preset-drawer-delete-btn:hover { background: rgba(224, 82, 82, 0.12); color: #c93b3b; border-color: #c93b3b; }
 
 /* 电波风格消息增强：气泡动作栏、Emoji回应、拍一拍、撤回、多选、心声与弹窗 */
 .chat-avatar-btn {

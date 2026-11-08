@@ -178,6 +178,7 @@ export function renderPromptPresetSettings(state, ui) {
 
                 <textarea class="preset-content-editor" rows="18" placeholder="输入提示词内容，可插入插槽宏..." data-action="edit-entry-content" data-entry-id="${escape(entry.id)}">${escape(entry.content || '')}</textarea>
                 <div class="preset-drawer-footer">
+                  <button type="button" class="preset-tool-btn preset-drawer-delete-btn danger" data-action="delete-preset-entry" data-entry-id="${escape(entry.id)}" title="删除此条目">删除条目</button>
                   <div class="preset-drawer-reorder">
                     <span class="preset-drawer-tip">条目排序：</span>
                     <button type="button" class="preset-tool-btn preset-move-btn" data-action="move-preset-entry" data-direction="up" data-entry-id="${escape(entry.id)}" ${isFirst ? 'disabled' : ''} title="上移条目">↑ 上移</button>

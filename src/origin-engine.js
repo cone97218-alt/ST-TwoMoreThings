@@ -68,6 +68,41 @@ export const DEFAULT_PERSONAS = {
   温和: '温和耐心，像个可靠的向导。',
 };
 
+export const DEFAULT_ORIGIN_TEMPLATES = {
+  panel: `【{{sysName}} 状态】\n世界：{{world}}\n积分：{{points}} ｜ 等级 Lv.{{level}}\n属性：{{stats}}\n{{skills}}`,
+  tasks: `宿主进行中任务：\n{{tasks}}`,
+  inventory: `宿主背包：{{bag}}\n商城（可花积分买）：{{shop}}`,
+  action: `{{actions}}`,
+  rules: `【本回合系统指引与规则】\n1. 依据正文里实际发生的事更新任务进度；若完成条件达成，请输出『完成|任务id』。禁止替宿主无理由自动完结。\n2. 允许结合情境发布新任务，宿主期望方向：{{direction}}\n3. 系统说话口吻：{{persona}}`,
+  output: `【输出】在回复最末尾另起一行，输出数据块（此块不属于正文，不向读者展示）：\n<origin>\n进度|任务id|新百分比0-100|依据\n完成|任务id\n失败|任务id\n新任务|类型:主线或支线或日常|标题:…|描述:…|条件:…|奖励:积分300|惩罚:…|时限:整数|对象:宿主或角色名\n积分|+N或-N|理由\n属性|名称|+N或-N\n获得|名称|数量\n用道具|名称\n播报|一句系统口吻的话\n私聊|系统 或 角色名|一句话\n成就|名称|说明\n</origin>`,
+};
+
+export function defaultOriginSections() {
+  return {
+    panel: { enabled: true, template: DEFAULT_ORIGIN_TEMPLATES.panel },
+    tasks: { enabled: true, template: DEFAULT_ORIGIN_TEMPLATES.tasks },
+    inventory: { enabled: true, template: DEFAULT_ORIGIN_TEMPLATES.inventory },
+    action: { enabled: true, template: DEFAULT_ORIGIN_TEMPLATES.action },
+    rules: { enabled: true, template: DEFAULT_ORIGIN_TEMPLATES.rules },
+    output: { enabled: true, template: DEFAULT_ORIGIN_TEMPLATES.output },
+  };
+}
+
+export function defaultOriginModuleTags() {
+  return {
+    origin: 'origin, 系统',
+    task: '任务, task, 使命',
+    stat: '属性, stat, 状态, 数值',
+    skill: '技能, skill, 神通, 功法',
+    perk: '权限, perk, 特权',
+    item: '道具, item, 获得, 物品',
+    points: '积分, points, 经验',
+    achievement: '成就, achievement, 功业',
+    broadcast: '播报, notice, 公告, 系统提示',
+    chat: '私聊, chat, 系统私聊',
+  };
+}
+
 export function defaultOriginSettings() {
   return {
     enabled: false,
@@ -94,6 +129,8 @@ export function defaultOriginSettings() {
     gachaRefresh: 0,
     tagRegex: '<(?:origin|系统)>([\\s\\S]*?)</(?:origin|系统)>',
     storyRegex: '【(?:叮[！!]|系统).*?】',
+    moduleTags: defaultOriginModuleTags(),
+    sections: defaultOriginSections(),
     mods: {
       stat: true,
       bag: true,
@@ -122,10 +159,10 @@ export function defaultOriginState() {
     direction: '',
     nextId: 1,
     bag: [],
-    shopCatalog: DEFAULT_SHOP_CATALOG.map(item => ({ ...item })),
-    gachaCatalog: DEFAULT_GACHA_CATALOG.map(item => ({ ...item })),
-    shop: DEFAULT_SHOP.map(item => ({ ...item })),
-    gachaPool: DEFAULT_GACHA.map(item => ({ ...item })),
+    shopCatalog: [],
+    gachaCatalog: [],
+    shop: [],
+    gachaPool: [],
     pendingUse: [],
     pendingEvent: [],
     achievements: [],
@@ -140,29 +177,42 @@ export function normalizeOriginState(raw) {
   if (!raw || typeof raw !== 'object') return fallback;
   const merged = { ...fallback, ...raw };
   merged.mods = { ...fallback.mods, ...(raw.mods || {}) };
+  const defaultTags = defaultOriginModuleTags();
+  const rawTags = (raw && typeof raw.moduleTags === 'object' && raw.moduleTags !== null) ? raw.moduleTags : {};
+  merged.moduleTags = {};
+  for (const key of Object.keys(defaultTags)) {
+    merged.moduleTags[key] = (rawTags[key] !== undefined && rawTags[key] !== null) ? String(rawTags[key]) : defaultTags[key];
+  }
+  const defaultSections = defaultOriginSections();
+  const rawSections = (raw && typeof raw.sections === 'object' && raw.sections !== null) ? raw.sections : {};
+  merged.sections = {};
+  for (const key of Object.keys(defaultSections)) {
+    merged.sections[key] = {
+      enabled: rawSections[key]?.enabled !== false,
+      template: rawSections[key]?.template !== undefined ? String(rawSections[key].template) : defaultSections[key].template,
+    };
+  }
   if (!Array.isArray(merged.tasks)) merged.tasks = [];
   if (!Array.isArray(merged.stats)) merged.stats = [];
   if (!Array.isArray(merged.bag)) merged.bag = [];
-  if (!Array.isArray(merged.shopCatalog) || !merged.shopCatalog.length) {
-    merged.shopCatalog = (Array.isArray(raw?.shop) && raw.shop.length)
-      ? raw.shop.map(x => ({ ...x }))
-      : DEFAULT_SHOP_CATALOG.map(x => ({ ...x }));
-  }
-  if (!Array.isArray(merged.shop) || !merged.shop.length) {
-    merged.shop = refreshShopShelf(merged, 6);
-  }
-  if (!Array.isArray(merged.gachaCatalog) || !merged.gachaCatalog.length) {
-    merged.gachaCatalog = (Array.isArray(raw?.gachaPool) && raw.gachaPool.length)
-      ? raw.gachaPool.map(x => ({ ...x }))
-      : DEFAULT_GACHA_CATALOG.map(x => ({ ...x }));
-  }
-  if (!Array.isArray(merged.gachaPool) || !merged.gachaPool.length) {
-    merged.gachaPool = refreshGachaPool(merged);
-  }
+  if (!Array.isArray(merged.shopCatalog)) merged.shopCatalog = [];
+  if (!Array.isArray(merged.shop)) merged.shop = [];
+  if (!Array.isArray(merged.gachaCatalog)) merged.gachaCatalog = [];
+  if (!Array.isArray(merged.gachaPool)) merged.gachaPool = [];
   if (!Array.isArray(merged.pendingUse)) merged.pendingUse = [];
   if (!Array.isArray(merged.pendingEvent)) merged.pendingEvent = [];
   if (!Array.isArray(merged.achievements)) merged.achievements = [];
   if (!Array.isArray(merged.skills)) merged.skills = [];
+  merged.skills = merged.skills.map(s => {
+    if (!s || typeof s !== 'object') return { name: String(s || ''), desc: '', level: null, exp: null, expMax: null };
+    return {
+      name: String(s.name || ''),
+      desc: String(s.desc || ''),
+      level: (s.level !== undefined && s.level !== null && s.level !== '') ? Math.max(1, Number(s.level) || 1) : null,
+      exp: (s.exp !== undefined && s.exp !== null && s.exp !== '') ? Math.max(0, Number(s.exp) || 0) : null,
+      expMax: (s.expMax !== undefined && s.expMax !== null && s.expMax !== '') ? Math.max(1, Number(s.expMax) || 100) : null,
+    };
+  });
   if (!Array.isArray(merged.perks)) merged.perks = [];
   if (!Array.isArray(merged.log)) merged.log = [];
   merged.points = Number(merged.points) || 0;
@@ -292,12 +342,119 @@ export function gainOriginExp(state, amount) {
   }
 }
 
+export function gainSkillExp(state, skillName, amount) {
+  if (!state || !skillName) return null;
+  state.skills = state.skills || [];
+  let skill = state.skills.find(s => s.name === skillName);
+  if (!skill) {
+    skill = {
+      name: skillName,
+      desc: '',
+      level: 1,
+      exp: 0,
+      expMax: 100,
+    };
+    state.skills.push(skill);
+  } else {
+    if (skill.level === undefined || skill.level === null) skill.level = 1;
+    if (skill.exp === undefined || skill.exp === null) skill.exp = 0;
+    if (skill.expMax === undefined || skill.expMax === null) skill.expMax = 100;
+  }
+
+  const num = Number(amount) || 0;
+  skill.exp = Math.max(0, (skill.exp || 0) + num);
+  let leveledUp = false;
+  while (skill.exp >= skill.expMax) {
+    skill.exp -= skill.expMax;
+    skill.level += 1;
+    skill.expMax = Math.round(skill.expMax * 1.5);
+    leveledUp = true;
+    pushOriginLog(state, `技能「${skill.name}」熟练度突破，晋升至 Lv.${skill.level}！`, 'level-up');
+  }
+  if (!leveledUp && num !== 0) {
+    pushOriginLog(state, `技能「${skill.name}」熟练度 ${num >= 0 ? `+${num}` : num}（${skill.exp}/${skill.expMax}）`, 'skill');
+  }
+  return skill;
+}
+
+export function saveSkill(state, draft) {
+  if (!state || !draft || !draft.name) return null;
+  state.skills = state.skills || [];
+  const name = draft.name.trim();
+  let existing = state.skills.find(s => s.name === name);
+  const hasExp = Boolean(draft.hasExp || (draft.expMax !== undefined && draft.expMax !== null && draft.expMax !== ''));
+  const normalized = {
+    name,
+    desc: (draft.desc || '').trim(),
+    level: hasExp ? Math.max(1, Number(draft.level) || 1) : null,
+    exp: hasExp ? Math.max(0, Number(draft.exp) || 0) : null,
+    expMax: hasExp ? Math.max(1, Number(draft.expMax) || 100) : null,
+  };
+  if (existing) {
+    Object.assign(existing, normalized);
+    return existing;
+  }
+  state.skills.push(normalized);
+  return normalized;
+}
+
+export function deleteSkill(state, skillName) {
+  if (!state || !state.skills || !skillName) return false;
+  const idx = state.skills.findIndex(s => s.name === skillName);
+  if (idx !== -1) {
+    state.skills.splice(idx, 1);
+    pushOriginLog(state, `移除技能「${skillName}」`, 'warning');
+    return true;
+  }
+  return false;
+}
+
+export function deleteStat(state, statName) {
+  if (!state || !state.stats || !statName) return false;
+  const idx = state.stats.findIndex(s => s.name === statName);
+  if (idx !== -1) {
+    state.stats.splice(idx, 1);
+    pushOriginLog(state, `移除属性「${statName}」`, 'warning');
+    return true;
+  }
+  return false;
+}
+
+export function savePerk(state, draft) {
+  if (!state || !draft || !draft.name) return null;
+  state.perks = state.perks || [];
+  const name = draft.name.trim();
+  const desc = (draft.desc || '').trim();
+  let existing = state.perks.find(p => p.name === name);
+  if (existing) {
+    existing.desc = desc;
+    return existing;
+  }
+  const perk = { name, desc };
+  state.perks.push(perk);
+  pushOriginLog(state, `解锁新特权「${name}」`, 'perk');
+  return perk;
+}
+
+export function deletePerk(state, perkName) {
+  if (!state || !state.perks || !perkName) return false;
+  const idx = state.perks.findIndex(p => p.name === perkName);
+  if (idx !== -1) {
+    state.perks.splice(idx, 1);
+    pushOriginLog(state, `移除特权「${perkName}」`, 'warning');
+    return true;
+  }
+  return false;
+}
+
 export function refreshShopShelf(state, count = 6) {
   if (!state) return [];
-  const catalog = (Array.isArray(state.shopCatalog) && state.shopCatalog.length)
-    ? state.shopCatalog
-    : DEFAULT_SHOP_CATALOG;
+  const catalog = Array.isArray(state.shopCatalog) ? state.shopCatalog : [];
   state.shopCatalog = catalog.map(x => ({ ...x }));
+  if (catalog.length === 0) {
+    state.shop = [];
+    return [];
+  }
   const shuffled = [...catalog].sort(() => Math.random() - 0.5);
   state.shop = shuffled.slice(0, Math.min(count, shuffled.length));
   return state.shop;
@@ -305,10 +462,12 @@ export function refreshShopShelf(state, count = 6) {
 
 export function refreshGachaPool(state) {
   if (!state) return [];
-  const catalog = (Array.isArray(state.gachaCatalog) && state.gachaCatalog.length)
-    ? state.gachaCatalog
-    : DEFAULT_GACHA_CATALOG;
+  const catalog = Array.isArray(state.gachaCatalog) ? state.gachaCatalog : [];
   state.gachaCatalog = catalog.map(x => ({ ...x }));
+  if (catalog.length === 0) {
+    state.gachaPool = [];
+    return [];
+  }
   const pool = [];
   for (const tier of ['N', 'R', 'SR', 'SSR', 'UR']) {
     const matching = catalog.filter(x => x.tier === tier);
@@ -369,7 +528,10 @@ export function performGachaDraw(state, count = 1, isFree = false) {
   if (!state) throw new Error('系统状态未就绪');
   const pool = (Array.isArray(state.gachaCatalog) && state.gachaCatalog.length)
     ? state.gachaCatalog
-    : (Array.isArray(state.gachaPool) && state.gachaPool.length ? state.gachaPool : DEFAULT_GACHA_CATALOG);
+    : (Array.isArray(state.gachaPool) && state.gachaPool.length ? state.gachaPool : []);
+  if (!pool.length) {
+    throw new Error('当前祈愿池暂无奖品，请先通过 AI 构想奖池或添加奖品后再进行祈愿！');
+  }
   const cost = state.drawCost || 300;
   const totalCost = isFree ? 0 : cost * count;
   if (!isFree && (state.points || 0) < totalCost) {

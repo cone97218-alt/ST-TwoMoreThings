@@ -67,27 +67,52 @@ export const PRESET_SLOTS = [
   { macro: '{{origin_prompt}}', name: '系统与任务线索注入', desc: '金手指系统状态、宿主属性、进行中任务及期望方向' },
   { macro: '{{origin_chat_prompt}}', name: '系统专属私聊规则', desc: '在手机短信中与随身系统直接私聊时的回复规则' },
   { macro: '{{origin_task_conceive_prompt}}', name: '系统推演新任务规则', desc: 'AI 构想新任务时的推演指引与 JSON 结构' },
-  { macro: '{{origin_stats_eval_prompt}}', name: '系统评估成长规则', desc: 'AI 评估宿主属性成长时的评估逻辑与输出格式' },
+  { macro: '{{origin_stats_eval_prompt}}', name: '系统综合成长规则 (属性/技能/特权)', desc: 'AI 结合剧情评估宿主属性、技能与特权成长或构建能力面板的规则' },
   { macro: '{{origin_shop_conceive_prompt}}', name: '系统商城进货规则', desc: 'AI 结合世界观批量构想新商品时的输出规范' },
   { macro: '{{origin_gacha_conceive_prompt}}', name: '系统祈愿扩充规则', desc: 'AI 结合世界观批量扩充五级稀有度奖池时的规范' },
 ];
 
 export const PRESET_SCOPES = [
-  { id: '通用', name: '通用', desc: '全部任务通用' },
-  { id: '系统', name: '系统', desc: '系统专属私聊与金手指推演' },
-  { id: '短信', name: '短信', desc: '私聊短信生成' },
-  { id: '群聊', name: '群聊', desc: '群聊多角色续写' },
-  { id: '心声', name: '心声', desc: '角色隐秘心声' },
-  { id: '动态', name: '动态', desc: 'Ainstagram 动态与评论' },
-  { id: '论坛', name: '论坛', desc: '公众论坛帖子与回帖' },
-  { id: '日历', name: '日历', desc: 'AI 节日与日程' },
-  { id: '地图', name: '地图', desc: 'AI 地图构想与整理' },
-  { id: '待办', name: '待办', desc: '待办事项规划' },
-  { id: '通讯录', name: '通讯录', desc: '通讯录发掘整理' },
-  { id: '联系人', name: '联系人', desc: '联系人风格提炼' },
-  { id: '摘要', name: '摘要', desc: '短信回流记忆摘要' },
-  { id: '生图', name: '生图', desc: '照片绘图描述' },
-  { id: '仅手机app', name: '仅手机app', desc: '除生图/摘要外的手机任务' },
+  // 通用与基础
+  { id: '通用', name: '通用', group: '通用与基础', desc: '全部任务通用' },
+  { id: '仅手机app', name: '仅手机app', group: '通用与基础', desc: '除生图/摘要外的手机任务' },
+
+  // 短信与通讯
+  { id: '短信', name: '短信', group: '短信与通讯', desc: '私聊短信日常交互生成' },
+  { id: '群聊', name: '群聊', group: '短信与通讯', desc: '群聊多角色互动续写' },
+  { id: '心声', name: '心声', group: '短信与通讯', desc: '角色隐秘内心独白推演' },
+  { id: '联系人', name: '联系人', group: '短信与通讯', desc: '联系人线上风格提炼' },
+  { id: '通讯录', name: '通讯录', group: '短信与通讯', desc: '通讯录批量发掘与建群' },
+  { id: '小游戏', name: '小游戏', group: '短信与通讯', desc: '抽鬼牌与恶魔轮盘等对决' },
+
+  // 社交与论坛
+  { id: '动态发布', name: '动态发布', group: '社交与论坛', desc: 'Ainstagram 动态发布与配图描述' },
+  { id: '动态评论', name: '动态评论', group: '社交与论坛', desc: '动态留言互动与主动私信' },
+  { id: '动态', name: '动态', group: '社交与论坛', desc: '动态发布与评论全流程（通配兼容）' },
+  { id: '论坛', name: '论坛', group: '社交与论坛', desc: '公众论坛帖子与回帖讨论' },
+
+  // 地图与场景
+  { id: '地图构想', name: '地图构想', group: '地图与场景', desc: 'AI 地图三层层级与设施构想' },
+  { id: '地图校准', name: '地图校准', group: '地图与场景', desc: 'AI 百宝书地图方位与属性严格校准' },
+  { id: '地图', name: '地图', group: '地图与场景', desc: '地图构想与校准（通配兼容）' },
+
+  // 日历与日程
+  { id: '节日构想', name: '节日构想', group: '日历与日程', desc: '世界观民俗节日与纪念日构想' },
+  { id: '日程推演', name: '日程推演', group: '日历与日程', desc: '角色日常日程与约会推演' },
+  { id: '日历', name: '日历', group: '日历与日程', desc: '节日构想与日程推演（通配兼容）' },
+
+  // 金手指随身系统
+  { id: '系统私聊', name: '系统私聊', group: '随身系统', desc: '手机短信与随身系统直接对话' },
+  { id: '系统推演任务', name: '系统推演任务', group: '随身系统', desc: '系统 AI 结合剧情推演新任务' },
+  { id: '系统成长评估', name: '系统成长评估', group: '随身系统', desc: '系统 AI 评估宿主属性成长' },
+  { id: '系统商城进货', name: '系统商城进货', group: '随身系统', desc: '系统 AI 结合世界观批量构想新商品' },
+  { id: '系统祈愿扩充', name: '系统祈愿扩充', group: '随身系统', desc: '系统 AI 扩充五级稀有度祈愿奖池' },
+  { id: '系统', name: '系统', group: '随身系统', desc: '全部随身系统相关任务（通配兼容）' },
+
+  // 正文与多媒体
+  { id: '待办', name: '待办', group: '辅助与多媒体', desc: '待办事项提取规则' },
+  { id: '摘要', name: '摘要', group: '辅助与多媒体', desc: '短信回流正文记忆摘要' },
+  { id: '生图', name: '生图', group: '辅助与多媒体', desc: '照片转绘图 danbooru 描述' },
 ];
 
 export function toggleScopeSelection(currentScope, clickedScope) {
@@ -134,7 +159,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_old_maid_rules',
     name: '抽鬼牌对决规则',
-    scope: '短信',
+    scope: '小游戏',
     role: 'system',
     enabled: true,
     content: `{{old_maid_prompt}}`,
@@ -142,7 +167,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_buckshot_rules',
     name: '恶魔轮盘对决规则',
-    scope: '短信',
+    scope: '小游戏',
     role: 'system',
     enabled: true,
     content: `{{buckshot_roulette_prompt}}`,
@@ -182,7 +207,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_social_rules',
     name: 'Ainstagram 动态发布',
-    scope: '动态',
+    scope: '动态发布',
     role: 'system',
     enabled: true,
     content: `{{social_prompt}}`,
@@ -190,7 +215,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_comment_rules',
     name: '动态留言与互动回复',
-    scope: '动态',
+    scope: '动态评论',
     role: 'system',
     enabled: true,
     content: `{{comment_prompt}}`,
@@ -206,7 +231,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_festival_rules',
     name: 'AI 节日构想助手',
-    scope: '日历',
+    scope: '节日构想',
     role: 'system',
     enabled: true,
     content: `{{festival_conceive_prompt}}`,
@@ -214,7 +239,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_schedule_rules',
     name: 'AI 日程推演助手',
-    scope: '日历',
+    scope: '日程推演',
     role: 'system',
     enabled: true,
     content: `{{schedule_deduce_prompt}}`,
@@ -222,7 +247,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_map_organize_rules',
     name: 'AI 地图构想与整理',
-    scope: '地图',
+    scope: '地图构想',
     role: 'system',
     enabled: true,
     content: `{{map_organize_prompt}}`,
@@ -230,7 +255,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_map_calibrate_rules',
     name: 'AI 百宝书地图方位校准',
-    scope: '地图',
+    scope: '地图校准',
     role: 'system',
     enabled: true,
     content: `{{map_calibrate_prompt}}`,
@@ -246,7 +271,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_todo_rules',
     name: '待办事项提取规则',
-    scope: '短信+群聊+动态+待办',
+    scope: '待办',
     role: 'system',
     enabled: true,
     content: `{{todo_suggestions_prompt}}`,
@@ -318,7 +343,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_origin_chat_rules',
     name: '系统专属私聊规则',
-    scope: '系统',
+    scope: '系统私聊',
     role: 'system',
     enabled: true,
     content: `{{origin_chat_prompt}}`,
@@ -326,7 +351,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_origin_task_rules',
     name: '系统推演新任务规则',
-    scope: '系统',
+    scope: '系统推演任务',
     role: 'system',
     enabled: true,
     content: `{{origin_task_conceive_prompt}}`,
@@ -334,7 +359,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_origin_stats_rules',
     name: '系统评估成长规则',
-    scope: '系统',
+    scope: '系统成长评估',
     role: 'system',
     enabled: true,
     content: `{{origin_stats_eval_prompt}}`,
@@ -342,7 +367,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_origin_shop_rules',
     name: '系统商城批量进货规则',
-    scope: '系统',
+    scope: '系统商城进货',
     role: 'system',
     enabled: true,
     content: `{{origin_shop_conceive_prompt}}`,
@@ -350,7 +375,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_origin_gacha_rules',
     name: '系统祈愿批量扩充规则',
-    scope: '系统',
+    scope: '系统祈愿扩充',
     role: 'system',
     enabled: true,
     content: `{{origin_gacha_conceive_prompt}}`,
@@ -358,7 +383,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   {
     id: 'entry_origin_context',
     name: '系统与宿主任务线索注入',
-    scope: '短信+系统',
+    scope: '短信+系统私聊',
     role: 'system',
     enabled: true,
     content: `{{origin_prompt}}`,
@@ -373,7 +398,7 @@ export const DEFAULT_PRESET_ENTRIES = [
   },
 ];
 
-export const PRESET_SCHEMA_VERSION = 9;
+export const PRESET_SCHEMA_VERSION = 10;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -448,11 +473,47 @@ export function normalizePromptPresets(presets) {
       const newEntries = (preset.entries || []).map(entry => {
         const cloned = { ...entry };
         if (needsSchemaUpgrade) {
-          if (cloned.id === 'entry_schedule_rules' && cloned.scope === '日历+待办') {
-            cloned.scope = '日历';
+          if (cloned.id === 'entry_map_organize_rules' && cloned.scope === '地图') {
+            cloned.scope = '地图构想';
           }
-          if (cloned.id === 'entry_todo_rules' && cloned.scope === '短信+群聊+待办') {
-            cloned.scope = '短信+群聊+动态+待办';
+          if (cloned.id === 'entry_map_calibrate_rules' && cloned.scope === '地图') {
+            cloned.scope = '地图校准';
+          }
+          if (cloned.id === 'entry_festival_rules' && cloned.scope === '日历') {
+            cloned.scope = '节日构想';
+          }
+          if (cloned.id === 'entry_schedule_rules' && ['日历', '日历+待办'].includes(cloned.scope)) {
+            cloned.scope = '日程推演';
+          }
+          if (cloned.id === 'entry_social_rules' && cloned.scope === '动态') {
+            cloned.scope = '动态发布';
+          }
+          if (cloned.id === 'entry_comment_rules' && cloned.scope === '动态') {
+            cloned.scope = '动态评论';
+          }
+          if (cloned.id === 'entry_origin_chat_rules' && cloned.scope === '系统') {
+            cloned.scope = '系统私聊';
+          }
+          if (cloned.id === 'entry_origin_task_rules' && cloned.scope === '系统') {
+            cloned.scope = '系统推演任务';
+          }
+          if (cloned.id === 'entry_origin_stats_rules' && cloned.scope === '系统') {
+            cloned.scope = '系统成长评估';
+          }
+          if (cloned.id === 'entry_origin_shop_rules' && cloned.scope === '系统') {
+            cloned.scope = '系统商城进货';
+          }
+          if (cloned.id === 'entry_origin_gacha_rules' && cloned.scope === '系统') {
+            cloned.scope = '系统祈愿扩充';
+          }
+          if (cloned.id === 'entry_origin_context' && cloned.scope === '短信+系统') {
+            cloned.scope = '短信+系统私聊';
+          }
+          if (['entry_old_maid_rules', 'entry_buckshot_rules'].includes(cloned.id) && cloned.scope === '短信') {
+            cloned.scope = '小游戏';
+          }
+          if (cloned.id === 'entry_todo_rules' && (cloned.scope === '短信+群聊+待办' || cloned.scope === '短信+群聊+动态+待办')) {
+            cloned.scope = '待办';
           }
           if (cloned.id === 'entry_story_history') {
             cloned.enabled = true;
@@ -574,9 +635,60 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     // 作用域检查：如果条目限定了特定场景且与当前任务不符，则跳过
     const scope = entry.scope || '通用';
     if (scope !== '通用') {
-      const scopes = scope.split('+').map(s => s.trim());
+      const scopes = scope.split('+').map(s => s.trim()).filter(Boolean);
       const match = scopes.some(s => {
+        if (s === '通用') return true;
+        if (s === '仅手机app') return !['summary', 'image_prompt'].includes(effectiveTaskScope);
+
+        // 短信与通讯
         if (s === '短信' && effectiveTaskScope === 'chat') return true;
+        if (s === '群聊' && effectiveTaskScope === 'group-chat') return true;
+        if (s === '心声' && effectiveTaskScope === 'thought') return true;
+        if (s === '联系人' && effectiveTaskScope === 'contacts') return true;
+        if (s === '通讯录' && effectiveTaskScope === 'directory') return true;
+        if (s === '小游戏' && effectiveTaskScope === 'chat') return true;
+
+        // 社交与论坛（细分 + 通配兼容）
+        if (s === '动态发布' && ['social-feed', 'social-author'].includes(effectiveTaskScope)) return true;
+        if (s === '动态评论' && effectiveTaskScope === 'social-comment') return true;
+        if (s === '动态' && ['social-feed', 'social-author'].includes(effectiveTaskScope)) {
+          if (entry.content?.includes('{{comment_prompt}}')) return false;
+          if (entry.content?.includes('{{todo_suggestions_prompt}}') && effectiveTaskScope === 'social-author') return false;
+          return true;
+        }
+        if (s === '动态' && effectiveTaskScope === 'social-comment') {
+          if (entry.content?.includes('{{social_prompt}}')) return false;
+          return true;
+        }
+        if (s === '论坛' && effectiveTaskScope === 'forum') return true;
+
+        // 地图与场景（细分 + 通配兼容）
+        if (s === '地图构想' && effectiveTaskScope === 'map_organize') return true;
+        if (s === '地图校准' && effectiveTaskScope === 'map_calibrate') return true;
+        if (s === '地图' && ['map_organize', 'map_calibrate'].includes(effectiveTaskScope)) {
+          if (effectiveTaskScope === 'map_calibrate' && entry.content?.includes('{{map_organize_prompt}}') && !entry.content?.includes('{{map_calibrate_prompt}}')) return false;
+          if (effectiveTaskScope === 'map_organize' && entry.content?.includes('{{map_calibrate_prompt}}') && !entry.content?.includes('{{map_organize_prompt}}')) return false;
+          return true;
+        }
+
+        // 日历与日程（细分 + 通配兼容）
+        if (s === '节日构想' && effectiveTaskScope === 'festival_conceive') return true;
+        if (s === '日程推演' && effectiveTaskScope === 'schedule_deduce') return true;
+        if (s === '日历' && effectiveTaskScope === 'festival_conceive') {
+          if (entry.content?.includes('{{schedule_deduce_prompt}}')) return false;
+          return true;
+        }
+        if (s === '日历' && effectiveTaskScope === 'schedule_deduce') {
+          if (entry.content?.includes('{{festival_conceive_prompt}}')) return false;
+          return true;
+        }
+
+        // 金手指随身系统（细分 + 通配兼容）
+        if (s === '系统私聊' && ['origin-chat', '系统'].includes(effectiveTaskScope)) return true;
+        if (s === '系统推演任务' && effectiveTaskScope === 'origin-task') return true;
+        if (s === '系统成长评估' && effectiveTaskScope === 'origin-stats') return true;
+        if (s === '系统商城进货' && effectiveTaskScope === 'origin-shop') return true;
+        if (s === '系统祈愿扩充' && effectiveTaskScope === 'origin-gacha') return true;
         if (s === '系统' && ['origin', 'origin-chat', 'origin-task', 'origin-stats', 'origin-shop', 'origin-gacha', '系统'].includes(effectiveTaskScope)) {
           if (effectiveTaskScope === 'origin-task') {
             if (entry.content?.includes('{{origin_chat_prompt}}') || entry.content?.includes('{{origin_stats_eval_prompt}}') || entry.content?.includes('{{origin_shop_conceive_prompt}}') || entry.content?.includes('{{origin_gacha_conceive_prompt}}')) return false;
@@ -591,41 +703,18 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
           }
           return true;
         }
-        if (s === '心声' && effectiveTaskScope === 'thought') return true;
-        if (s === '群聊' && effectiveTaskScope === 'group-chat') return true;
-        if (s === '通讯录' && effectiveTaskScope === 'directory') return true;
-        if (s === '联系人' && effectiveTaskScope === 'contacts') return true;
-        if (s === '动态' && ['social-feed', 'social-author'].includes(effectiveTaskScope)) {
-          if (entry.content?.includes('{{comment_prompt}}')) return false;
-          if (entry.content?.includes('{{todo_suggestions_prompt}}') && effectiveTaskScope === 'social-author') return false;
-          return true;
-        }
-        if (s === '动态' && effectiveTaskScope === 'social-comment') {
-          if (entry.content?.includes('{{social_prompt}}')) return false;
-          return true;
-        }
-        if (s === '论坛' && effectiveTaskScope === 'forum') return true;
-        if (s === '日历' && effectiveTaskScope === 'festival_conceive') {
-          if (entry.content?.includes('{{schedule_deduce_prompt}}')) return false;
-          return true;
-        }
-        if (s === '日历' && effectiveTaskScope === 'schedule_deduce') {
-          if (entry.content?.includes('{{festival_conceive_prompt}}')) return false;
-          return true;
-        }
-        if (s === '地图' && ['map_organize', 'map_calibrate'].includes(effectiveTaskScope)) {
-          if (effectiveTaskScope === 'map_calibrate' && entry.content?.includes('{{map_organize_prompt}}') && !entry.content?.includes('{{map_calibrate_prompt}}')) return false;
-          if (effectiveTaskScope === 'map_organize' && entry.content?.includes('{{map_calibrate_prompt}}') && !entry.content?.includes('{{map_organize_prompt}}')) return false;
-          return true;
-        }
+
+        // 待办提取
         if (s === '待办' && ['chat', 'group-chat', 'social-feed', 'social-comment', 'schedule_deduce'].includes(effectiveTaskScope)) {
           if (effectiveTaskScope === 'schedule_deduce' && entry.content?.includes('{{todo_suggestions_prompt}}')) return false;
           if (['chat', 'group-chat', 'social-feed', 'social-comment'].includes(effectiveTaskScope) && entry.content?.includes('{{schedule_deduce_prompt}}')) return false;
           return true;
         }
+
+        // 正文回流与多媒体
         if (s === '摘要' && effectiveTaskScope === 'summary') return true;
         if (s === '生图' && effectiveTaskScope === 'image_prompt') return true;
-        if (s === '仅手机app' && !['summary', 'image_prompt'].includes(effectiveTaskScope)) return true;
+
         return false;
       });
       if (!match) continue;

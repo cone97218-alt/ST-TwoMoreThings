@@ -1,5 +1,5 @@
-import { action, empty, escape, icon, pageHeading } from './shared.js';
-import { taskRemainingTurns, resolvePersona } from '../origin-engine.js';
+import { action, empty, escape, icon, pageHeading, getSkillIcon } from './shared.js';
+import { taskRemainingTurns, resolvePersona, DEFAULT_ORIGIN_TEMPLATES } from '../origin-engine.js';
 
 export function renderOrigin(state, { ui = {} } = {}) {
   const origin = state.origin || {};
@@ -178,14 +178,14 @@ function renderTaskCard(task, origin) {
 
   return `<div class="origin-task-card origin-task-${task.status}" data-task-id="${escape(task.id)}">
     <div class="origin-task-header">
-      <div class="origin-task-title-group">
+      <div class="origin-task-meta-bar">
         <span class="origin-tag tg-${escape(task.type || '支线')}">${escape(task.type || '支线')}</span>
-        <h3 class="origin-task-title">${escape(task.title)}</h3>
+        <div class="origin-task-header-meta">
+          ${task.status === 'active' && rem !== null ? `<span class="origin-timer-chip ${isUrgent ? 'is-urgent' : ''}">${icon('clock')} <span>剩 ${rem} 回合</span></span>` : ''}
+          <span class="origin-status-badge is-${task.status}">${task.status === 'active' ? '进行中' : task.status === 'done' ? '已达成' : '已失败'}</span>
+        </div>
       </div>
-      <div class="origin-task-header-meta">
-        ${task.status === 'active' && rem !== null ? `<span class="origin-timer-chip ${isUrgent ? 'is-urgent' : ''}">${icon('clock')} <span>剩 ${rem} 回合</span></span>` : ''}
-        <span class="origin-status-badge is-${task.status}">${task.status === 'active' ? '进行中' : task.status === 'done' ? '已达成' : '已失败'}</span>
-      </div>
+      <h3 class="origin-task-title">${escape(task.title)}</h3>
     </div>
 
     ${task.cond ? `<div class="origin-task-cond"><small class="origin-task-cond-label">目标条件</small><span class="origin-task-cond-content">${escape(task.cond)}</span></div>` : ''}
@@ -219,48 +219,150 @@ function renderStatsTab(origin, ui) {
   const stats = origin.stats || [];
   const perks = origin.perks || [];
   const skills = origin.skills || [];
+  const isBusy = Boolean(ui?.isEvaluatingStats);
+  const isEditing = Boolean(ui?.originStatsEditing);
 
-  return `<div class="origin-stats-view">
+  return `<div class="origin-stats-view ${isEditing ? 'is-editing-mode' : ''}">
+    <!-- 1. 属性 -->
     <section class="origin-section">
       <div class="origin-section-header">
-        <h4>角色数值属性</h4>
-        <div class="origin-section-actions" style="display:flex;gap:6px;">
-          <button type="button" class="icon-button" data-action="origin-ai-evaluate-stats" title="AI评估成长" aria-label="AI评估成长">${icon('sparkles')}</button>
-          <button type="button" class="icon-button" data-action="origin-add-stat" title="新增属性" aria-label="新增属性">${icon('plus')}</button>
+        <div class="origin-section-title-group">
+          <h4 class="origin-section-heading">属性</h4>
+          <span class="origin-count-chip">${stats.length}</span>
+        </div>
+        <div class="origin-section-actions">
+          <button type="button" class="icon-button ${isBusy ? 'is-loading' : ''}" data-action="origin-open-evaluate-stats" title="${stats.length === 0 ? 'AI构想属性·技能·特权' : 'AI评估综合成长'}" aria-label="${stats.length === 0 ? 'AI构想属性·技能·特权' : 'AI评估综合成长'}" ${isBusy ? 'disabled' : ''}>
+            ${icon('sparkles')}
+          </button>
+          <button type="button" class="icon-button ${isEditing ? 'is-active' : ''}" data-action="origin-toggle-stats-edit" title="${isEditing ? '完成管理（切换只读）' : '管理与编辑各板块'}" aria-label="${isEditing ? '完成管理（切换只读）' : '管理与编辑各板块'}">
+            ${icon('edit')}
+          </button>
+          <button type="button" class="icon-button" data-action="origin-open-new-stat" title="新增属性" aria-label="新增属性">${icon('plus')}</button>
         </div>
       </div>
       <div class="origin-stats-grid">
-        ${stats.length === 0 ? '<p class="origin-empty-text">暂无属性记录</p>' : stats.map(s => `<div class="origin-stat-card">
+        ${stats.length === 0 ? `
+          <div class="origin-empty-box">
+            <span class="origin-empty-hint">暂无数值属性记录</span>
+            <button type="button" class="origin-empty-action-btn" data-action="origin-open-evaluate-stats" ${isBusy ? 'disabled' : ''}>
+              ${icon('sparkles')} ${isBusy ? '正在智能构想中...' : '智能构想（属性·技能·特权）'}
+            </button>
+          </div>
+        ` : stats.map(s => `<div class="origin-stat-card">
           <span class="origin-stat-name">${escape(s.name)}</span>
           <div class="origin-stat-controls">
-            <button type="button" class="origin-stat-btn" data-action="origin-mod-stat" data-stat="${escape(s.name)}" data-delta="-1">-</button>
-            <strong class="origin-stat-val">${s.val}</strong>
-            <button type="button" class="origin-stat-btn" data-action="origin-mod-stat" data-stat="${escape(s.name)}" data-delta="1">+</button>
+            ${isEditing ? `
+              <button type="button" class="origin-stat-btn" data-action="origin-mod-stat" data-stat="${escape(s.name)}" data-delta="-1">-</button>
+              <strong class="origin-stat-val">${s.val}</strong>
+              <button type="button" class="origin-stat-btn" data-action="origin-mod-stat" data-stat="${escape(s.name)}" data-delta="1">+</button>
+              <button type="button" class="icon-button danger" data-action="origin-delete-stat" data-stat="${escape(s.name)}" title="删除属性" aria-label="删除属性">${icon('trash')}</button>
+            ` : `
+              <strong class="origin-stat-val is-readonly">${s.val}</strong>
+            `}
           </div>
         </div>`).join('')}
       </div>
     </section>
 
+    <!-- 2. 技能 -->
     <section class="origin-section">
       <div class="origin-section-header">
-        <h4>已解锁永久特权 / 权限</h4>
+        <div class="origin-section-title-group">
+          <h4 class="origin-section-heading">技能</h4>
+          <span class="origin-count-chip">${skills.length}</span>
+        </div>
+        <div class="origin-section-actions">
+          <button type="button" class="icon-button" data-action="origin-open-new-skill" title="添加技能" aria-label="添加技能">${icon('plus')}</button>
+        </div>
       </div>
-      <div class="origin-perks-list">
-        ${perks.length === 0 ? '<p class="origin-empty-text">暂无特权</p>' : perks.map(p => `<div class="origin-perk-card">
-          <div class="origin-perk-name">${icon('sparkles')} <span>${escape(p.name)}</span></div>
-          ${p.desc ? `<div class="origin-perk-desc">${escape(p.desc)}</div>` : ''}
-        </div>`).join('')}
+      <div class="origin-skills-list">
+        ${skills.length === 0 ? `
+          <div class="origin-empty-box">
+            <span class="origin-empty-hint">暂无已掌握技能</span>
+            <button type="button" class="origin-empty-action-btn" data-action="origin-open-new-skill">
+              ${icon('plus')} 掌握新技能
+            </button>
+          </div>
+        ` : skills.map(sk => {
+          const hasExp = Boolean(sk.expMax);
+          const percent = hasExp ? Math.min(100, Math.max(0, Math.round(((sk.exp || 0) / sk.expMax) * 100))) : 0;
+          return `<div class="origin-skill-card ${hasExp ? 'has-exp' : 'is-pure-text'}" data-skill-name="${escape(sk.name)}">
+            <div class="origin-skill-head" style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="origin-skill-title-row" style="display:inline-flex;align-items:center;gap:6px;">
+                <span class="origin-skill-icon">${icon(getSkillIcon(sk.name))}</span>
+                <span class="origin-skill-name">${escape(sk.name)}</span>
+                ${hasExp ? `<span class="origin-skill-badge" style="font-size:10.5px;padding:1px 6px;border-radius:10px;background:var(--pp-accent-dim);color:var(--pp-accent);font-weight:600;">Lv.${sk.level || 1}</span>` : ''}
+              </div>
+              ${isEditing ? `
+                <div class="origin-skill-card-actions" style="display:inline-flex;align-items:center;gap:4px;">
+                  <button type="button" class="icon-button" data-action="origin-edit-skill" data-skill="${escape(sk.name)}" title="编辑技能" aria-label="编辑技能">
+                    ${icon('edit')}
+                  </button>
+                  <button type="button" class="icon-button danger" data-action="origin-delete-skill" data-skill="${escape(sk.name)}" title="删除技能" aria-label="删除技能">
+                    ${icon('trash')}
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+            ${sk.desc ? `<div class="origin-skill-desc" style="font-size:11.5px;color:var(--pp-muted);margin-top:4px;">${escape(sk.desc)}</div>` : ''}
+            ${hasExp ? `
+              <div class="origin-skill-exp-row" style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+                <div class="origin-exp-bar" style="flex:1;">
+                  <i style="width: ${percent}%;"></i>
+                </div>
+                <span class="origin-exp-text" style="font-size:10px;white-space:nowrap;">EXP ${sk.exp || 0}/${sk.expMax}</span>
+                ${isEditing ? `
+                  <div class="origin-skill-exp-ctrls" style="display:inline-flex;gap:4px;">
+                    <button type="button" class="origin-stat-btn" data-action="origin-mod-skill-exp" data-skill="${escape(sk.name)}" data-delta="-10" title="熟练度 -10" style="padding:1px 6px;font-size:10px;">-10</button>
+                    <button type="button" class="origin-stat-btn" data-action="origin-mod-skill-exp" data-skill="${escape(sk.name)}" data-delta="10" title="熟练度 +10" style="padding:1px 6px;font-size:10px;">+10</button>
+                  </div>
+                ` : ''}
+              </div>
+            ` : (isEditing ? `
+              <div class="origin-pure-skill-footer" style="margin-top:6px;display:flex;justify-content:flex-end;">
+                <button type="button" class="quiet-button" data-action="origin-enable-skill-exp" data-skill="${escape(sk.name)}" style="font-size:11px;padding:2px 8px;">
+                  + 启用经验条
+                </button>
+              </div>
+            ` : '')}
+          </div>`;
+        }).join('')}
       </div>
     </section>
 
+    <!-- 3. 特权 -->
     <section class="origin-section">
       <div class="origin-section-header">
-        <h4>掌握的技能 / 异能</h4>
+        <div class="origin-section-title-group">
+          <h4 class="origin-section-heading">特权</h4>
+          <span class="origin-count-chip">${perks.length}</span>
+        </div>
+        <div class="origin-section-actions">
+          <button type="button" class="icon-button" data-action="origin-open-new-perk" title="新增特权" aria-label="新增特权">${icon('plus')}</button>
+        </div>
       </div>
-      <div class="origin-skills-list">
-        ${skills.length === 0 ? '<p class="origin-empty-text">暂无已掌握技能</p>' : skills.map(sk => `<div class="origin-skill-card">
-          <div class="origin-skill-name">${icon('lightning')} <span>${escape(sk.name)}</span></div>
-          ${sk.desc ? `<div class="origin-skill-desc">${escape(sk.desc)}</div>` : ''}
+      <div class="origin-perks-list">
+        ${perks.length === 0 ? `
+          <div class="origin-empty-box">
+            <span class="origin-empty-hint">暂无已开启的特权</span>
+            <button type="button" class="origin-empty-action-btn" data-action="origin-open-new-perk">
+              ${icon('plus')} 添加特权
+            </button>
+          </div>
+        ` : perks.map(p => `<div class="origin-perk-card">
+          <div class="origin-perk-head" style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="origin-perk-title-row" style="display:inline-flex;align-items:center;gap:6px;">
+              <span class="origin-perk-icon">${icon('sparkles')}</span>
+              <span class="origin-perk-name origin-perk-badge">${escape(p.name)}</span>
+            </div>
+            ${isEditing ? `
+              <div class="origin-card-actions" style="display:inline-flex;align-items:center;gap:4px;">
+                <button type="button" class="icon-button" data-action="origin-edit-perk" data-perk="${escape(p.name)}" title="编辑特权" aria-label="编辑特权">${icon('edit')}</button>
+                <button type="button" class="icon-button danger" data-action="origin-delete-perk" data-perk="${escape(p.name)}" title="删除特权" aria-label="删除特权">${icon('trash')}</button>
+              </div>
+            ` : ''}
+          </div>
+          ${p.desc ? `<div class="origin-perk-desc">${escape(p.desc)}</div>` : ''}
         </div>`).join('')}
       </div>
     </section>
@@ -283,7 +385,7 @@ function renderBagTab(origin, ui) {
         <h4 class="origin-item-name">${escape(item.name)}</h4>
         ${item.desc ? `<p class="origin-item-desc">${escape(item.desc)}</p>` : ''}
         ${item.effect ? `<div class="origin-item-effect">效果: ${escape(item.effect)}</div>` : ''}
-        <button type="button" class="save-button" data-action="origin-use-item" data-item="${escape(item.name)}">
+        <button type="button" class="save-button origin-use-item-btn" data-action="origin-use-item" data-item="${escape(item.name)}">
           使用道具
         </button>
       </div>`).join('')}
@@ -296,6 +398,7 @@ function renderShopTab(origin, ui) {
   const shop = origin.shop || [];
   const catalog = origin.shopCatalog || [];
   const points = origin.points || 0;
+  const isBusy = Boolean(ui?.isConceivingShop);
 
   return `<div class="origin-shop-view">
     <div class="origin-shop-banner">
@@ -307,7 +410,7 @@ function renderShopTab(origin, ui) {
         <button type="button" class="icon-button" data-action="origin-refresh-shop" title="换一批（从商品总库随机抽取上架）" aria-label="换一批">
           ${icon('refresh')}
         </button>
-        <button type="button" class="icon-button" data-action="origin-ai-conceive-shop" title="AI批量进货（结合剧情世界观构想新商品）" aria-label="AI进货">
+        <button type="button" class="icon-button ${isBusy ? 'is-loading' : ''}" data-action="origin-open-conceive-shop" title="AI批量进货（结合剧情世界观构想新商品）" aria-label="AI进货" ${isBusy ? 'disabled' : ''}>
           ${icon('sparkles')}
         </button>
         <button type="button" class="icon-button" data-action="origin-open-shop-catalog" title="商品总库 (${catalog.length || shop.length}件)" aria-label="商品总库">
@@ -317,16 +420,23 @@ function renderShopTab(origin, ui) {
     </div>
 
     <div class="origin-shop-grid">
-      ${shop.map(item => {
+      ${shop.length === 0 ? `
+        <div class="origin-empty-box" style="grid-column: 1 / -1; margin-top: 10px;">
+          <span class="origin-empty-hint">商城货架空空如也，暂无在售商品</span>
+          <button type="button" class="origin-empty-action-btn" data-action="origin-open-conceive-shop" ${isBusy ? 'disabled' : ''}>
+            ${icon('sparkles')} ${isBusy ? '正在进货推演中...' : 'AI 批量进货（构想新商品）'}
+          </button>
+        </div>
+      ` : shop.map(item => {
         const canBuy = points >= item.price;
         return `<div class="origin-shop-card">
           <div class="origin-shop-card-head">
-            <h4>${escape(item.name)}</h4>
-            <span class="origin-shop-price">${icon('diamond')} <span>${item.price} 积分</span></span>
+            <h4 class="origin-shop-title">${escape(item.name)}</h4>
+            <div class="origin-shop-price">${icon('diamond')} <span>${item.price} 积分</span></div>
           </div>
           ${item.desc ? `<p class="origin-shop-desc">${escape(item.desc)}</p>` : ''}
           ${item.effect ? `<div class="origin-shop-effect">效果: ${escape(item.effect)}</div>` : ''}
-          <button type="button" class="save-button ${canBuy ? '' : 'is-disabled'}" data-action="origin-buy-item" data-item="${escape(item.name)}" ${canBuy ? '' : 'disabled'}>
+          <button type="button" class="save-button origin-shop-buy-btn ${canBuy ? '' : 'is-disabled'}" data-action="origin-buy-item" data-item="${escape(item.name)}" ${canBuy ? '' : 'disabled'}>
             ${canBuy ? '立即兑换' : '积分不足'}
           </button>
         </div>`;
@@ -341,8 +451,10 @@ function renderGachaTab(origin, ui) {
   const catalog = origin.gachaCatalog || [];
   const cost = origin.drawCost || 300;
   const points = origin.points || 0;
-  const canSingle = points >= cost;
-  const canTen = points >= cost * 10;
+  const hasItems = (catalog.length > 0 || pool.length > 0);
+  const canSingle = hasItems && points >= cost;
+  const canTen = hasItems && points >= cost * 10;
+  const isBusy = Boolean(ui?.isConceivingGacha);
 
   return `<div class="origin-gacha-view">
     <div class="origin-gacha-hero">
@@ -353,10 +465,10 @@ function renderGachaTab(origin, ui) {
 
     <div class="origin-gacha-controls">
       <button type="button" class="save-button ${canSingle ? '' : 'is-disabled'}" data-action="origin-draw-gacha" data-count="1" ${canSingle ? '' : 'disabled'}>
-        单次祈愿 (${cost} 积分)
+        ${hasItems ? `单次祈愿 (${cost} 积分)` : '奖池暂无物品'}
       </button>
       <button type="button" class="save-button ${canTen ? '' : 'is-disabled'}" data-action="origin-draw-gacha" data-count="10" ${canTen ? '' : 'disabled'}>
-        十连祈愿 (${cost * 10} 积分)
+        ${hasItems ? `十连祈愿 (${cost * 10} 积分)` : '奖池暂无物品'}
       </button>
     </div>
 
@@ -367,7 +479,7 @@ function renderGachaTab(origin, ui) {
           <button type="button" class="icon-button" data-action="origin-refresh-gacha" title="轮换奖池预览" aria-label="轮换奖池">
             ${icon('refresh')}
           </button>
-          <button type="button" class="icon-button" data-action="origin-ai-conceive-gacha" title="AI结合剧情世界观批量构想新奖品并扩充奖池" aria-label="AI扩充奖池">
+          <button type="button" class="icon-button ${isBusy ? 'is-loading' : ''}" data-action="origin-open-conceive-gacha" title="AI批量构想新奖品并扩充奖池" aria-label="AI扩充奖池" ${isBusy ? 'disabled' : ''}>
             ${icon('sparkles')}
           </button>
           <button type="button" class="icon-button" data-action="origin-open-gacha-catalog" title="祈愿奖池总库 (${catalog.length || pool.length}件)" aria-label="奖池总库">
@@ -376,7 +488,14 @@ function renderGachaTab(origin, ui) {
         </div>
       </div>
       <div class="origin-pool-list">
-        ${pool.map(item => `<div class="origin-pool-item tier-${item.tier || 'N'}">
+        ${pool.length === 0 ? `
+          <div class="origin-empty-box" style="margin-top: 6px;">
+            <span class="origin-empty-hint">祈愿池空空如也，暂无奖品</span>
+            <button type="button" class="origin-empty-action-btn" data-action="origin-open-conceive-gacha" ${isBusy ? 'disabled' : ''}>
+              ${icon('sparkles')} ${isBusy ? '正在推演奖池中...' : 'AI 批量构想祈愿奖品'}
+            </button>
+          </div>
+        ` : pool.map(item => `<div class="origin-pool-item tier-${item.tier || 'N'}">
           <span class="origin-tier-badge">${item.tier || 'N'}</span>
           <span class="origin-pool-name">${escape(item.name)}</span>
           <span class="origin-pool-effect">${escape(item.desc || item.effect || '')}</span>
@@ -404,6 +523,44 @@ function renderAchieveTab(origin) {
 }
 
 // ---------------- 设置页 ----------------
+const INJECT_SECTION_DEFS = [
+  { key: 'panel', name: '宿主与系统面板', desc: '等级、积分、属性与技能' },
+  { key: 'tasks', name: '进行中任务清单', desc: '主线/支线/日常任务与进度' },
+  { key: 'inventory', name: '背包道具与商城', desc: '持有物品与商城在售货架' },
+  { key: 'action', name: '本回合动作与事件', desc: '道具生效与系统事件反应' },
+  { key: 'rules', name: '系统行为与口吻规则', desc: '人设口吻、发布频率与规则' },
+  { key: 'output', name: '数据回传与输出规范', desc: '回传数据块规范 (关或留空则不索取数据块)' },
+];
+
+function renderOriginSectionsSettings(sections = {}) {
+  return INJECT_SECTION_DEFS.map(def => {
+    const sec = sections[def.key] || {};
+    const enabled = sec.enabled !== false;
+    const currentVal = sec.template !== undefined ? sec.template : (DEFAULT_ORIGIN_TEMPLATES[def.key] || '');
+    return `<div class="origin-section-item" style="border-top:1px solid var(--pp-divider-soft);padding-top:8px;margin-top:8px;">
+      <label class="compact-switch-row">
+        <div>
+          <div style="font-weight:500;font-size:13px;">${escape(def.name)}</div>
+          <div style="font-size:11px;color:var(--pp-muted);">${escape(def.desc)}</div>
+        </div>
+        <span class="switch">
+          <input type="checkbox" name="section_${def.key}_enabled" role="switch" aria-label="${escape(def.name)}" ${enabled ? 'checked' : ''}>
+          <span></span>
+        </span>
+      </label>
+      <details class="origin-section-details" style="margin-top:4px;">
+        <summary style="font-size:11px;color:var(--pp-accent,#d4883b);cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;padding:2px 0;">
+          <span>编辑提示词</span>
+          <button type="button" class="quiet-button" data-action="origin-fill-default-tpl" data-key="${def.key}" style="font-size:10px;padding:1px 6px;margin-left:auto;">填入默认</button>
+        </summary>
+        <div style="margin-top:6px;">
+          <textarea name="section_${def.key}_template" rows="3" placeholder="留空则不注入该模块">${escape(currentVal)}</textarea>
+        </div>
+      </details>
+    </div>`;
+  }).join('');
+}
+
 function renderOriginSettings(origin) {
   const personas = ['冷澈', '毒舌', '傲娇', '温和'];
   return `<div class="origin-settings-view">
@@ -462,6 +619,63 @@ function renderOriginSettings(origin) {
       </div>
 
       <div class="origin-settings-card">
+        <div class="origin-card-title">正文注入模块与提示词定制</div>
+        <small class="field-label" style="display:block;margin-bottom:6px;color:var(--pp-muted);">
+          自由选择哪些系统模块注入主聊天正文；展开可编辑该模块的提示词模板（留空则使用内置默认格式）。
+        </small>
+        ${renderOriginSectionsSettings(origin.sections || {})}
+      </div>
+
+      <div class="origin-settings-card">
+        <div class="origin-card-title">各模块独立捕获标签 (自定义 XML 标签别名)</div>
+        <small class="field-label" style="display:block;margin-bottom:8px;color:var(--pp-muted);">
+          支持正文中分散包裹各模块数据（如 &lt;成就&gt;千人斩|击败强敌&lt;/成就&gt;、&lt;属性&gt;力量+2&lt;/属性&gt;）。底层采用<strong>单次线性扫描 (Single-Pass)</strong>技术，一次遍历同时识别并剥离全部标签，零性能负担。多个别名用逗号或斜杠隔开。
+        </small>
+        <div class="origin-module-tags-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));gap:8px;">
+          <div class="origin-setting-item">
+            <label class="field-label">成就模块标签</label>
+            <input type="text" name="moduleTag_achievement" value="${escape(origin.moduleTags?.achievement ?? '成就, achievement, 功业')}" placeholder="成就, achievement, 功业">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">技能模块标签</label>
+            <input type="text" name="moduleTag_skill" value="${escape(origin.moduleTags?.skill ?? '技能, skill, 神通, 功法')}" placeholder="技能, skill, 神通, 功法">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">属性模块标签</label>
+            <input type="text" name="moduleTag_stat" value="${escape(origin.moduleTags?.stat ?? '属性, stat, 状态, 数值')}" placeholder="属性, stat, 状态, 数值">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">任务模块标签</label>
+            <input type="text" name="moduleTag_task" value="${escape(origin.moduleTags?.task ?? '任务, task, 使命')}" placeholder="任务, task, 使命">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">积分模块标签</label>
+            <input type="text" name="moduleTag_points" value="${escape(origin.moduleTags?.points ?? '积分, points, 经验')}" placeholder="积分, points, 经验">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">道具模块标签</label>
+            <input type="text" name="moduleTag_item" value="${escape(origin.moduleTags?.item ?? '道具, item, 获得, 物品')}" placeholder="道具, item, 获得, 物品">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">权限模块标签</label>
+            <input type="text" name="moduleTag_perk" value="${escape(origin.moduleTags?.perk ?? '权限, perk, 特权')}" placeholder="权限, perk, 特权">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">播报模块标签</label>
+            <input type="text" name="moduleTag_broadcast" value="${escape(origin.moduleTags?.broadcast ?? '播报, notice, 公告, 系统提示')}" placeholder="播报, notice, 公告, 系统提示">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">私聊模块标签</label>
+            <input type="text" name="moduleTag_chat" value="${escape(origin.moduleTags?.chat ?? '私聊, chat, 系统私聊')}" placeholder="私聊, chat, 系统私聊">
+          </div>
+          <div class="origin-setting-item">
+            <label class="field-label">综合数据块标签</label>
+            <input type="text" name="moduleTag_origin" value="${escape(origin.moduleTags?.origin ?? 'origin, 系统')}" placeholder="origin, 系统">
+          </div>
+        </div>
+      </div>
+
+      <div class="origin-settings-card">
         <div class="origin-card-title">正文侦听与标签正则设置</div>
         <div class="origin-setting-item">
           <label class="field-label">自然播报匹配正则 (自定义)</label>
@@ -485,6 +699,203 @@ function renderOriginSettings(origin) {
 
 // ---------------- 模态框 (任务编辑 / 祈愿结果 / 期望方向) ----------------
 function renderOriginModals(ui, origin) {
+  if (ui.originModal === 'conceive-shop-guidance') {
+    const isBusy = Boolean(ui.isConceivingShop);
+    return `<div class="origin-modal-backdrop" data-action="origin-close-modal">
+      <div class="origin-modal-dialog" role="dialog" aria-label="AI批量进货引导">
+        <header class="origin-modal-head">
+          <h3>商城 AI 批量进货</h3>
+          <button type="button" class="icon-button" data-action="origin-close-modal" aria-label="关闭" ${isBusy ? 'disabled' : ''}>${icon('close')}</button>
+        </header>
+        <form class="origin-modal-form" data-origin-form="conceive-shop">
+          <p class="origin-modal-tip" style="margin:0 0 10px 0;font-size:12px;color:var(--pp-muted);line-height:1.5;">
+            系统将结合当前剧情世界观，自动构想并批量进货 8~12 种新商品上架。可在此输入你的进货偏好进行针对性引导（可留空由系统自主推演）：
+          </p>
+          <label>期望商品流派 / 进货引导（选填）</label>
+          <textarea name="direction" rows="3" placeholder="例如：主打回复丹药、破境灵草、高阶护身法宝、暗器毒药，或赛博强化模块…" ${isBusy ? 'disabled' : ''}></textarea>
+          
+          ${isBusy ? `
+            <div class="origin-eval-loading-state" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 6px;margin-top:6px;font-size:12.5px;color:var(--pp-active);background:var(--pp-pale);border-radius:8px;">
+              <span class="origin-loading-spinner"></span>
+              <span>系统核心正在进货推演中，请稍候...</span>
+            </div>
+          ` : ''}
+
+          <div class="origin-modal-btns" style="margin-top:12px;">
+            <button type="button" class="quiet-button" data-action="origin-close-modal" ${isBusy ? 'disabled' : ''}>取消</button>
+            <button type="submit" class="save-button" ${isBusy ? 'disabled' : ''}>
+              ${isBusy ? '正在进货中...' : '开始批量进货'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  if (ui.originModal === 'conceive-gacha-guidance') {
+    const isBusy = Boolean(ui.isConceivingGacha);
+    return `<div class="origin-modal-backdrop" data-action="origin-close-modal">
+      <div class="origin-modal-dialog" role="dialog" aria-label="AI构想奖池引导">
+        <header class="origin-modal-head">
+          <h3>祈愿池 AI 构想扩充</h3>
+          <button type="button" class="icon-button" data-action="origin-close-modal" aria-label="关闭" ${isBusy ? 'disabled' : ''}>${icon('close')}</button>
+        </header>
+        <form class="origin-modal-form" data-origin-form="conceive-gacha">
+          <p class="origin-modal-tip" style="margin:0 0 10px 0;font-size:12px;color:var(--pp-muted);line-height:1.5;">
+            系统将结合当前世界观，构想 8~15 种涵盖各品阶（N/R/SR/SSR/UR）的稀有奖品扩充入库。可在此输入期望的奖池风格偏好（可留空）：
+          </p>
+          <label>期望奖品流派 / 奖池偏好（选填）</label>
+          <textarea name="direction" rows="3" placeholder="例如：主修剑道相关的无上飞剑、改命级神品特权、异界召唤券、极品洗髓灵丹…" ${isBusy ? 'disabled' : ''}></textarea>
+          
+          ${isBusy ? `
+            <div class="origin-eval-loading-state" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 6px;margin-top:6px;font-size:12.5px;color:var(--pp-active);background:var(--pp-pale);border-radius:8px;">
+              <span class="origin-loading-spinner"></span>
+              <span>系统核心正在推演构想奖池中，请稍候...</span>
+            </div>
+          ` : ''}
+
+          <div class="origin-modal-btns" style="margin-top:12px;">
+            <button type="button" class="quiet-button" data-action="origin-close-modal" ${isBusy ? 'disabled' : ''}>取消</button>
+            <button type="submit" class="save-button" ${isBusy ? 'disabled' : ''}>
+              ${isBusy ? '正在构想中...' : '开始构想奖池'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  if (ui.originModal === 'evaluate-stats-guidance') {
+    const isBusy = Boolean(ui.isEvaluatingStats);
+    const hasStats = Array.isArray(origin.stats) && origin.stats.length > 0;
+    return `<div class="origin-modal-backdrop" data-action="origin-close-modal">
+      <div class="origin-modal-dialog" role="dialog" aria-label="智能构想与成长评估">
+        <header class="origin-modal-head">
+          <h3>${hasStats ? '智能成长评估与结算' : '智能构想能力面板'}</h3>
+          <button type="button" class="icon-button" data-action="origin-close-modal" aria-label="关闭" ${isBusy ? 'disabled' : ''}>${icon('close')}</button>
+        </header>
+        <form class="origin-modal-form" data-origin-form="evaluate-stats">
+          <p class="origin-modal-tip" style="margin:0 0 10px 0;font-size:12px;color:var(--pp-muted);line-height:1.5;">
+            ${hasStats
+              ? '系统核心将结合最近的剧情经历，全盘推演角色的属性提升、技能领悟与特权突破。可输入你的成长期望或流派偏好进行针对性引导（可留空由系统自主推演）：'
+              : '系统核心将结合最近剧情与世界观，为宿主全新构想初始属性、技能与特权面板。可输入你的流派偏好（如剑修、魔法师、高敏捷暗杀等，也可留空）：'}
+          </p>
+          <label>期望流派 / 构想引导偏好（选填）</label>
+          <textarea name="direction" rows="3" placeholder="例如：主修剑道、悟性极高、身手矫健敏捷、希望能领悟御剑术相关的技能或特权…" ${isBusy ? 'disabled' : ''}></textarea>
+          
+          ${isBusy ? `
+            <div class="origin-eval-loading-state" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 6px;margin-top:6px;font-size:12.5px;color:var(--pp-active);background:var(--pp-pale);border-radius:8px;">
+              <span class="origin-loading-spinner"></span>
+              <span>系统核心正在推演构想中，请稍候...</span>
+            </div>
+          ` : ''}
+
+          <div class="origin-modal-btns" style="margin-top:12px;">
+            <button type="button" class="quiet-button" data-action="origin-close-modal" ${isBusy ? 'disabled' : ''}>取消</button>
+            <button type="submit" class="save-button" ${isBusy ? 'disabled' : ''}>
+              ${isBusy ? '正在推演中...' : (hasStats ? '开始成长评估' : '开始智能构想')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  if (ui.originModal === 'edit-stat') {
+    const stat = ui.originModalData || {};
+    return `<div class="origin-modal-backdrop" data-action="origin-close-modal">
+      <div class="origin-modal-dialog" role="dialog" aria-label="新增数值属性">
+        <header class="origin-modal-head">
+          <h3>新增角色属性</h3>
+          <button type="button" class="icon-button" data-action="origin-close-modal" aria-label="关闭">${icon('close')}</button>
+        </header>
+        <form class="origin-modal-form" data-origin-form="stat">
+          <label>属性名称</label>
+          <input type="text" name="name" value="${escape(stat.name || '')}" required placeholder="例如：力量、敏捷、灵力、神识、智力">
+          <label>初始数值</label>
+          <input type="number" name="val" value="${stat.val !== undefined && stat.val !== null ? stat.val : 10}" required placeholder="建议 10 左右">
+          <div class="origin-modal-btns" style="margin-top:12px;">
+            <button type="button" class="quiet-button" data-action="origin-close-modal">取消</button>
+            <button type="submit" class="save-button">保存属性</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  if (ui.originModal === 'edit-perk') {
+    const perk = ui.originModalData || {};
+    return `<div class="origin-modal-backdrop" data-action="origin-close-modal">
+      <div class="origin-modal-dialog" role="dialog" aria-label="编辑永久特权">
+        <header class="origin-modal-head">
+          <h3>${perk.name ? '编辑特权' : '新增永久特权'}</h3>
+          <button type="button" class="icon-button" data-action="origin-close-modal" aria-label="关闭">${icon('close')}</button>
+        </header>
+        <form class="origin-modal-form" data-origin-form="perk">
+          <label>特权名称</label>
+          <input type="text" name="name" value="${escape(perk.name || '')}" required placeholder="例如：天道庇佑、商城八折、过目不忘">
+          <label>特权效果说明</label>
+          <textarea name="desc" rows="2" placeholder="永久特权的被动效果或叙事指引">${escape(perk.desc || '')}</textarea>
+          <div class="origin-modal-btns" style="margin-top:12px;">
+            <button type="button" class="quiet-button" data-action="origin-close-modal">取消</button>
+            <button type="submit" class="save-button">保存特权</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  if (ui.originModal === 'edit-skill') {
+    const skill = ui.originModalData || {};
+    const hasExp = Boolean(skill.expMax !== null && skill.expMax !== undefined && skill.expMax !== '');
+    return `<div class="origin-modal-backdrop" data-action="origin-close-modal">
+      <div class="origin-modal-dialog" role="dialog" aria-label="编辑技能">
+        <header class="origin-modal-head">
+          <h3>${skill.name ? '编辑技能' : '新增技能'}</h3>
+          <button type="button" class="icon-button" data-action="origin-close-modal" aria-label="关闭">${icon('close')}</button>
+        </header>
+        <form class="origin-modal-form" data-origin-form="skill">
+          <label>技能名称</label>
+          <input type="text" name="name" value="${escape(skill.name || '')}" required placeholder="例如：御剑术、三昧真火">
+          
+          <label>技能描述</label>
+          <textarea name="desc" rows="2" placeholder="技能功用、招式描述或特殊威力">${escape(skill.desc || '')}</textarea>
+          
+          <label class="compact-switch-row" style="margin-top: 8px;">
+            <span>启用等级与熟练度经验条</span>
+            <span class="switch">
+              <input type="checkbox" name="hasExp" role="switch" aria-label="启用等级与熟练度经验条" ${hasExp ? 'checked' : ''}>
+              <span></span>
+            </span>
+          </label>
+          <small class="field-label" style="display:block;margin-bottom:6px;color:var(--pp-muted);">
+            关闭则保持纯文字词条；开启后将显示实时熟练度进度条，正文输出 &lt;技能&gt;技能名+20&lt;/技能&gt; 可自动增加熟练度并晋级。
+          </small>
+
+          <div class="origin-skill-exp-fields" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px;">
+            <div>
+              <label>当前等级</label>
+              <input type="number" name="level" min="1" value="${skill.level || 1}">
+            </div>
+            <div>
+              <label>当前经验</label>
+              <input type="number" name="exp" min="0" value="${skill.exp || 0}">
+            </div>
+            <div>
+              <label>升级所需上限</label>
+              <input type="number" name="expMax" min="1" value="${skill.expMax || 100}">
+            </div>
+          </div>
+
+          <div class="origin-modal-btns" style="margin-top:12px;">
+            <button type="button" class="quiet-button" data-action="origin-close-modal">取消</button>
+            <button type="submit" class="save-button">保存技能</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  }
+
   if (ui.originModal === 'edit-task') {
     const task = ui.originModalData || {};
     return `<div class="origin-modal-backdrop" data-action="origin-close-modal">

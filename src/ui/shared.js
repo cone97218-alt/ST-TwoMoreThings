@@ -70,6 +70,12 @@ const icons = {
   diamond: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M6 3h12l4 6-10 12L2 9l4-6z"/><path d="M2 9h20M12 21L8 9l4-6 4 6-4 12"/></g>',
   bulb: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M9 18h6m-5 3h4m-7-9a6 6 0 1 1 8 0c-.8 1-1.5 2-1.5 3.5h-5C10.5 14 9.8 13 9 12z"/></g>',
   lightning: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M13 2L4 14h7l-2 8 11-12h-7l2-8z"/></g>',
+  trash: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></g>',
+  flame: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M12 2c1 3 4 5.5 4 9.5a6 6 0 1 1-12 0c0-3.5 3-6.5 4-9.5 0 2 1.5 3 2.5 3s1.5-1 1.5-3z"/></g>',
+  sword: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l2 2M16 16l5 5M19 13l2 2"/></g>',
+  shield: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></g>',
+  wind: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></g>',
+  book: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/></g>',
 };
 export const asset = name => new URL(`../../assets/${name}`, import.meta.url).href;
 export const icon = name => ['messages', 'forum'].includes(name)
@@ -113,4 +119,24 @@ export function pageHeading(title, actions = '') {
 }
 export function empty(title, text, iconName = 'messages') {
   return `<div class="empty-state"><div class="empty-symbol">${icon(iconName)}</div><h2>${title}</h2>${text ? `<p>${text}</p>` : ''}</div>`;
+}
+
+export function getSkillIcon(name = '') {
+  const str = String(name || '').trim();
+  if (!str) return 'lightning';
+  if (/剑|刃|斩|刀|刺|锋|枪|戟/i.test(str)) return 'sword';
+  if (/火|炎|烈|灼|焰|焚/i.test(str)) return 'flame';
+  if (/风|影|步|迅|瞬|身法|游龙/i.test(str)) return 'wind';
+  if (/盾|甲|体|御|防|壁|障/i.test(str)) return 'shield';
+  if (/经|诀|典|卷|篇|书|法/i.test(str)) return 'book';
+  if (/雷|电|震|霹雳/i.test(str)) return 'lightning';
+  if (/心|眼|识|念|神/i.test(str)) return 'target';
+  if (/星|圣|光|仙/i.test(str)) return 'sparkles';
+  const pool = ['lightning', 'flame', 'sword', 'shield', 'wind', 'book', 'sparkles', 'target', 'diamond'];
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return pool[Math.abs(hash) % pool.length];
 }

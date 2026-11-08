@@ -8,6 +8,12 @@ import {
   failOriginTask,
   pushOriginLog,
   gainOriginExp,
+  gainSkillExp,
+  deleteStat,
+  saveSkill,
+  deleteSkill,
+  savePerk,
+  deletePerk,
   applyStatEffect,
   addItemToBag,
   unlockAchievement,
@@ -17,8 +23,10 @@ import {
 import {
   buildOriginInjection,
   parseOriginBlock,
+  parseAllOriginTags,
   applyOriginBlock,
   stripOriginBlock,
+  stripAllOriginTags,
 } from './origin-injection.js';
 import { createSystemMessage } from './origin-chat.js';
 import { readTimeline } from './timeline.js';
@@ -109,20 +117,23 @@ export function createOriginService({ target, store, host, logger = null, notify
       const m = last.message;
       const content = m.mes || m.text || '';
 
-      // 1. 结构化标签数据块侦听 (支持设置中自定义标签正则，如 <origin> 或 <系统> 等)
+      // 1. 结构化标签数据块与各模块独立自定义标签侦听 (高性能单次扫描 Single-Pass)
+      const moduleTags = state.origin?.moduleTags;
       const tagRegex = state.origin?.tagRegex;
-      const block = parseOriginBlock(content, tagRegex);
-      if (block) {
+      const block = parseAllOriginTags(content, moduleTags, tagRegex);
+      if (block && block.hasMatchedTags) {
         let appliedResult = null;
-        await store.updateOrigin(current => {
-          current.currentTurn = getTurn();
-          appliedResult = applyOriginBlock(current, block, { currentTurn: getTurn() });
-          setMessageSnapshot(m, current);
-          return current;
-        });
+        if (block.actions && block.actions.length > 0) {
+          await store.updateOrigin(current => {
+            current.currentTurn = getTurn();
+            appliedResult = applyOriginBlock(current, block, { currentTurn: getTurn() });
+            setMessageSnapshot(m, current);
+            return current;
+          });
+        }
 
-        // 剔除正文中的原始标签，保持阅读纯净
-        const stripped = stripOriginBlock(content, tagRegex);
+        // 剔除正文中的原始标签，保持阅读纯净（单次线性剥离）
+        const stripped = stripAllOriginTags(content, moduleTags, tagRegex);
         if (stripped && stripped !== content) {
           if ('mes' in m) m.mes = stripped;
           if ('text' in m) m.text = stripped;
@@ -440,6 +451,42 @@ export function createOriginService({ target, store, host, logger = null, notify
         return current;
       });
     },
+    async deleteStat(name) {
+      return store.updateOrigin(current => {
+        deleteStat(current, name);
+        return current;
+      });
+    },
+    async updateSkillExp(name, delta) {
+      return store.updateOrigin(current => {
+        gainSkillExp(current, name, delta);
+        return current;
+      });
+    },
+    async saveSkill(draft) {
+      return store.updateOrigin(current => {
+        saveSkill(current, draft);
+        return current;
+      });
+    },
+    async deleteSkill(name) {
+      return store.updateOrigin(current => {
+        deleteSkill(current, name);
+        return current;
+      });
+    },
+    async savePerk(draft) {
+      return store.updateOrigin(current => {
+        savePerk(current, draft);
+        return current;
+      });
+    },
+    async deletePerk(name) {
+      return store.updateOrigin(current => {
+        deletePerk(current, name);
+        return current;
+      });
+    },
     async updateSettings(patch) {
       return store.updateOrigin(current => {
         Object.assign(current, patch);
@@ -555,13 +602,23 @@ export function createOriginService({ target, store, host, logger = null, notify
 
       return newTask;
     },
-    async evaluateStats() {
+    async evaluateStats(options = {}) {
       if (!modelClient) throw new Error('未配置大模型客户端，无法评估属性。');
+      const { direction = '' } = options;
       const state = store.read();
       const originState = state.origin || {};
       const sysName = originState.sysName || '系统';
       const hostName = originState.bindTo || state.userProfile?.name || '宿主';
-      const statsSummary = (originState.stats || []).map(s => `${s.name}:${s.val}`).join('，') || '暂无数值属性';
+      const hasStats = Array.isArray(originState.stats) && originState.stats.length > 0;
+      const statsSummary = hasStats
+        ? originState.stats.map(s => `${s.name}:${s.val}`).join('，')
+        : '暂无数值属性（本次将为宿主全新构建属性面板）';
+      const skillsSummary = (Array.isArray(originState.skills) && originState.skills.length)
+        ? originState.skills.map(s => `${s.name}${s.level ? `(Lv.${s.level})` : ''}`).join('，')
+        : '暂无已掌握技能';
+      const perksSummary = (Array.isArray(originState.perks) && originState.perks.length)
+        ? originState.perks.map(p => p.name).join('，')
+        : '暂无特权';
 
       let storyText = '';
       if (contextReader) {
@@ -574,16 +631,36 @@ export function createOriginService({ target, store, host, logger = null, notify
         storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
       }
 
-      const defaultStatsSystemPrompt = `你是随身金手指系统【${sysName}】的属性评估中枢。
+      const userGuidanceText = direction?.trim()
+        ? `\n\n【宿主指定的成长与构想引导方向】\n${direction.trim()}\n★注意：请务必紧扣宿主给出的上述流派/成长偏好，构想或演进相应的属性、技能与特权！`
+        : '';
+
+      const defaultStatsSystemPrompt = `你是随身金手指系统【${sysName}】的角色综合成长评估与能力构建中枢。
 当前宿主：${hostName}
 宿主当前数值属性：${statsSummary}
+宿主当前已掌握技能：${skillsSummary}
+宿主当前已开启特权：${perksSummary}
+${userGuidanceText}
 
-请根据宿主在最近剧情中的经历、战斗、探索、心境突破或人际进展，对宿主的属性成长进行评估。
+请结合宿主在最近剧情中的经历、战斗、顿悟、机缘或社交进展，全面评估宿主的能力成长（属性提升、技能领悟或熟练度增长、特权觉醒）：
+${!hasStats ? '★宿主当前尚无属性面板，请结合世界观（修仙玄幻、西幻魔法、科幻赛博、末世、现代都市等）及宿主期望为宿主构想新建 4~6 项核心属性（放入 newStats 数组，初始值约 10 左右）。\n' : ''}
 必须严格输出合法的 JSON 格式，不输出任何多余分析：
 {
-  "summary": "1-2句简炼的宿主成长评价与成长因由",
+  "summary": "1-2句简炼总结宿主本次在属性、技能或特权上的突破与成长因由",
   "statChanges": [
-    { "name": "属性名(如力量/敏捷/智力/魅力)", "delta": 1 }
+    { "name": "属性名", "delta": 1 }
+  ],
+  "newStats": [
+    { "name": "属性名", "val": 10 }
+  ],
+  "newSkills": [
+    { "name": "技能名", "desc": "技能效果说明", "hasExp": true, "level": 1, "expMax": 100 }
+  ],
+  "skillExpChanges": [
+    { "name": "已有技能名", "exp": 30 }
+  ],
+  "newPerks": [
+    { "name": "特权名", "desc": "特权效果说明" }
   ],
   "pointsGain": 100
 }`;
@@ -595,8 +672,10 @@ export function createOriginService({ target, store, host, logger = null, notify
         worldbook: '',
         storyHistory: storyText,
         storyMemory: '',
-        charPersonality: `【随身系统】${sysName} · 属性成长评估中枢\n当前宿主：${hostName}\n当前属性：${statsSummary}`,
-        latestUserInput: `[宿主最近剧情与成长诉求]\n请评估近期剧情对宿主属性、体魄、心境及积分的成长影响。`,
+        charPersonality: `【随身系统】${sysName} · ${hasStats ? '角色能力综合评估中枢' : '角色能力综合构建中枢'}\n当前宿主：${hostName}\n当前属性：${statsSummary}\n当前技能：${skillsSummary}\n当前特权：${perksSummary}`,
+        latestUserInput: (hasStats
+          ? `[宿主最近剧情与成长诉求]\n请评估近期剧情对宿主属性、技能熟练度、特权及积分的成长影响。`
+          : `[宿主综合能力面板新建诉求]\n宿主当前尚无属性面板，请结合世界观与最近剧情，为宿主构想并新建 4~6 项核心数值属性，以及可选的初始技能或特权。`) + userGuidanceText,
         originPromptText: originInjectionText,
         state,
       }, 'origin-stats', state);
@@ -606,11 +685,13 @@ export function createOriginService({ target, store, host, logger = null, notify
       const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || defaultStatsSystemPrompt;
       const otherMessages = collapsed.filter(m => m.role !== 'system');
       const modelMessages = otherMessages.length > 0 ? otherMessages : [
-        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请评估宿主属性成长并严格输出对应 JSON。` },
+        { role: 'user', content: (hasStats
+            ? `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请评估宿主属性、技能与特权成长并严格输出对应 JSON。`
+            : `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n宿主当前暂无属性，请结合世界观为宿主构想新建核心属性并严格输出对应 JSON。`) + userGuidanceText },
       ];
 
       const reply = await modelClient.complete({
-        label: '系统 AI 评估成长',
+        label: hasStats ? '系统 AI 评估成长' : '系统 AI 新建属性',
         system: systemPrompt,
         messages: modelMessages,
         entries: messagesPayload,
@@ -622,25 +703,94 @@ export function createOriginService({ target, store, host, logger = null, notify
         throw new Error('未能从模型回复中解析出属性评估数据，请重试。');
       }
 
-      const statChanges = Array.isArray(parsed.statChanges) ? parsed.statChanges : [];
       const pointsGain = Math.max(0, Number(parsed.pointsGain) || 0);
-      const summary = String(parsed.summary || '宿主经历了近期的剧情波澜，心境与实力有所成长。').trim();
+      const summary = String(parsed.summary || (hasStats ? '宿主经历了近期的剧情波澜，心境与实力有所成长。' : '系统已为宿主初始化核心属性面板。')).trim();
+
+      let appliedNewStats = [];
+      let statChanges = Array.isArray(parsed.statChanges) ? parsed.statChanges : [];
+      let appliedNewSkills = [];
+      let appliedNewPerks = [];
 
       await store.updateOrigin(current => {
+        if (!current.mods) current.mods = {};
+        current.mods.stat = true;
+
         if (pointsGain > 0) {
           current.points = (current.points || 0) + pointsGain;
           gainOriginExp(current, Math.round(pointsGain / 2));
         }
-        for (const sc of statChanges) {
-          if (sc.name && sc.delta) {
-            applyStatEffect(current, `${sc.name}${sc.delta >= 0 ? `+${sc.delta}` : sc.delta}`);
+
+        if (!hasStats) {
+          const candidateStats = Array.isArray(parsed.newStats) && parsed.newStats.length
+            ? parsed.newStats
+            : statChanges.map(s => ({ name: s.name, val: Number(s.delta || s.val || 10) }));
+
+          const validStats = candidateStats.filter(s => s && s.name).map(s => ({
+            name: String(s.name).trim(),
+            val: Number(s.val ?? s.delta) || 10,
+          }));
+
+          if (validStats.length > 0) {
+            current.stats = validStats;
+            appliedNewStats = validStats;
+          } else {
+            current.stats = [
+              { name: '力量', val: 10 },
+              { name: '敏捷', val: 10 },
+              { name: '体质', val: 10 },
+              { name: '精神', val: 10 },
+            ];
+            appliedNewStats = current.stats;
+          }
+          pushOriginLog(current, `AI 新建能力面板：${summary}`, 'eval-stats');
+        } else {
+          for (const sc of statChanges) {
+            if (sc.name && sc.delta) {
+              applyStatEffect(current, `${sc.name}${sc.delta >= 0 ? `+${sc.delta}` : sc.delta}`);
+            }
+          }
+          pushOriginLog(current, `AI 评估成长：${summary}`, 'eval-stats');
+        }
+
+        // 应用新领悟技能与经验增长
+        if (Array.isArray(parsed.newSkills)) {
+          for (const nsk of parsed.newSkills) {
+            if (nsk && nsk.name) {
+              const saved = saveSkill(current, nsk);
+              if (saved) appliedNewSkills.push(saved);
+            }
           }
         }
-        pushOriginLog(current, `AI 评估成长：${summary}`, 'eval-stats');
+        if (Array.isArray(parsed.skillExpChanges)) {
+          for (const sec of parsed.skillExpChanges) {
+            if (sec && sec.name && sec.exp) {
+              gainSkillExp(current, sec.name, sec.exp);
+            }
+          }
+        }
+
+        // 应用新觉醒特权
+        if (Array.isArray(parsed.newPerks)) {
+          for (const npk of parsed.newPerks) {
+            if (npk && npk.name) {
+              const saved = savePerk(current, npk);
+              if (saved) appliedNewPerks.push(saved);
+            }
+          }
+        }
+
         return current;
       });
 
-      return { summary, statChanges, pointsGain };
+      return {
+        summary,
+        statChanges,
+        newStats: appliedNewStats,
+        newSkills: appliedNewSkills,
+        newPerks: appliedNewPerks,
+        pointsGain,
+        isNewStats: !hasStats,
+      };
     },
     async refreshShop(count = 6) {
       return store.updateOrigin(current => {
@@ -712,8 +862,9 @@ export function createOriginService({ target, store, host, logger = null, notify
         return current;
       });
     },
-    async conceiveShopItems() {
+    async conceiveShopItems(options = {}) {
       if (!modelClient) throw new Error('未配置大模型客户端，无法构想商城商品。');
+      const { direction = '' } = options;
       const state = store.read();
       const originState = state.origin || {};
       const sysName = originState.sysName || '系统';
@@ -730,6 +881,10 @@ export function createOriginService({ target, store, host, logger = null, notify
         storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
       }
 
+      const userGuidanceText = direction?.trim()
+        ? `\n\n【宿主特别指定的进货偏好 / 构想期望】\n${direction.trim()}\n★注意：请务必紧扣宿主给出的上述商品流派或物品偏好构想新商品！`
+        : '';
+
       const activePreset = getActivePreset(state);
       const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
 
@@ -738,17 +893,17 @@ export function createOriginService({ target, store, host, logger = null, notify
         storyHistory: storyText,
         storyMemory: '',
         charPersonality: `【随身系统】${sysName} · 商城进货推演中枢\n当前宿主：${hostName}\n当前等级：Lv.${originState.level || 1}`,
-        latestUserInput: `[商城进货诉求]\n请结合剧情世界观与修仙/异能/日常背景，批量构想 8 到 12 种全新商品。`,
+        latestUserInput: `[商城进货诉求]\n请结合剧情世界观，批量构想 8 到 12 种全新商品。${userGuidanceText}`,
         originPromptText: originInjectionText,
         state,
       }, 'origin-shop', state);
 
       const collapsed = collapseMessages(messagesPayload);
       const systemMessages = collapsed.filter(m => m.role === 'system');
-      const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的商城商品，输出合法 JSON 数组。';
+      const systemPrompt = (systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的商城商品，输出合法 JSON 数组。') + userGuidanceText;
       const otherMessages = collapsed.filter(m => m.role !== 'system');
       const modelMessages = otherMessages.length > 0 ? otherMessages : [
-        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统商城构想 8~12 种商品，严格输出 JSON 数组格式。` },
+        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统商城构想 8~12 种商品，严格输出 JSON 数组格式。${userGuidanceText}` },
       ];
 
       const reply = await modelClient.complete({
@@ -790,8 +945,9 @@ export function createOriginService({ target, store, host, logger = null, notify
 
       return { count: validItems.length, items: validItems };
     },
-    async conceiveGachaItems() {
+    async conceiveGachaItems(options = {}) {
       if (!modelClient) throw new Error('未配置大模型客户端，无法构想祈愿奖品。');
+      const { direction = '' } = options;
       const state = store.read();
       const originState = state.origin || {};
       const sysName = originState.sysName || '系统';
@@ -808,6 +964,10 @@ export function createOriginService({ target, store, host, logger = null, notify
         storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
       }
 
+      const userGuidanceText = direction?.trim()
+        ? `\n\n【宿主特别指定的奖池偏好 / 构想期望】\n${direction.trim()}\n★注意：请务必紧扣宿主给出的上述奖品流派或设定偏好构想涵盖各品阶的新奖品！`
+        : '';
+
       const activePreset = getActivePreset(state);
       const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
 
@@ -816,17 +976,17 @@ export function createOriginService({ target, store, host, logger = null, notify
         storyHistory: storyText,
         storyMemory: '',
         charPersonality: `【随身系统】${sysName} · 祈愿奖池推演中枢\n当前宿主：${hostName}\n当前等级：Lv.${originState.level || 1}`,
-        latestUserInput: `[祈愿奖池扩充诉求]\n请结合剧情世界观，批量构想 8 到 15 种涵盖 N/R/SR/SSR/UR 的祈愿奖品。`,
+        latestUserInput: `[祈愿奖池扩充诉求]\n请结合剧情世界观，批量构想 8 到 15 种涵盖 N/R/SR/SSR/UR 的祈愿奖品。${userGuidanceText}`,
         originPromptText: originInjectionText,
         state,
       }, 'origin-gacha', state);
 
       const collapsed = collapseMessages(messagesPayload);
       const systemMessages = collapsed.filter(m => m.role === 'system');
-      const systemPrompt = systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的祈愿奖池奖品，输出合法 JSON 数组。';
+      const systemPrompt = (systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的祈愿奖池奖品，输出合法 JSON 数组。') + userGuidanceText;
       const otherMessages = collapsed.filter(m => m.role !== 'system');
       const modelMessages = otherMessages.length > 0 ? otherMessages : [
-        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统祈愿池构想 8~15 种奖品（含各稀有度），严格输出 JSON 数组格式。` },
+        { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统祈愿池构想 8~15 种奖品（含各稀有度），严格输出 JSON 数组格式。${userGuidanceText}` },
       ];
 
       const reply = await modelClient.complete({

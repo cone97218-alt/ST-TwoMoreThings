@@ -1748,6 +1748,27 @@ export function createPhoneStore({
         return { ...state, promptPresets: presets };
       });
     },
+    reorderPresetEntries(presetId, sourceEntryId, targetEntryId, placeBefore = true) {
+      return update(state => {
+        if (!sourceEntryId || !targetEntryId || sourceEntryId === targetEntryId) return state;
+        const presets = structuredClone(normalizePromptPresets(state.promptPresets));
+        const target = presets.find(p => p.id === presetId);
+        if (target && Array.isArray(target.entries)) {
+          const fromIdx = target.entries.findIndex(e => e.id === sourceEntryId);
+          if (fromIdx >= 0) {
+            const [moved] = target.entries.splice(fromIdx, 1);
+            const toIdx = target.entries.findIndex(e => e.id === targetEntryId);
+            if (toIdx >= 0) {
+              const insertIdx = placeBefore ? toIdx : toIdx + 1;
+              target.entries.splice(insertIdx, 0, moved);
+            } else {
+              target.entries.push(moved);
+            }
+          }
+        }
+        return { ...state, promptPresets: presets };
+      });
+    },
     deletePresetEntry(presetId, entryId) {
       return update(state => {
         const presets = structuredClone(normalizePromptPresets(state.promptPresets));

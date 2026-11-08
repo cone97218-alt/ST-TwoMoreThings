@@ -213,7 +213,7 @@ test('renderGameBoard header removes 抽鬼牌 title and displays pure round num
 test('preset engine includes old_maid rule entry and slot', () => {
   const oldMaidEntry = DEFAULT_PRESET_ENTRIES.find(e => e.id === 'entry_old_maid_rules');
   assert.ok(oldMaidEntry);
-  assert.equal(oldMaidEntry.scope, '短信');
+  assert.equal(oldMaidEntry.scope, '小游戏');
   assert.equal(oldMaidEntry.content, '{{old_maid_prompt}}');
 
   const oldMaidSlot = PRESET_SLOTS.find(s => s.macro === '{{old_maid_prompt}}');

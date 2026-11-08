@@ -73,16 +73,23 @@ export function renderPromptPresetSettings(state, ui) {
 
       <div class="preset-cards-stack">
         ${!filteredEntries.length ? `<div class="preset-empty-hint">${ui.presetSearch ? `未找到匹配「${escape(ui.presetSearch)}」的预设条目。` : '当前预设暂无条目，请点击上方按钮新增条目。'}</div>` : filteredEntries.map((entry) => {
-          const actualIdx = entries.findIndex(e => e.id === entry.id);
-          const isFirst = actualIdx === 0;
-          const isLast = actualIdx === entries.length - 1;
           const isExpanded = ui.expandedPresetEntries instanceof Set ? ui.expandedPresetEntries.has(entry.id) : false;
           const scope = entry.scope || '通用';
 
-          return `<div class="preset-item-card ${entry.enabled ? '' : 'is-muted'}" data-entry-id="${escape(entry.id)}">
+          return `<div class="preset-item-card ${entry.enabled ? '' : 'is-muted'}" data-entry-id="${escape(entry.id)}" draggable="true">
             <div class="preset-item-header">
-              <!-- 左侧：开关与折叠标题 -->
+              <!-- 左侧：拖拽手柄、开关与折叠标题 -->
               <div class="preset-item-left">
+                <span class="preset-drag-handle" title="按住拖拽排序" aria-label="拖拽排序">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
+                    <circle cx="5" cy="3" r="1.5"/>
+                    <circle cx="11" cy="3" r="1.5"/>
+                    <circle cx="5" cy="8" r="1.5"/>
+                    <circle cx="11" cy="8" r="1.5"/>
+                    <circle cx="5" cy="13" r="1.5"/>
+                    <circle cx="11" cy="13" r="1.5"/>
+                  </svg>
+                </span>
                 <label class="preset-checkbox-wrap" title="启用/禁用此条目">
                   <input type="checkbox" data-action="toggle-preset-entry" data-entry-id="${escape(entry.id)}" ${entry.enabled ? 'checked' : ''}>
                   <span class="preset-custom-check"></span>
@@ -93,13 +100,11 @@ export function renderPromptPresetSettings(state, ui) {
                 </button>
               </div>
 
-              <!-- 右侧：角色选择与调序按钮 -->
+              <!-- 右侧：角色选择与操作按钮 -->
               <div class="preset-item-controls">
                 <button type="button" class="preset-role-cycle-btn role-${entry.role || 'system'}" data-action="cycle-entry-role" data-entry-id="${escape(entry.id)}" aria-label="切换身份(${entry.role || 'system'})" title="身份: ${entry.role || 'system'} (点击切换)">
                   ${icon(entry.role === 'user' ? 'role-user' : ['assistant', 'ai'].includes(entry.role) ? 'role-assistant' : 'role-system')}
                 </button>
-                <button type="button" class="preset-tool-btn" data-action="move-preset-entry" data-direction="up" data-entry-id="${escape(entry.id)}" ${isFirst ? 'disabled' : ''} title="上移">↑</button>
-                <button type="button" class="preset-tool-btn" data-action="move-preset-entry" data-direction="down" data-entry-id="${escape(entry.id)}" ${isLast ? 'disabled' : ''} title="下移">↓</button>
                 <button type="button" class="preset-tool-btn delete" data-action="delete-preset-entry" data-entry-id="${escape(entry.id)}" title="删除条目">×</button>
               </div>
             </div>
@@ -125,18 +130,25 @@ export function renderPromptPresetSettings(state, ui) {
                           <button type="button" class="preset-scope-close-btn" data-action="close-scope-dropdown" title="关闭">×</button>
                         </div>
                         <div class="preset-scope-list">
-                          ${PRESET_SCOPES.map(sc => {
-                            const isChecked = sc.name === '通用'
-                              ? (scope === '通用' || !scope)
-                              : currentScopes.includes(sc.name);
-                            return `<button type="button" class="preset-scope-option ${isChecked ? 'is-checked' : ''}" data-action="toggle-scope-item" data-entry-id="${escape(entry.id)}" data-scope-name="${escape(sc.name)}">
-                              <span class="preset-scope-checkbox">${isChecked ? '✓' : ''}</span>
-                              <div class="preset-scope-option-info">
-                                <span class="preset-scope-item-name">${escape(sc.name)}</span>
-                                <span class="preset-scope-item-desc">${escape(sc.desc)}</span>
-                              </div>
-                            </button>`;
-                          }).join('')}
+                          ${(() => {
+                            let lastGroup = '';
+                            return PRESET_SCOPES.map(sc => {
+                              const groupHeader = sc.group && sc.group !== lastGroup
+                                ? `<div class="preset-scope-group-title">${escape(sc.group)}</div>`
+                                : '';
+                              if (sc.group) lastGroup = sc.group;
+                              const isChecked = sc.name === '通用'
+                                ? (scope === '通用' || !scope)
+                                : currentScopes.includes(sc.name);
+                              return `${groupHeader}<button type="button" class="preset-scope-option ${isChecked ? 'is-checked' : ''}" data-action="toggle-scope-item" data-entry-id="${escape(entry.id)}" data-scope-name="${escape(sc.name)}">
+                                <span class="preset-scope-checkbox">${isChecked ? '✓' : ''}</span>
+                                <div class="preset-scope-option-info">
+                                  <span class="preset-scope-item-name">${escape(sc.name)}</span>
+                                  <span class="preset-scope-item-desc">${escape(sc.desc)}</span>
+                                </div>
+                              </button>`;
+                            }).join('');
+                          })()}
                         </div>
                       </div>
                     ` : ''}

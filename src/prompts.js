@@ -506,13 +506,36 @@ export const ORIGIN_TASK_CONCEIVE_PROMPT = `[系统新任务推演指令]
   "limit": 0
 }`;
 
-export const ORIGIN_STATS_EVAL_PROMPT = `[系统属性成长评估指令]
-你是随身金手指系统的属性评估中枢。请根据宿主在最近剧情中的经历、战斗、探索、心境突破或人际进展，对宿主的属性成长进行评估。
+export const ORIGIN_STATS_EVAL_PROMPT = `[系统角色综合成长评估与能力构建指令（属性 / 技能 / 特权）]
+你是随身金手指系统的角色综合能力评估与构想中枢。
+1. 属性评估/构建：
+   - 若宿主已有属性：结合最近剧情（战斗、历练、突破、心境等），评估属性提升（输出 statChanges 数组，每项包含 name 与正整数 delta）；
+   - 若宿主尚无属性：结合当前世界观（玄幻修仙、西幻魔法、科幻赛博、末世异能、现代都市等）与宿主定位，构想新建 4~6 项核心数值属性（输出 newStats 数组，每项包含 name 与初始 val，建议 10 左右）。
+2. 技能领悟/成长（可选）：
+   - 若宿主在剧情中有领悟新招式或异能，输出 newSkills 数组（每项包含 name、desc，可选 hasExp: true, level: 1, expMax: 100）；
+   - 若宿主对已有技能有深刻运用或磨练，输出 skillExpChanges 数组（每项包含 name 和增加的熟练度 exp，如 20~50）。
+3. 永久特权/权限觉醒（可选）：
+   - 若宿主达成关键里程碑或机缘，输出 newPerks 数组（每项包含 name 和 desc 说明）。
+4. 综合评价：
+   - 输出 pointsGain（奖励积分，通常 100~300 点）和 summary（简要总结宿主成长因由）。
+
 必须严格输出合法的 JSON 格式，不输出任何多余分析：
 {
-  "summary": "1-2句简炼的宿主成长评价与因由",
+  "summary": "1-2句简炼总结宿主本次在属性、技能或特权上的突破与成长因由",
   "statChanges": [
-    { "name": "属性名(如力量/敏捷/智力/魅力)", "delta": 1 }
+    { "name": "属性名", "delta": 1 }
+  ],
+  "newStats": [
+    { "name": "属性名", "val": 10 }
+  ],
+  "newSkills": [
+    { "name": "技能名", "desc": "技能效果说明", "hasExp": true, "level": 1, "expMax": 100 }
+  ],
+  "skillExpChanges": [
+    { "name": "已有技能名", "exp": 30 }
+  ],
+  "newPerks": [
+    { "name": "特权名", "desc": "特权效果说明" }
   ],
   "pointsGain": 100
 }`;
@@ -714,35 +737,35 @@ export const PROMPT_DEFINITIONS = [
   {
     id: 'origin_chat',
     title: '系统专属私聊规则',
-    category: '短信与通讯',
+    category: '随身系统',
     description: '宿主在手机短信中与随身系统直接私聊时的系统人设、状态同步与即时回复规则。',
     defaultPrompt: ORIGIN_CHAT_PROMPT,
   },
   {
     id: 'origin_task_conceive',
     title: '系统推演新任务规则',
-    category: '待办与正文',
+    category: '随身系统',
     description: '系统 APP 内 AI 构想新任务时的推演指引与 JSON 输出规范。',
     defaultPrompt: ORIGIN_TASK_CONCEIVE_PROMPT,
   },
   {
     id: 'origin_stats_eval',
-    title: '系统评估属性成长规则',
-    category: '待办与正文',
-    description: '系统 APP 内 AI 评估宿主属性成长时的评估逻辑与输出规范。',
+    title: '系统角色成长评估规则 (属性/技能/特权)',
+    category: '随身系统',
+    description: '系统 APP 内 AI 结合剧情评估宿主属性成长、技能领悟与特权觉醒，或初始构建能力面板的逻辑规范。',
     defaultPrompt: ORIGIN_STATS_EVAL_PROMPT,
   },
   {
     id: 'origin_shop_conceive',
     title: '系统商城批量进货规则',
-    category: '待办与正文',
+    category: '随身系统',
     description: '系统 APP 内 AI 根据世界观批量构想新商品时的输出规范。',
     defaultPrompt: ORIGIN_SHOP_CONCEIVE_PROMPT,
   },
   {
     id: 'origin_gacha_conceive',
     title: '系统祈愿批量扩充规则',
-    category: '待办与正文',
+    category: '随身系统',
     description: '系统 APP 内 AI 根据世界观批量扩充祈愿五级稀有度奖池时的输出规范。',
     defaultPrompt: ORIGIN_GACHA_CONCEIVE_PROMPT,
   },

@@ -18,7 +18,7 @@ import { LOCAL_CORE_URL, REMOTE_CORE_URL } from './authoring.js';
 import { renderCalendar } from './ui/calendar.js';
 import { renderMap } from './ui/map.js';
 import { renderOrigin } from './ui/origin.js';
-import { SYSTEM_CONTACT_ID } from './origin-engine.js';
+import { SYSTEM_CONTACT_ID, DEFAULT_ORIGIN_TEMPLATES } from './origin-engine.js';
 import { buildMapProjection, readBaiBaiBookMapSnapshot } from './map-engine.js';
 import { createCalendarReader } from './calendar.js';
 import { defaultWorkdayConfig } from './calendar-engine.js';
@@ -754,6 +754,78 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       render();
     }
   }
+
+  let draggedPresetEntryId = null;
+
+  function onPresetDragStart(event) {
+    const card = event.target.closest?.('.preset-item-card');
+    if (!card) return;
+    if (event.target.closest?.('input, textarea, select, button, .preset-scope-dropdown, .preset-content-editor')) {
+      return;
+    }
+    const entryId = card.dataset.entryId;
+    if (!entryId) return;
+    draggedPresetEntryId = entryId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', entryId);
+    }
+    setTimeout(() => {
+      card.classList.add('is-dragging');
+    }, 0);
+  }
+
+  function onPresetDragOver(event) {
+    if (!draggedPresetEntryId) return;
+    const card = event.target.closest?.('.preset-item-card');
+    if (!card) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+    if (card.dataset.entryId === draggedPresetEntryId) {
+      card.classList.remove('drag-over-top', 'drag-over-bottom');
+      return;
+    }
+    const rect = card.getBoundingClientRect();
+    const isTop = event.clientY < rect.top + rect.height / 2;
+    card.classList.toggle('drag-over-top', isTop);
+    card.classList.toggle('drag-over-bottom', !isTop);
+  }
+
+  function onPresetDragLeave(event) {
+    const card = event.target.closest?.('.preset-item-card');
+    if (!card) return;
+    const related = event.relatedTarget;
+    if (related && card.contains(related)) return;
+    card.classList.remove('drag-over-top', 'drag-over-bottom');
+  }
+
+  function onPresetDrop(event) {
+    if (!draggedPresetEntryId) return;
+    const card = event.target.closest?.('.preset-item-card');
+    if (!card) return;
+    event.preventDefault();
+
+    const targetEntryId = card.dataset.entryId;
+    const isTop = card.classList.contains('drag-over-top');
+    card.classList.remove('drag-over-top', 'drag-over-bottom');
+
+    const sourceId = draggedPresetEntryId;
+    draggedPresetEntryId = null;
+
+    if (!targetEntryId || sourceId === targetEntryId) return;
+    const currentActiveId = store.read()?.activePresetId || 'default_preset';
+    void store.reorderPresetEntries(currentActiveId, sourceId, targetEntryId, isTop).then(() => render());
+  }
+
+  function onPresetDragEnd() {
+    draggedPresetEntryId = null;
+    root.querySelectorAll('.preset-item-card.is-dragging').forEach(el => el.classList.remove('is-dragging'));
+    root.querySelectorAll('.preset-item-card.drag-over-top').forEach(el => el.classList.remove('drag-over-top'));
+    root.querySelectorAll('.preset-item-card.drag-over-bottom').forEach(el => el.classList.remove('drag-over-bottom'));
+  }
+
   function keydown(event) {
     if (ui.conflict) {
       event.stopPropagation();
@@ -1292,8 +1364,9 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       return;
     }
 
-    const closeOriginModal = event.target.closest('[data-action="origin-close-modal"]');
-    if (closeOriginModal && (event.target === closeOriginModal || closeOriginModal.tagName === 'BUTTON' || closeOriginModal.classList.contains('origin-modal-backdrop'))) {
+    const closeOriginBtn = event.target.closest('button[data-action="origin-close-modal"]');
+    const isBackdropClick = event.target.classList?.contains('origin-modal-backdrop');
+    if (closeOriginBtn || isBackdropClick) {
       ui.originModal = null;
       ui.originModalData = null;
       render();
@@ -1484,6 +1557,18 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
       case 'origin-switch-tab': ui.originTab = button.dataset.originTab || button.dataset.tab; render(); break;
       case 'origin-toggle-settings': ui.originShowSettings = !ui.originShowSettings; render(); break;
+      case 'origin-fill-default-tpl': {
+        event.preventDefault();
+        event.stopPropagation();
+        const key = button.dataset.key;
+        const item = button.closest('.origin-section-item');
+        const textarea = item?.querySelector(`textarea[name="section_${key}_template"]`);
+        if (textarea && DEFAULT_ORIGIN_TEMPLATES?.[key]) {
+          textarea.value = DEFAULT_ORIGIN_TEMPLATES[key];
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        break;
+      }
       case 'origin-open-sms': openConversation(SYSTEM_CONTACT_ID, false); break;
       case 'origin-jump-app': ui.view = 'origin'; ui.originTab = 'tasks'; render(); break;
       case 'origin-filter-tasks': ui.taskFilter = button.dataset.originFilter || button.dataset.filter; render(); break;
@@ -1502,11 +1587,67 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         void perform('origin-task', () => originService.deleteTask(button.dataset.taskId), () => { ui.feedback = { text: '任务已删除。' }; onContextChange(); }); break;
       case 'origin-mod-stat':
         void perform('origin-stat', () => originService.updateStat(button.dataset.stat, parseInt(button.dataset.delta, 10)), onContextChange); break;
-      case 'origin-add-stat': {
-        const sName = prompt('请输入新属性名称（如：魅力、灵力、敏捷）：');
-        if (sName && sName.trim()) void perform('origin-stat', () => originService.updateStat(sName.trim(), 1), onContextChange);
+      case 'origin-delete-stat':
+        void perform('origin-stat-del', () => originService.deleteStat(button.dataset.stat), () => {
+          ui.feedback = { text: `已移除属性「${button.dataset.stat}」。` };
+          onContextChange();
+        });
+        break;
+      case 'origin-toggle-stats-edit':
+        ui.originStatsEditing = !ui.originStatsEditing;
+        render();
+        break;
+      case 'origin-open-new-stat':
+      case 'origin-add-stat':
+        ui.originModal = 'edit-stat';
+        ui.originModalData = { name: '', val: 10 };
+        render();
+        break;
+      case 'origin-open-new-perk':
+        ui.originModal = 'edit-perk';
+        ui.originModalData = { name: '', desc: '' };
+        render();
+        break;
+      case 'origin-edit-perk': {
+        const pk = (store.read().origin?.perks || []).find(p => p.name === button.dataset.perk);
+        ui.originModal = 'edit-perk';
+        ui.originModalData = pk ? { ...pk } : { name: button.dataset.perk, desc: '' };
+        render();
         break;
       }
+      case 'origin-delete-perk':
+        void perform('origin-perk-del', () => originService.deletePerk(button.dataset.perk), () => {
+          ui.feedback = { text: `已移除特权「${button.dataset.perk}」。` };
+          onContextChange();
+        });
+        break;
+      case 'origin-open-new-skill':
+        ui.originModal = 'edit-skill';
+        ui.originModalData = { name: '', desc: '', hasExp: false, level: 1, exp: 0, expMax: 100 };
+        render();
+        break;
+      case 'origin-edit-skill': {
+        const sk = (store.read().origin?.skills || []).find(s => s.name === button.dataset.skill);
+        ui.originModal = 'edit-skill';
+        ui.originModalData = sk ? { ...sk, hasExp: Boolean(sk.expMax) } : { name: button.dataset.skill, desc: '', hasExp: false };
+        render();
+        break;
+      }
+      case 'origin-delete-skill':
+        void perform('origin-skill-del', () => originService.deleteSkill(button.dataset.skill), () => {
+          ui.feedback = { text: `已移除技能「${button.dataset.skill}」。` };
+          onContextChange();
+        });
+        break;
+      case 'origin-enable-skill-exp':
+        void perform('origin-skill-enable', () => originService.updateSkillExp(button.dataset.skill, 0), () => {
+          ui.feedback = { text: `已为技能「${button.dataset.skill}」开启熟练度经验条！` };
+          onContextChange();
+        });
+        break;
+      case 'origin-mod-skill-exp':
+        void perform('origin-skill-exp', () => originService.updateSkillExp(button.dataset.skill, parseInt(button.dataset.delta, 10)), onContextChange);
+        break;
       case 'origin-use-item':
         void perform('origin-item', () => originService.useItem(button.dataset.item), () => { ui.feedback = { text: `已使用「${button.dataset.item}」，将在下回合剧情显现。` }; onContextChange(); }); break;
       case 'origin-buy-item':
@@ -1515,23 +1656,17 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         void perform('origin-shop', () => originService.refreshShop ? originService.refreshShop(6) : originService.updateSettings({ shop: store.read().origin?.shop?.slice().reverse() || [] }), () => { ui.feedback = { text: '商城货架已随机换一批。' }; onContextChange(); }); break;
       case 'origin-refresh-gacha':
         void perform('origin-gacha-refresh', () => originService.refreshGacha ? originService.refreshGacha() : Promise.resolve(), () => { ui.feedback = { text: '祈愿池预览已轮换。' }; onContextChange(); }); break;
+      case 'origin-open-conceive-shop':
       case 'origin-ai-conceive-shop':
-        void perform('origin-shop-ai', async () => {
-          if (!originService.conceiveShopItems) throw new Error('当前环境未启用模型进货推演能力');
-          return await originService.conceiveShopItems();
-        }, res => {
-          ui.feedback = { text: `AI 成功进货 ${res?.count || 0} 件商品并已上架！` };
-          onContextChange();
-        });
+        ui.originModal = 'conceive-shop-guidance';
+        ui.originModalData = {};
+        render();
         break;
+      case 'origin-open-conceive-gacha':
       case 'origin-ai-conceive-gacha':
-        void perform('origin-gacha-ai', async () => {
-          if (!originService.conceiveGachaItems) throw new Error('当前环境未启用模型奖池推演能力');
-          return await originService.conceiveGachaItems();
-        }, res => {
-          ui.feedback = { text: `AI 成功扩充 ${res?.count || 0} 件奖品入库！` };
-          onContextChange();
-        });
+        ui.originModal = 'conceive-gacha-guidance';
+        ui.originModalData = {};
+        render();
         break;
       case 'origin-open-shop-catalog':
         ui.originModal = 'shop-catalog'; render(); break;
@@ -1561,14 +1696,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           onContextChange();
         });
         break;
+      case 'origin-open-evaluate-stats':
       case 'origin-ai-evaluate-stats':
-        void perform('origin-ai-stats', async () => {
-          if (!originService.evaluateStats) throw new Error('当前环境未启用模型推演能力');
-          return await originService.evaluateStats();
-        }, (res) => {
-          ui.feedback = { text: res?.summary || 'AI 已完成成长评估并结算属性！' };
-          onContextChange();
-        });
+        ui.originModal = 'evaluate-stats-guidance';
+        ui.originModalData = {};
+        render();
         break;
       case 'origin-close-modal':
         ui.originModal = null; ui.originModalData = null; render(); break;
@@ -3452,6 +3584,25 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (event.target.matches('[data-origin-form="settings"]')) {
       const form = event.target;
+      const sections = {};
+      ['panel', 'tasks', 'inventory', 'action', 'rules', 'output'].forEach(k => {
+        sections[k] = {
+          enabled: Boolean(form.elements[`section_${k}_enabled`]?.checked),
+          template: form.elements[`section_${k}_template`]?.value || '',
+        };
+      });
+      const moduleTags = {
+        achievement: form.elements.moduleTag_achievement?.value ?? '成就, achievement, 功业',
+        skill: form.elements.moduleTag_skill?.value ?? '技能, skill, 神通, 功法',
+        stat: form.elements.moduleTag_stat?.value ?? '属性, stat, 状态, 数值',
+        task: form.elements.moduleTag_task?.value ?? '任务, task, 使命',
+        points: form.elements.moduleTag_points?.value ?? '积分, points, 经验',
+        item: form.elements.moduleTag_item?.value ?? '道具, item, 获得, 物品',
+        perk: form.elements.moduleTag_perk?.value ?? '权限, perk, 特权',
+        broadcast: form.elements.moduleTag_broadcast?.value ?? '播报, notice, 公告, 系统提示',
+        chat: form.elements.moduleTag_chat?.value ?? '私聊, chat, 系统私聊',
+        origin: form.elements.moduleTag_origin?.value ?? 'origin, 系统',
+      };
       const patch = {
         enabled: form.elements.enabled?.checked,
         sysName: form.elements.sysName?.value || '系统',
@@ -3463,11 +3614,120 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         blockWhenUnfinished: form.elements.blockWhenUnfinished?.checked,
         tagRegex: form.elements.tagRegex?.value ?? '<(?:origin|系统)>([\\s\\S]*?)</(?:origin|系统)>',
         storyRegex: form.elements.storyRegex?.value ?? '【(?:叮[！!]|系统).*?】',
+        moduleTags,
+        sections,
       };
       void perform('origin-settings-save', () => originService.updateSettings(patch), () => {
         ui.originShowSettings = false;
         ui.feedback = { text: '系统设置已更新。' };
         onContextChange();
+      });
+      return;
+    }
+    if (event.target.matches('[data-origin-form="stat"]')) {
+      const form = event.target;
+      const name = form.elements.name?.value?.trim();
+      const val = Number(form.elements.val?.value) || 10;
+      if (name) {
+        void perform('origin-stat-save', () => originService.updateStat(name, val), () => {
+          ui.originModal = null;
+          ui.feedback = { text: `属性「${name}」已添加！` };
+          onContextChange();
+        });
+      }
+      return;
+    }
+    if (event.target.matches('[data-origin-form="perk"]')) {
+      const form = event.target;
+      const draft = {
+        name: form.elements.name?.value?.trim(),
+        desc: form.elements.desc?.value?.trim() || '',
+      };
+      if (draft.name) {
+        void perform('origin-perk-save', () => originService.savePerk(draft), () => {
+          ui.originModal = null;
+          ui.feedback = { text: `特权「${draft.name}」已保存！` };
+          onContextChange();
+        });
+      }
+      return;
+    }
+    if (event.target.matches('[data-origin-form="skill"]')) {
+      const form = event.target;
+      const draft = {
+        name: form.elements.name?.value?.trim(),
+        desc: form.elements.desc?.value?.trim() || '',
+        hasExp: Boolean(form.elements.hasExp?.checked),
+        level: Number(form.elements.level?.value) || 1,
+        exp: Number(form.elements.exp?.value) || 0,
+        expMax: Number(form.elements.expMax?.value) || 100,
+      };
+      if (draft.name) {
+        void perform('origin-skill-save', () => originService.saveSkill(draft), () => {
+          ui.originModal = null;
+          ui.feedback = { text: `技能「${draft.name}」已保存！` };
+          onContextChange();
+        });
+      }
+      return;
+    }
+    if (event.target.matches('[data-origin-form="evaluate-stats"]')) {
+      const form = event.target;
+      const direction = form.elements.direction?.value?.trim() || '';
+      ui.isEvaluatingStats = true;
+      render();
+      void perform('origin-ai-stats', async () => {
+        if (!originService.evaluateStats) throw new Error('当前环境未启用模型推演能力');
+        return await originService.evaluateStats({ direction });
+      }, (res) => {
+        ui.isEvaluatingStats = false;
+        ui.originModal = null;
+        ui.originModalData = null;
+        ui.feedback = { text: res?.summary || (res?.isNewStats ? 'AI 已成功为宿主构建初始属性与能力！' : 'AI 已完成成长评估并结算属性！') };
+        onContextChange();
+      }).catch(() => {
+        ui.isEvaluatingStats = false;
+        render();
+      });
+      return;
+    }
+    if (event.target.matches('[data-origin-form="conceive-shop"]')) {
+      const form = event.target;
+      const direction = form.elements.direction?.value?.trim() || '';
+      ui.isConceivingShop = true;
+      render();
+      void perform('origin-shop-ai', async () => {
+        if (!originService.conceiveShopItems) throw new Error('当前环境未启用模型进货推演能力');
+        return await originService.conceiveShopItems({ direction });
+      }, (res) => {
+        ui.isConceivingShop = false;
+        ui.originModal = null;
+        ui.originModalData = null;
+        ui.feedback = { text: `AI 成功进货 ${res?.count || 0} 件商品并已上架！` };
+        onContextChange();
+      }).catch(() => {
+        ui.isConceivingShop = false;
+        render();
+      });
+      return;
+    }
+    if (event.target.matches('[data-origin-form="conceive-gacha"]')) {
+      const form = event.target;
+      const direction = form.elements.direction?.value?.trim() || '';
+      ui.isConceivingGacha = true;
+      render();
+      void perform('origin-gacha-ai', async () => {
+        if (!originService.conceiveGachaItems) throw new Error('当前环境未启用模型奖池推演能力');
+        return await originService.conceiveGachaItems({ direction });
+      }, (res) => {
+        ui.isConceivingGacha = false;
+        ui.originModal = null;
+        ui.originModalData = null;
+        ui.feedback = { text: `AI 成功扩充 ${res?.count || 0} 件奖品入库！` };
+        onContextChange();
+      }).catch(() => {
+        ui.isConceivingGacha = false;
+        render();
       });
       return;
     }
@@ -3644,6 +3904,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   root.addEventListener('toggle', rememberMembersFold, true);
   root.addEventListener('error', imageError, true);
   root.addEventListener('scroll', readVisibleSocialReplies, true);
+  root.addEventListener('dragstart', onPresetDragStart);
+  root.addEventListener('dragover', onPresetDragOver);
+  root.addEventListener('dragleave', onPresetDragLeave);
+  root.addEventListener('drop', onPresetDrop);
+  root.addEventListener('dragend', onPresetDragEnd);
   doc.addEventListener('pointerdown', dismissMenus, true);
   render();
   fillDefaultAvatars();
@@ -3728,6 +3993,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       root.removeEventListener('toggle', rememberMembersFold, true);
       root.removeEventListener('error', imageError, true);
       root.removeEventListener('scroll', readVisibleSocialReplies, true);
+      root.removeEventListener('dragstart', onPresetDragStart);
+      root.removeEventListener('dragover', onPresetDragOver);
+      root.removeEventListener('dragleave', onPresetDragLeave);
+      root.removeEventListener('drop', onPresetDrop);
+      root.removeEventListener('dragend', onPresetDragEnd);
       element.remove(); fontStyle.remove();
     },
   };

@@ -31,10 +31,10 @@ export function renderCalendar(state, { ui, calendar }) {
       : '';
     const fullDesc = `${locTip}${weatherInfo.prompt || ''}`.trim();
     weatherBadgeHtml = `
-      <span class="calendar-weather-inline" title="${escape(fullDesc)}">
+      <button type="button" class="calendar-weather-inline" data-action="open-calendar-weather-modal" title="${escape(fullDesc)}" aria-label="查看天气详情：${escape(text)}${tempText}">
         <span class="weather-svg-icon" aria-hidden="true">${weatherSvgIcon(weatherInfo.type)}</span>
         <span class="calendar-weather-text">${escape(text)}${tempText}${lockText}</span>
-      </span>
+      </button>
     `;
   }
   const dayButtons = calendar.days.map(day => {
@@ -293,6 +293,9 @@ export function renderCalendar(state, { ui, calendar }) {
         <span style="font-size: 10.5px; color: var(--pp-bronze); background: var(--pp-pale); padding: 1px 6px; border-radius: 4px;">
           ${escape(weatherInfo?.locationSourceLabel ? `来源：${weatherInfo.locationSourceLabel}` : (weatherConfig.defaultCity ? '来源：默认城市' : '未定位'))}
         </span>
+      </div>
+      <div style="font-size: 10.5px; color: var(--pp-muted); margin-top: 4px; padding: 0 4px; line-height: 1.4;">
+        <span>推演基准：已依据「${escape(weatherInfo?.location || weatherConfig.defaultCity || '默认城市')}」推算天气${weatherInfo?.isManual ? '（剧情手动锁定）' : '（四季气象算法推演）'}</span>
       </div>
 
       <div class="form-row" style="margin-top: 10px;">
@@ -562,5 +565,58 @@ export function renderCalendar(state, { ui, calendar }) {
       <div class="calendar-events">${eventCards}</div>
     </section>
     ${settingsHtml}
-    ${aiHtml}`;
+    ${aiHtml}
+    ${ui.calendarWeatherModalOpen && weatherInfo ? `
+      <div class="calendar-modal-backdrop" data-action="close-calendar-weather-modal">
+        <div class="calendar-modal-dialog calendar-weather-detail-dialog">
+          <div class="calendar-form-head">
+            <strong style="font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <span class="weather-svg-icon" style="color: var(--pp-bronze);">${weatherSvgIcon(weatherInfo.type)}</span>
+              <span>环境气象详情</span>
+            </strong>
+            <button type="button" class="icon-button" data-action="close-calendar-weather-modal" aria-label="关闭">${icon('close')}</button>
+          </div>
+          <div class="calendar-weather-detail-body">
+            <div class="calendar-weather-detail-hero">
+              <div class="calendar-weather-hero-icon">${weatherSvgIcon(weatherInfo.type)}</div>
+              <div class="calendar-weather-hero-copy">
+                <div class="calendar-weather-hero-title">
+                  <strong>${escape(weatherInfo.worldEra === 'ancient' ? (ANCIENT_WEATHER_TEXT[weatherInfo.type] || weatherInfo.cn) : weatherInfo.cn)}</strong>
+                  ${weatherInfo.worldEra === 'ancient' ? '' : `<span class="calendar-weather-hero-temp">${escape(weatherInfo.temp != null ? `${weatherInfo.temp}°C` : '')}</span>`}
+                </div>
+                <small class="calendar-weather-hero-era">${escape(weatherInfo.worldEra === 'ancient' ? '古代物候历法' : '现代纪元历法')}${weatherInfo.solarTerm?.term ? ` · ${escape(weatherInfo.solarTerm.term)}` : ''}</small>
+              </div>
+              ${weatherInfo.isManual ? `<span class="calendar-weather-lock-badge">🔒 剧情锁定</span>` : ''}
+            </div>
+
+            <div class="calendar-weather-detail-section">
+              <div class="calendar-weather-detail-row">
+                <span class="weather-row-label">当前识别地点</span>
+                <strong class="weather-row-value">${escape(weatherInfo.location || weatherConfig.defaultCity || '未识别')}</strong>
+              </div>
+              <div class="calendar-weather-detail-row">
+                <span class="weather-row-label">地点解析来源</span>
+                <span class="weather-row-pill">${escape(weatherInfo.locationSourceLabel ? `来源：${weatherInfo.locationSourceLabel}` : (weatherConfig.defaultCity ? '来源：默认城市' : '未定位'))}</span>
+              </div>
+              <div class="calendar-weather-detail-row">
+                <span class="weather-row-label">气象推演机制</span>
+                <span class="weather-row-text">${escape(weatherInfo.isManual ? '剧情设定强制固定' : '四季气象概率算法推演')}</span>
+              </div>
+            </div>
+
+            ${weatherInfo.prompt ? `
+              <div class="calendar-weather-prompt-box">
+                <span class="weather-prompt-label">剧情环境提示词</span>
+                <p class="weather-prompt-text">${escape(weatherInfo.prompt)}</p>
+              </div>
+            ` : ''}
+
+            <div class="form-actions" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 8px;">
+              <button type="button" class="quiet-button" data-action="jump-calendar-weather-settings" style="font-size: 11.5px; padding: 4px 10px;">天气设置</button>
+              <button type="button" class="save-button" data-action="close-calendar-weather-modal" style="margin-top: 0; width: auto; font-size: 11.5px; padding: 4px 14px;">我知道了</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    ` : ''}`;
 }

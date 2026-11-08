@@ -1,14 +1,47 @@
-// 剧情与装饰天气；接口暂缺时提供随季节变化的装饰天气，不联网、不反向写入剧情。
-export function readLockWeather(api = globalThis.STSevenDaysCal, now = new Date()) {
-  if (api?.apiVersion === 1 && typeof api.getPhoneSnapshot === 'function') {
-    const snapshot = api.getPhoneSnapshot();
-    if (snapshot?.weather?.text) return { text: String(snapshot.weather.text), temperature: String(snapshot.weather.temperature || ''), source: 'gouhua' };
+// 剧情与装饰天气；优先联动日历系统的剧情天气，接口暂缺时提供随季节变化的装饰天气，不联网、不反向写入剧情。
+export function readLockWeather(api = globalThis.STSevenDaysCal, now = new Date(), calendar = null) {
+  let cal = calendar;
+  let targetApi = api;
+  if (api && typeof api.month === 'function' && !calendar) {
+    cal = api;
+    targetApi = globalThis.STSevenDaysCal;
   }
+
+  // 1. 优先联动日历模块的天气系统
+  if (cal) {
+    try {
+      const calWeather = cal.weatherInfo?.() || cal.month?.(0)?.weather;
+      if (calWeather) {
+        const isAncient = calWeather.worldEra === 'ancient';
+        const text = (isAncient ? (ANCIENT_WEATHER_TEXT[calWeather.type] || calWeather.cn) : calWeather.cn) || '晴';
+        const tempText = isAncient
+          ? (ANCIENT_TEMP_WORDS.find(w => calWeather.temp <= w.max)?.word || '')
+          : (calWeather.temp != null ? `${calWeather.temp}°C` : '');
+        const title = `地点：${calWeather.location || '默认'}${calWeather.locationSourceLabel ? ` · 来源：${calWeather.locationSourceLabel}` : ''} · ${text}${tempText ? ` ${tempText}` : ''}`;
+        return {
+          type: calWeather.type || 'sunny',
+          text,
+          temperature: tempText,
+          source: calWeather.isManual ? 'manual' : 'calendar',
+          location: calWeather.location || '',
+          title,
+        };
+      }
+    } catch {}
+  }
+
+  // 2. 外部构画天气 api
+  if (targetApi?.apiVersion === 1 && typeof targetApi.getPhoneSnapshot === 'function') {
+    const snapshot = targetApi.getPhoneSnapshot();
+    if (snapshot?.weather?.text) return { text: String(snapshot.weather.text), temperature: String(snapshot.weather.temperature || ''), source: 'gouhua', type: 'sunny' };
+  }
+
+  // 3. 装饰天气回退
   const month = (now instanceof Date && !isNaN(now)) ? now.getMonth() + 1 : 10;
-  const seasonal = month >= 3 && month <= 5 ? { text: '晴', temperature: '18°C' }
-    : month >= 6 && month <= 8 ? { text: '晴朗', temperature: '28°C' }
-    : month >= 9 && month <= 11 ? { text: '晴', temperature: '22°C' }
-    : { text: '晴冷', temperature: '6°C' };
+  const seasonal = month >= 3 && month <= 5 ? { text: '晴', temperature: '18°C', type: 'sunny' }
+    : month >= 6 && month <= 8 ? { text: '晴朗', temperature: '28°C', type: 'sunny' }
+    : month >= 9 && month <= 11 ? { text: '晴', temperature: '22°C', type: 'sunny' }
+    : { text: '晴冷', temperature: '6°C', type: 'sunny_cold' };
   return { ...seasonal, source: 'decoration' };
 }
 

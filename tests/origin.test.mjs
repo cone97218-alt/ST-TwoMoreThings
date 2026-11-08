@@ -22,6 +22,8 @@ import {
   unlockAchievement,
   defaultOriginModuleTags,
   clearOriginLogs,
+  resetOriginData,
+  isOriginObserverMode,
 } from '../src/origin-engine.js';
 import {
   buildOriginInjection,
@@ -39,6 +41,9 @@ import { getPrompt, ORIGIN_SYSTEM_PROMPT, ORIGIN_CHAT_PROMPT, ORIGIN_STATS_EVAL_
 import { renderSettings, renderLogSettings } from '../src/ui/settings.js';
 import { createOriginService } from '../src/origin.js';
 import { PRESET_SCOPES, compilePromptPreset, DEFAULT_PROMPT_PRESETS } from '../src/preset-engine.js';
+import { renderChat } from '../src/ui/messages.js';
+import { createMessageService } from '../src/messages.js';
+import { readTimeline } from '../src/timeline.js';
 
 test('origin-engine: normalizeOriginState returns full state with safe fallbacks', () => {
   const empty = normalizeOriginState(null);
@@ -1382,4 +1387,201 @@ test('origin-logs & clean-stats-injection: attribute values without plus sign, a
   assert.ok(readyPrompt.includes('- 当前无任务：请在本回合发起 1 个贴合当前情境的新任务'), '冷却完毕且无任务时允许发起新任务且为纯文字');
   assert.ok(!readyPrompt.includes('- 2. 当前无任务'), '不带序号');
   assert.ok(readyPrompt.includes('宿主期望的任务方向：探索遗迹'), '包含期望方向');
+});
+
+test('origin-engine: resetOriginData 仅重置运行时数据，保留注入模块与提示词定制', () => {
+  const customizedState = normalizeOriginState({
+    enabled: true,
+    sysName: '神级至尊系统',
+    world: '修真大世界',
+    bindTo: '韩立',
+    personality: '毒舌',
+    personaText: '口吻极其刻薄，但总给高阶奖励',
+    freq: 4,
+    points: 8888,
+    level: 10,
+    exp: 50,
+    expMax: 1000,
+    stats: [{ name: '灵根', val: '天灵根' }],
+    skills: [{ id: 1, name: '青元剑诀', exp: 100, max: 500, level: 2 }],
+    perks: [{ id: 1, name: '掌天瓶主', desc: '灵液催熟' }],
+    tasks: [{ id: 1, title: '采集万年灵草', status: 'active' }],
+    bag: [{ id: 1, name: '筑基丹', count: 5 }],
+    shop: [{ id: 1, name: '定颜丹', price: 500 }],
+    shopCatalog: [{ id: 1, name: '定颜丹' }],
+    gachaPool: [{ id: 1, name: '虚天鼎', tier: 'UR' }],
+    gachaCatalog: [{ id: 1, name: '虚天鼎' }],
+    achievements: [{ id: 1, name: '筑基初期', done: true }],
+    log: [{ id: 1, text: '成功筑基' }],
+    rewardsLog: [{ id: 1, text: '获得灵石' }],
+    // 正文注入定制与提示词
+    sections: {
+      panel: { enabled: true, template: '【独家定制面板】\n宿主：{{hostName}}' },
+      tasks: { enabled: false, template: '【任务】{{tasks}}' },
+      rules: { enabled: true, template: '【宗门门规】\n{{taskRule}}' },
+    },
+    moduleTags: {
+      origin: 'custom_sys',
+      task: 'custom_task',
+    },
+    storyRegex: '【定制系统播报：.*?】',
+    tagRegex: '<custom_sys>([\\s\\S]*?)</custom_sys>',
+  });
+
+  const resetResult = resetOriginData(customizedState);
+
+  // 1. 验证运行时数据被彻底重置
+  assert.equal(resetResult.points, 0, '积分重置为0');
+  assert.equal(resetResult.level, 1, '等级重置为1');
+  assert.equal(resetResult.exp, 0, '经验重置为0');
+  assert.equal(resetResult.expMax, 100, '最大经验重置为100');
+  assert.deepEqual(resetResult.stats, [], '属性重置为空');
+  assert.deepEqual(resetResult.skills, [], '技能重置为空');
+  assert.deepEqual(resetResult.perks, [], '特权重置为空');
+  assert.deepEqual(resetResult.tasks, [], '任务重置为空');
+  assert.deepEqual(resetResult.bag, [], '背包重置为空');
+  assert.deepEqual(resetResult.shop, [], '商城重置为空');
+  assert.deepEqual(resetResult.shopCatalog, [], '商城目录重置为空');
+  assert.deepEqual(resetResult.gachaPool, [], '祈愿池重置为空');
+  assert.deepEqual(resetResult.gachaCatalog, [], '祈愿目录重置为空');
+  assert.deepEqual(resetResult.achievements, [], '成 intake 重置为空');
+  assert.deepEqual(resetResult.log, [], '日志重置为空');
+  assert.deepEqual(resetResult.rewardsLog, [], '奖励日志重置为空');
+
+  // 2. 验证正文注入模块与提示词定制完全保留
+  assert.equal(resetResult.sections.panel.template, '【独家定制面板】\n宿主：{{hostName}}', '面板定制模板完好保留');
+  assert.equal(resetResult.sections.panel.enabled, true);
+  assert.equal(resetResult.sections.tasks.enabled, false, '任务模块关闭状态保留');
+  assert.equal(resetResult.sections.tasks.template, '【任务】{{tasks}}', '任务模块定制模板保留');
+  assert.equal(resetResult.sections.rules.template, '【宗门门规】\n{{taskRule}}', '规则定制模板保留');
+
+  // 3. 验证标签与正则设置完全保留
+  assert.equal(resetResult.moduleTags.origin, 'custom_sys', '自定义标签保留');
+  assert.equal(resetResult.moduleTags.task, 'custom_task', '自定义任务标签保留');
+  assert.equal(resetResult.storyRegex, '【定制系统播报：.*?】', '自定义自然播报正则保留');
+  assert.equal(resetResult.tagRegex, '<custom_sys>([\\s\\S]*?)</custom_sys>', '自定义标签包裹正则保留');
+
+  // 4. 验证系统基础设置保留
+  assert.equal(resetResult.enabled, true, '启用状态保留');
+  assert.equal(resetResult.sysName, '神级至尊系统', '系统名称保留');
+  assert.equal(resetResult.world, '修真大世界', '世界设定保留');
+  assert.equal(resetResult.bindTo, '韩立', '宿主绑定保留');
+  assert.equal(resetResult.personality, '毒舌', '人格风格保留');
+  assert.equal(resetResult.personaText, '口吻极其刻薄，但总给高阶奖励', '自定义口吻保留');
+  assert.equal(resetResult.freq, 4, '派发频率保留');
+});
+
+test('origin-chat: 系统私聊在非User宿主下的旁观模式与消息推演', async () => {
+  // 1. isOriginObserverMode 判定
+  assert.equal(isOriginObserverMode({ enabled: true, bindTo: '宿主' }, { name: '张三' }), false);
+  assert.equal(isOriginObserverMode({ enabled: true, bindTo: '我' }, { name: '张三' }), false);
+  assert.equal(isOriginObserverMode({ enabled: true, bindTo: 'User' }, { name: '张三' }), false);
+  assert.equal(isOriginObserverMode({ enabled: true, bindTo: '张三' }, { name: '张三' }), false);
+  assert.equal(isOriginObserverMode({ enabled: true, bindTo: '李四' }, { name: '张三' }), true, '宿主为李四，User为张三时应为旁观模式');
+  assert.equal(isOriginObserverMode({ enabled: true, bindTo: '林舟' }, {}), true, '宿主为林舟，User未设定姓名时为旁观模式');
+
+  // 2. 模拟 Store 与消息服务验证旁观模式拦截发送
+  const mockTarget = { messages: [], metadata: {} };
+  const store = createPhoneStore({ target: mockTarget });
+  await store.saveUserProfile({ name: '场外读者' });
+  await store.updateOrigin(curr => ({
+    ...curr,
+    enabled: true,
+    sysName: '随身小助',
+    bindTo: '林舟',
+  }));
+  const mockContextReader = {
+    async readForContact(id) {
+      return {
+        clock: { time: '12:00', source: 'story', date: '2026-11-08' },
+        story: [{ speaker: '林舟', text: '林舟挥剑斩断了藤蔓。' }],
+        worldbook: '',
+        contact: { id, name: '随身小助' },
+      };
+    },
+  };
+
+  const completedRequests = [];
+  const mockModelClient = {
+    async complete(req) {
+      completedRequests.push(req);
+      return JSON.stringify({
+        hostMessage: '系统，刚才斩断藤蔓算不算完成采集任务？',
+        systemReply: '【冷澈】勉强及格。【奖励：积分+100】',
+      });
+    },
+  };
+
+  const messageService = createMessageService({
+    target: mockTarget,
+    store,
+    contextReader: mockContextReader,
+    modelClient: mockModelClient,
+  });
+
+  // 验证用户不能发消息（尝试发消息会抛出异常）
+  await assert.rejects(
+    async () => {
+      await messageService.send(SYSTEM_CONTACT_ID, '我想发消息');
+    },
+    /不能代宿主发送消息/,
+    '旁观模式下禁止直接向系统私聊发送消息',
+  );
+
+  // 3. 验证旁观模式下的 UI 渲染
+  const chatState = store.read();
+  const batch = readTimeline(mockTarget.messages);
+  const observerHtml = renderChat(chatState, {
+    ui: {
+      view: 'chat',
+      contactId: SYSTEM_CONTACT_ID,
+      batch,
+      visibleMessages: 20,
+      drafts: new Map(),
+    },
+    busy: new Set(),
+  });
+
+  assert.ok(observerHtml.includes('observer-composer'), '渲染旁观模式底部栏');
+  assert.ok(observerHtml.includes('旁观私聊'), '底部提示旁观私聊');
+  assert.ok(!observerHtml.includes('<textarea id="sms-draft"'), '旁观模式下绝不渲染输入文本框');
+  assert.ok(observerHtml.includes('data-action="continue"'), '包含继续按钮');
+  assert.ok(observerHtml.includes('宿主：林舟 · 旁观'), '顶栏显示宿主名字与旁观标签');
+
+  // 4. 验证点击“继续”时的消息推演与互动（方案A：单次 API 推演对答）
+  await messageService.continueChat(SYSTEM_CONTACT_ID);
+  assert.equal(completedRequests.length, 1, '方案A：仅调用 1 次 API 完成对答推演');
+
+  const updatedThread = store.read().conversations[SYSTEM_CONTACT_ID];
+  assert.ok(updatedThread && updatedThread.length >= 2, '推演后应同时产生宿主发言与系统回复');
+
+  const hostMsg = updatedThread[0];
+  assert.equal(hostMsg.role, 'user', '宿主发言存为 user 角色');
+  assert.equal(hostMsg.speakerName, '林舟', '发言人标记为林舟');
+  assert.equal(hostMsg.text, '系统，刚才斩断藤蔓算不算完成采集任务？');
+
+  const sysMsg = updatedThread[1];
+  assert.equal(sysMsg.role, 'assistant', '系统回复存为 assistant 角色');
+  assert.ok(sysMsg.text.includes('勉强及格'));
+
+  // 5. 验证包含消息后的 UI 渲染呈现
+  const threadHtml = renderChat(store.read(), {
+    ui: {
+      view: 'chat',
+      contactId: SYSTEM_CONTACT_ID,
+      batch,
+      visibleMessages: 20,
+      drafts: new Map(),
+    },
+    busy: new Set(),
+  });
+  assert.ok(threadHtml.includes('林舟'), '气泡中标记宿主林舟');
+  assert.ok(threadHtml.includes('刚才斩断藤蔓算不算完成采集任务'), '显示宿主发言内容');
+  assert.ok(threadHtml.includes('勉强及格'), '显示系统回复内容');
+  assert.ok(!threadHtml.includes('is-mine'), '旁观模式下与群聊旁观一致：全部消息都在左侧以第三方视角呈现，不包含 is-mine');
+
+  // 6. 验证支持用户在提示词管理中自定义 origin_observer_chat
+  await store.savePrompt('origin_observer_chat', '【定制旁观推演】宿主：{{hostName}}，系统：{{sysName}}');
+  await messageService.continueChat(SYSTEM_CONTACT_ID);
+  assert.ok(completedRequests[1].system.includes('【定制旁观推演】宿主：林舟，系统：随身小助'), '系统支持用户动态定制旁观推演提示词');
 });

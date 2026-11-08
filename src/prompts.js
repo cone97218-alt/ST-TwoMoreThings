@@ -504,6 +504,25 @@ export const ORIGIN_CHAT_PROMPT = `[金手指系统专属私聊]
      例如：【新任务：支线 | 探寻遗迹秘宝 | 深入后山遗迹取得灵石 | 积分+200 敏捷+1 | 无 | 0】
    - 若宿主汇报完成了任务且符合情理，可予以认可并附带结算：【奖励：积分+100 力量+1】`;
 
+export const ORIGIN_OBSERVER_CHAT_PROMPT = `[金手指系统旁观私聊推演]
+当前处于旁观模式：【{{userName}}】正在场外旁观剧情角色【{{hostName}}】与其专属随身系统【{{sysName}}】在脑海/手机端的私聊。
+
+【角色信息与系统状态】：
+- 宿主：【{{hostName}}】（性格人设：{{hostPersonality}}）
+- 系统：【{{sysName}}】（人格风格：{{persona}}）
+- 系统等级：Lv.{{level}} (EXP: {{exp}}/{{expMax}})
+- 宿主积分：{{points}}
+- 宿主属性：{{stats}}
+- 进行中任务：{{tasks}}
+- 背包物品：{{bag}}
+
+请结合最近的故事正文剧情与系统状态，推演宿主与系统接下来的一轮真实即时对答。
+必须严格输出合法的 JSON 格式（严禁包含任何前缀、标签或思考过程以外的多余解释）：
+{
+  "hostMessage": "以【{{hostName}}】第一人称向系统发送的一句简短私聊（汇报剧情进展、询问建议、请求兑换或吐槽等，符合其人设）",
+  "systemReply": "系统严格贯彻【{{persona}}】口吻给宿主的简短答复。若情理符合可附带【新任务：类型|标题|条件|奖励|惩罚|时限】或【奖励：积分+N 属性+N】"
+}`;
+
 export const ORIGIN_TASK_CONCEIVE_PROMPT = `[系统新任务推演指令]
 你是随身金手指系统的任务构想中枢。请结合最近剧情正文、宿主当前状态与期望方向，为宿主构想 1 个契合情境的新任务。
 必须严格输出合法的 JSON 格式，不输出任何思考过程或多余解释：
@@ -753,6 +772,13 @@ export const PROMPT_DEFINITIONS = [
     defaultPrompt: ORIGIN_CHAT_PROMPT,
   },
   {
+    id: 'origin_observer_chat',
+    title: '系统旁观私聊推演规则',
+    category: '随身系统',
+    description: '当系统绑定的宿主不是 User 时，在手机短信中旁观宿主与系统对答的单次推演规则与 JSON 规范。支持宏：{{sysName}}, {{hostName}}, {{userName}}, {{hostPersonality}}, {{persona}}, {{level}}, {{exp}}, {{expMax}}, {{points}}, {{stats}}, {{tasks}}, {{bag}}',
+    defaultPrompt: ORIGIN_OBSERVER_CHAT_PROMPT,
+  },
+  {
     id: 'origin_task_conceive',
     title: '系统推演新任务规则',
     category: '随身系统',
@@ -808,6 +834,7 @@ export const PROMPT_MACRO_MAP = {
   image_prompt: '{{image_prompt}}',
   origin_system: '{{origin_prompt}}',
   origin_chat: '{{origin_chat_prompt}}',
+  origin_observer_chat: '{{origin_observer_chat_prompt}}',
   origin_task_conceive: '{{origin_task_conceive_prompt}}',
   origin_stats_eval: '{{origin_stats_eval_prompt}}',
   origin_shop_conceive: '{{origin_shop_conceive_prompt}}',

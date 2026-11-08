@@ -781,7 +781,7 @@ function renderOriginSettings(origin) {
 
       <div class="origin-setting-actions">
         <button type="submit" class="save-button">保存设置</button>
-        <button type="button" class="quiet-button danger" data-action="origin-reset-data">重置系统数据</button>
+        <button type="button" class="quiet-button danger" data-action="origin-reset-data" title="仅重置任务、属性、背包、商城、祈愿、成就与日志，正文注入与提示词定制等设置将保持稳定">重置系统数据</button>
       </div>
     </form>
   </div>`;

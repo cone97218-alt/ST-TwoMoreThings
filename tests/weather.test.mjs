@@ -297,3 +297,127 @@ test('weather: resolveStoryLocation reads location from BaiBaiBook state or hist
 
   delete globalThis.STBaiBaiBook;
 });
+
+test('weather: readLockWeather links with calendar weather', async () => {
+  const { readLockWeather } = await import('../src/weather.js');
+
+  const mockCalendar = {
+    month() {
+      return {
+        weather: {
+          type: 'heavy_snow',
+          cn: '大雪',
+          temp: -6,
+          isManual: false,
+          location: '哈尔滨',
+          locationSourceLabel: '剧情正文标注',
+          worldEra: 'modern',
+        },
+      };
+    },
+  };
+
+  const lockWeather = readLockWeather(null, new Date(), mockCalendar);
+  assert.equal(lockWeather.type, 'heavy_snow');
+  assert.equal(lockWeather.text, '大雪');
+  assert.equal(lockWeather.temperature, '-6°C');
+  assert.equal(lockWeather.location, '哈尔滨');
+  assert.equal(lockWeather.source, 'calendar');
+  assert.ok(lockWeather.title.includes('哈尔滨'));
+});
+
+test('weather: renderLockMeta renders dynamic SVG icon based on weather type', async () => {
+  const { renderLockMeta } = await import('../src/ui/status.js');
+  const weather = {
+    type: 'thunderstorm',
+    text: '雷暴',
+    temperature: '19°C',
+    source: 'calendar',
+  };
+
+  const html = renderLockMeta(weather);
+  assert.ok(html.includes('雷暴 19°C'));
+  // Should render thunderstorm SVG icon rather than static sun
+  assert.ok(html.includes('<svg'));
+  assert.ok(html.includes('M13 13l-3 5h4l-2 5'));
+});
+
+test('desktop: renderDesktop includes weather in calendar widget when present', async () => {
+  const { renderDesktop } = await import('../src/ui/desktop.js');
+  const calendarData = {
+    yearLabel: '2026年',
+    monthName: '11月',
+    today: '11月8日',
+    columns: 7,
+    leading: 0,
+    days: [
+      { day: 8, isToday: true, items: [] },
+    ],
+    weekdays: ['一', '二', '三', '四', '五', '六', '日'],
+    weather: {
+      type: 'light_rain',
+      cn: '小雨',
+      temp: 13,
+      isManual: false,
+      location: '上海',
+      locationSourceLabel: '剧情正文标注',
+      worldEra: 'modern',
+    },
+  };
+
+  const html = renderDesktop({ theme: 'day' }, { apps: [], calendar: calendarData });
+  assert.ok(html.includes('desktop-calendar-weather'));
+  assert.ok(html.includes('小雨'));
+  assert.ok(html.includes('13°C'));
+  assert.ok(html.includes('<svg'));
+});
+
+test('calendar: renderCalendar renders clickable weather badge and weather modal for mobile devices', async () => {
+  const { renderCalendar } = await import('../src/ui/calendar.js');
+  const calendarData = {
+    month: 11,
+    year: 2026,
+    monthName: '11月',
+    columns: 7,
+    leading: 0,
+    days: [{ day: 8, isToday: true, items: [] }],
+    weekdays: ['一', '二', '三', '四', '五', '六', '日'],
+    weather: {
+      type: 'sunny',
+      cn: '晴朗',
+      temp: 18,
+      location: '北京市',
+      locationSourceLabel: '剧情顶部时间栏',
+      worldEra: 'modern',
+      prompt: '当前天气：晴朗，气温约 18°C',
+    },
+  };
+
+  const state = {
+    calendar: {
+      weatherConfig: { enabled: true },
+    },
+  };
+
+  // 1. Weather badge should be a button with data-action for touch devices
+  const normalHtml = renderCalendar(state, {
+    ui: { calendarWeatherModalOpen: false },
+    calendar: calendarData,
+  });
+  assert.ok(normalHtml.includes('data-action="open-calendar-weather-modal"'));
+  assert.ok(normalHtml.includes('calendar-weather-inline'));
+  assert.ok(normalHtml.includes('晴朗'));
+  assert.ok(!normalHtml.includes('calendar-weather-detail-dialog'));
+
+  // 2. When modal is open, it renders detailed weather dialog
+  const modalHtml = renderCalendar(state, {
+    ui: { calendarWeatherModalOpen: true },
+    calendar: calendarData,
+  });
+  assert.ok(modalHtml.includes('calendar-weather-detail-dialog'));
+  assert.ok(modalHtml.includes('环境气象详情'));
+  assert.ok(modalHtml.includes('北京市'));
+  assert.ok(modalHtml.includes('剧情顶部时间栏'));
+  assert.ok(modalHtml.includes('当前天气：晴朗，气温约 18°C'));
+  assert.ok(modalHtml.includes('data-action="jump-calendar-weather-settings"'));
+});

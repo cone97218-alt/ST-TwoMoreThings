@@ -24,8 +24,9 @@ export function createSystemContact(originState = {}) {
   };
 }
 
-export function formatOriginChatMacros(originState = {}, userProfile = {}) {
+export function formatOriginChatMacros(originState = {}, userProfile = {}, options = {}) {
   const hostName = (originState.bindTo && originState.bindTo !== '宿主') ? originState.bindTo : (userProfile?.name || '宿主');
+  const userName = userProfile?.name || 'User';
   const persona = resolvePersona(originState);
   const activeTasks = (originState.tasks || []).filter(t => t.status === 'active');
   const tasksSummary = activeTasks.length
@@ -38,6 +39,8 @@ export function formatOriginChatMacros(originState = {}, userProfile = {}) {
   return {
     sysName: originState.sysName || '系统',
     hostName,
+    userName,
+    hostPersonality: options.hostPersonality || `宿主角色【${hostName}】`,
     persona,
     level: originState.level || 1,
     exp: originState.exp || 0,
@@ -49,11 +52,13 @@ export function formatOriginChatMacros(originState = {}, userProfile = {}) {
   };
 }
 
-export function fillOriginChatPrompt(template, originState = {}, userProfile = {}) {
-  const m = formatOriginChatMacros(originState, userProfile);
+export function fillOriginChatPrompt(template, originState = {}, userProfile = {}, options = {}) {
+  const m = formatOriginChatMacros(originState, userProfile, options);
   return (template || '')
     .replace(/\{\{sysName\}\}/g, m.sysName)
     .replace(/\{\{hostName\}\}/g, m.hostName)
+    .replace(/\{\{userName\}\}/g, m.userName)
+    .replace(/\{\{hostPersonality\}\}/g, m.hostPersonality)
     .replace(/\{\{persona\}\}/g, m.persona)
     .replace(/\{\{level\}\}/g, String(m.level))
     .replace(/\{\{exp\}\}/g, String(m.exp))

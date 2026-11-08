@@ -27,6 +27,7 @@ import {
   BUCKSHOT_ROULETTE_PROMPT,
   ORIGIN_SYSTEM_PROMPT,
   ORIGIN_CHAT_PROMPT,
+  ORIGIN_OBSERVER_CHAT_PROMPT,
   ORIGIN_TASK_CONCEIVE_PROMPT,
   ORIGIN_STATS_EVAL_PROMPT,
   ORIGIN_SHOP_CONCEIVE_PROMPT,
@@ -70,6 +71,7 @@ export const PRESET_SLOTS = [
   { macro: '{{buckshot_roulette_prompt}}', name: '恶魔轮盘对决规则', desc: '仅单聊：恶魔轮盘生死对决、主动邀约、生命道具与概率博弈' },
   { macro: '{{origin_prompt}}', name: '系统与任务线索注入', desc: '金手指系统状态、宿主属性、进行中任务及期望方向' },
   { macro: '{{origin_chat_prompt}}', name: '系统专属私聊规则', desc: '在手机短信中与随身系统直接私聊时的回复规则' },
+  { macro: '{{origin_observer_chat_prompt}}', name: '系统旁观私聊推演规则', desc: '宿主为NPC角色时，场外旁观推演宿主与系统对答的规则' },
   { macro: '{{origin_task_conceive_prompt}}', name: '系统推演新任务规则', desc: 'AI 构想新任务时的推演指引与 JSON 结构' },
   { macro: '{{origin_stats_eval_prompt}}', name: '系统综合成长规则 (属性/技能/特权)', desc: 'AI 结合剧情评估宿主属性、技能与特权成长或构建能力面板的规则' },
   { macro: '{{origin_shop_conceive_prompt}}', name: '系统商城进货规则', desc: 'AI 结合世界观批量构想新商品时的输出规范' },
@@ -863,6 +865,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
     const buckshotPrompt = getPrompt('buckshot_roulette', state) || BUCKSHOT_ROULETTE_PROMPT;
     const originChatPrompt = fillOriginChatPrompt(getPrompt('origin_chat', state) || ORIGIN_CHAT_PROMPT, state?.origin, state?.userProfile);
+    const originObserverChatPrompt = fillOriginChatPrompt(getPrompt('origin_observer_chat', state) || ORIGIN_OBSERVER_CHAT_PROMPT, state?.origin, state?.userProfile);
     const originTaskPrompt = getPrompt('origin_task_conceive', state) || ORIGIN_TASK_CONCEIVE_PROMPT;
     const originStatsPrompt = getPrompt('origin_stats_eval', state) || ORIGIN_STATS_EVAL_PROMPT;
     const originShopPrompt = getPrompt('origin_shop_conceive', state) || ORIGIN_SHOP_CONCEIVE_PROMPT;
@@ -900,6 +903,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{buckshot_roulette_prompt\}\}/g, buckshotPrompt)
       .replace(/\{\{origin_prompt\}\}/g, finalOriginPrompt)
       .replace(/\{\{origin_chat_prompt\}\}/g, originChatPrompt)
+      .replace(/\{\{origin_observer_chat_prompt\}\}/g, originObserverChatPrompt)
       .replace(/\{\{origin_task_conceive_prompt\}\}/g, originTaskPrompt)
       .replace(/\{\{origin_stats_eval_prompt\}\}/g, originStatsPrompt)
       .replace(/\{\{origin_shop_conceive_prompt\}\}/g, originShopPrompt)

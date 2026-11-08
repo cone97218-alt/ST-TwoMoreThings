@@ -1,6 +1,7 @@
 import { homeImage } from './home.js';
-import { escape, icon } from './shared.js';
+import { escape, icon, weatherSvgIcon } from './shared.js';
 import { pendingTodoCount } from '../todos.js';
+import { ANCIENT_WEATHER_TEXT } from '../weather.js';
 
 function renderCalendarWidget(calendar) {
   if (!calendar) return '';
@@ -10,11 +11,30 @@ function renderCalendarWidget(calendar) {
   const week = calendar.days.slice(start, start + calendar.columns);
   const today = calendar.days[todayIndex];
   const names = today?.items.map(item => item.name).join(' · ') || '';
+  const weather = calendar.weather;
+  let weatherHtml = '';
+  if (weather) {
+    const isAncient = weather.worldEra === 'ancient';
+    const text = (isAncient ? (ANCIENT_WEATHER_TEXT[weather.type] || weather.cn) : weather.cn) || '';
+    const tempText = isAncient ? '' : (weather.temp != null ? ` ${weather.temp}°C` : '');
+    const lockText = weather.isManual ? ' 🔒' : '';
+    const locTip = weather.location
+      ? `地点：${weather.location}${weather.locationSourceLabel ? ` · 来源：${weather.locationSourceLabel}` : ''}\n`
+      : '';
+    const fullDesc = `${locTip}${weather.prompt || ''}`.trim() || `天气：${text}${tempText}`;
+    weatherHtml = `
+      <span class="desktop-calendar-weather" data-action="open-calendar-weather-detail" role="button" tabindex="0" title="${escape(fullDesc)}" aria-label="查看天气详情：${escape(text)}${escape(tempText)}">
+        <span class="desktop-calendar-weather-icon" aria-hidden="true">${weatherSvgIcon(weather.type)}</span>
+        <span class="desktop-calendar-weather-text">${escape(text)}${escape(tempText)}${lockText}</span>
+      </span>
+    `;
+  }
   return `<button type="button" class="desktop-calendar" data-action="open-calendar" aria-label="打开日历">
     <span class="desktop-calendar-copy">
       <small>${escape(calendar.yearLabel)}</small>
       <strong>${escape(calendar.monthName)}</strong>
       <span>${escape(names || calendar.today)}</span>
+      ${weatherHtml}
     </span>
     <span class="desktop-week" style="--desktop-week-columns:${calendar.columns}">
       ${week.map(day => {

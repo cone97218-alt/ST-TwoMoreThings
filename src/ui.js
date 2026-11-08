@@ -1,4 +1,4 @@
-import { avatar, refKey } from './ui/shared.js';
+import { avatar, refKey, weatherSvgIcon } from './ui/shared.js';
 import { partitionHistory } from './timeline.js';
 import { renderHome } from './ui/home.js';
 import { createPhoneClock } from './ui/status.js';
@@ -18,7 +18,7 @@ import { LOCAL_CORE_URL, REMOTE_CORE_URL } from './authoring.js';
 import { renderCalendar } from './ui/calendar.js';
 import { renderMap } from './ui/map.js';
 import { renderOrigin } from './ui/origin.js';
-import { SYSTEM_CONTACT_ID, DEFAULT_ORIGIN_TEMPLATES } from './origin-engine.js';
+import { SYSTEM_CONTACT_ID, DEFAULT_ORIGIN_TEMPLATES, resetOriginData } from './origin-engine.js';
 import { buildMapProjection, readBaiBaiBookMapSnapshot } from './map-engine.js';
 import { createCalendarReader } from './calendar.js';
 import { defaultWorkdayConfig } from './calendar-engine.js';
@@ -126,7 +126,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     manual: false, apiDraft: {}, models: [], modelSearch: '', modelsOpen: false,
     attachment: '', attachmentDraft: {}, stickerPack: 'emoji', photo: null,
     calendarOffset: 0, calendarDay: null, calendarScroll: 0, hasOpenedOnce: false, lastOpenView: '',
-    calendarFormOpen: false, calendarDraft: null,
+    calendarFormOpen: false, calendarDraft: null, calendarWeatherModalOpen: false,
     calendarSettingsOpen: false, calendarAiOpen: false, calendarAiTab: 'festivals',
     calendarAiSetting: '', calendarAiCount: 3, calendarAiDays: 3, calendarAiFocus: '全部',
     calendarAiFestivals: [], calendarAiSchedules: [], calendarAiBusy: false,
@@ -332,8 +332,15 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (ui.batch?.key !== batch.key) { ui.historyOpen = false; ui.visibleHistory = 60; }
     ui.batch = batch;
     element.dataset.theme = state.theme === 'night' ? 'night' : 'day';
-    const page = pages[ui.view];
-    const weather = ui.view === 'home' ? readWeather() : null;
+    const page = pages[ui.view] || pages.home;
+    let weather = null;
+    if (ui.view === 'home' && typeof readWeather === 'function') {
+      try {
+        weather = readWeather(calendar);
+      } catch (err) {
+        console.warn('[pocket-phone] readWeather error:', err);
+      }
+    }
     surface.classList.toggle('is-stacked-lock', ui.view === 'home' && state.lockStyle === 'stacked');
     surface.classList.toggle('is-rounded-theme', ['home', 'desktop'].includes(ui.view) && state.lockStyle === 'rounded');
     const calendarMonth = ui.view === 'calendar'
@@ -358,13 +365,28 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         }
       }
     }
-    surface.innerHTML = renderShell({
-      content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, mapProjection, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview, host }),
-      view: ui.view, enabled, weather,
-      feedback: ui.feedback, photo: ui.photo,
-      conflict: ui.conflict, mode, conflictBusy: busy.has('conflict'),
-      lockStyle: state.lockStyle,
-    });
+    try {
+      surface.innerHTML = renderShell({
+        content: page(state, { ui, busy, apiSettings, imageProviders, entries, appearance, control, mode, apps, calendar: calendarMonth, mapProjection, weather, todos: store, updates, logger, backflowPreview: ui.backflowPreview, host }),
+        view: ui.view, enabled, weather,
+        feedback: ui.feedback, photo: ui.photo,
+        conflict: ui.conflict, mode, conflictBusy: busy.has('conflict'),
+        lockStyle: state.lockStyle,
+      });
+    } catch (renderError) {
+      console.error('[pocket-phone] render error:', renderError);
+      surface.innerHTML = renderShell({
+        content: `<div style="padding: 24px; text-align: center; color: var(--pp-error); font-size: 13px;">
+          <strong>界面渲染出现异常</strong>
+          <p style="font-size: 11px; color: var(--pp-muted); margin: 8px 0;">${escape(renderError?.message || String(renderError))}</p>
+          <button type="button" class="save-button" data-action="system-home" style="margin: 12px auto; width: auto; font-size: 12px; padding: 6px 16px;">返回主页</button>
+        </div>`,
+        view: 'home', enabled, weather: null,
+        feedback: null, photo: null,
+        conflict: false, mode, conflictBusy: false,
+        lockStyle: state.lockStyle,
+      });
+    }
     if (updatesView && ui.view === 'settings') {
       root.querySelector('[data-update-controls]')?.append(updatesView.controls);
       root.querySelector('[data-update-feedback]')?.append(updatesView.feedback);
@@ -1050,7 +1072,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     }
     if (event.key === 'Escape') {
       event.stopPropagation();
-      if (ui.excludeWorldModalOpen) { ui.excludeWorldModalOpen = false; ui.excludeWorldSearch = ''; render(); }
+      if (ui.calendarWeatherModalOpen) { ui.calendarWeatherModalOpen = false; render(); }
+      else if (ui.excludeWorldModalOpen) { ui.excludeWorldModalOpen = false; ui.excludeWorldSearch = ''; render(); }
       else if (ui.photo) { ui.photo = null; render(); }
       else if (ui.notice) dismissPhoneNotice();
       else close();
@@ -1068,7 +1091,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       return;
     }
     if (event.target.matches('.photo-viewer')) { ui.photo = null; render(); return; }
-    if (event.target.matches('.calendar-modal-backdrop')) { ui.calendarAiOpen = false; render(); return; }
+    if (event.target.matches('.calendar-modal-backdrop')) { ui.calendarAiOpen = false; ui.calendarWeatherModalOpen = false; render(); return; }
     if (event.target.matches('.origin-modal-backdrop')) { ui.originModal = null; ui.originModalData = null; render(); return; }
     const originJumpNode = event.target.closest('[data-action="origin-jump-app"]');
     if (originJumpNode) {
@@ -1904,8 +1927,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'origin-close-modal':
         ui.originModal = null; ui.originModalData = null; render(); break;
       case 'origin-reset-data':
-        if (confirm('确认清空本局系统数据吗？任务、背包与积分将重置为初始状态。')) {
-          void perform('origin-reset', () => store.updateOrigin(() => ({})), () => { ui.feedback = { text: '系统数据已重置。' }; onContextChange(); });
+        if (confirm('确认清空本局系统数据吗？任务、属性、背包、商城、祈愿、成就与日志将重置为初始状态，正文注入模块与提示词定制等配置将保持不变。')) {
+          void perform('origin-reset', () => store.updateOrigin(curr => resetOriginData(curr)), () => { ui.feedback = { text: '系统数据已重置（已保留提示词与注入配置）。' }; onContextChange(); });
         }
         break;
       case 'open-calendar':
@@ -1929,6 +1952,14 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         ui.calendarSettingsOpen = true; ui.calendarSettingsTab = 'workday'; ui.calendarFormOpen = false; ui.calendarAiOpen = false; render(); break;
       case 'close-calendar-settings':
         ui.calendarSettingsOpen = false; render(); break;
+      case 'open-calendar-weather-modal':
+        ui.calendarWeatherModalOpen = true; render(); break;
+      case 'close-calendar-weather-modal':
+        ui.calendarWeatherModalOpen = false; render(); break;
+      case 'open-calendar-weather-detail':
+        ui.view = 'calendar'; ui.calendarWeatherModalOpen = true; render(); break;
+      case 'jump-calendar-weather-settings':
+        ui.calendarWeatherModalOpen = false; ui.calendarSettingsOpen = true; ui.calendarSettingsTab = 'weather'; ui.calendarFormOpen = false; ui.calendarAiOpen = false; render(); break;
       case 'switch-calendar-settings-tab':
         ui.calendarSettingsTab = button.dataset.calendarSettingsTab || 'presets'; render(); break;
       case 'apply-calendar-preset': {
@@ -4290,9 +4321,22 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       if (element.hidden) return;
       if (inChat() || ['calendar', 'desktop', 'map'].includes(ui.view)) render();
       if (ui.view === 'home') {
-        const weather = readWeather(), label = root.querySelector('.lock-weather');
-        label.title = weather.source === 'decoration' ? '装饰天气' : '构画剧情天气';
-        label.lastElementChild.textContent = `${weather.text} ${weather.temperature}`;
+        let weather = null;
+        if (typeof readWeather === 'function') {
+          try {
+            weather = readWeather(calendar);
+          } catch {}
+        }
+        const label = root.querySelector('.lock-weather');
+        if (label && weather) {
+          label.title = weather.title || (weather.source === 'decoration' ? '装饰天气' : '构画剧情天气');
+          const span = label.querySelector('span:not(.weather-svg-icon)') || label.lastElementChild;
+          if (span) span.textContent = `${weather.text} ${weather.temperature}`.trim();
+          const iconEl = label.querySelector('.weather-svg-icon') || label.firstElementChild;
+          if (iconEl && weather.type) {
+            iconEl.innerHTML = weatherSvgIcon(weather.type);
+          }
+        }
       }
     },
     dispose() {

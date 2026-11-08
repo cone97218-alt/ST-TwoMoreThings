@@ -7,6 +7,7 @@ import { renderGameBoard } from './game-board.js';
 import { chatBackgroundStyle } from '../backgrounds.js';
 import { renderTodoCandidate } from './todos.js';
 import { replyContext } from '../replies.js';
+import { SYSTEM_CONTACT_ID, isOriginObserverMode } from '../origin-engine.js';
 
 const DEFAULT_QUICK_REACTIONS = ['❤️', '🥰', '👍', '👌', '😂', '🤔'];
 const EXTENDED_REACTIONS = ['🥹', '😭', '😤', '😳', '🙏', '🎉', '🔥', '👀', '💔', '🤝', '🫡', '✨'];
@@ -73,14 +74,16 @@ export function renderInbox(state, { ui, busy }) {
     ${!state.contacts.length ? empty('还没有联系人') : ''}`;
 }
 
-function renderMessage(message, previous, next, { contact, user, selected, deleting, isGroup, busy, readOnly = false, state, ui, conversationId }) {
-  const mine = message.role === 'user';
+function renderMessage(message, previous, next, { contact, user, selected, deleting, isGroup, busy, readOnly = false, state, ui, conversationId, isSystemObserver = false, hostName = '宿主', observer = false }) {
+  const isSysHost = Boolean(isSystemObserver && message.role === 'user');
+  const mine = message.role === 'user' && !isSystemObserver;
+  const hostContact = isSysHost ? (state.contacts?.find(person => person.name === hostName || person.nickname === hostName) || (message.speakerId ? state.contacts?.find(p => p.id === message.speakerId) : null)) : null;
   const sender = isGroup && !mine ? state.contacts?.find(person => person.id === message.speakerId) || { name: '群成员' } : null;
-  const senderDisplayName = mine ? '你' : displayName(sender || contact);
+  const senderDisplayName = isSysHost ? (hostName || '宿主') : (mine ? '你' : displayName(sender || contact));
 
   if (message.type === 'poke') {
     const actorName = message.poke?.actorName || senderDisplayName;
-    const targetName = message.poke?.targetName || (mine ? displayName(contact) : '你');
+    const targetName = message.poke?.targetName || (mine ? displayName(contact) : (isSysHost ? displayName(contact) : '你'));
     const suffix = message.poke?.suffix || '的头像';
     return `<div class="message-row is-system is-poke" data-poke-id="${escape(message.id)}" data-message-row-id="${escape(message.id)}">
       <div class="poke-notice" role="status">
@@ -146,7 +149,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
   if (message.withdrawn) {
     return `<div class="message-row is-system is-withdrawn" data-withdrawn-id="${escape(message.id)}" data-message-row-id="${escape(message.id)}">
       <div class="withdrawn-notice" role="status">
-        <span>${escape(mine ? '你撤回了一条消息' : `${senderDisplayName}撤回了一条消息`)}</span>
+        <span>${escape(isSysHost ? `${senderDisplayName}撤回了一条消息` : (mine ? '你撤回了一条消息' : `${senderDisplayName}撤回了一条消息`))}</span>
         ${mine && message.withdrawnText && !readOnly ? `<button type="button" class="withdrawn-reedit-btn" data-action="reedit-withdrawn" data-message-id="${escape(message.id)}">重新编辑</button>` : ''}
         ${!mine && !readOnly ? `<button type="button" class="withdrawn-reedit-btn" data-action="toggle-thought" data-message-id="${escape(message.id)}">💭 心声</button>` : ''}
         ${!readOnly ? `<button type="button" class="system-notice-delete" data-action="delete-system-message" data-message-id="${escape(message.id)}" aria-label="删除撤回提示">×</button>` : ''}
@@ -162,7 +165,7 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
   const multiSelect = Boolean(ui.multiSelectMode && !readOnly);
   const multiChecked = Boolean(multiSelect && ui.selectedMessageIds?.has(message.id));
   const chosen = !multiSelect && selected === message.id;
-  const observer = isGroup && !contact.userIsMember;
+  const observerMode = (isGroup && !contact.userIsMember) || isSystemObserver;
 
   const bubbleAttributes = message.type === 'image' && !multiSelect
     ? `data-action="photo" data-photo="${escape(message.id)}" aria-label="${message.image.path ? '查看图片' : '生成图片'}" ${busy.has(`image:${message.id}`) ? 'disabled' : ''}`
@@ -183,6 +186,9 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
   let messageAvatar;
   if (isGroup && !mine && sender?.id) {
     messageAvatar = `<button type="button" class="mention-avatar" data-mention-id="${escape(sender.id)}" data-poke-target-id="${escape(sender.id)}" data-poke-target-name="${escape(displayName(sender))}" data-message-id="${escape(message.id)}" title="单击 @提及 · 双击拍一拍" aria-label="提及${escape(displayName(sender))}">${avatar(sender, true)}</button>`;
+  } else if (isSysHost) {
+    const hostProfile = hostContact || { name: hostName || '宿主', tone: 'teal' };
+    messageAvatar = `<button type="button" class="chat-avatar-btn${message.thought ? ' has-thought' : ''}" data-action="toggle-thought" data-message-id="${escape(message.id)}" data-poke-target-id="${escape(hostProfile.id || 'host')}" data-poke-target-name="${escape(hostName || '宿主')}" title="${hostContact ? '单击查看心声' : escape(hostName || '宿主')}" aria-label="宿主${escape(hostName || '宿主')}头像">${avatar(hostProfile, true)}</button>`;
   } else if (!isGroup && !mine) {
     messageAvatar = `<button type="button" class="chat-avatar-btn${message.thought ? ' has-thought' : ''}" data-action="toggle-thought" data-message-id="${escape(message.id)}" data-poke-target-id="${escape(contact.id)}" data-poke-target-name="${escape(displayName(contact))}" title="单击查看心声 · 双击拍一拍" aria-label="查看${escape(displayName(contact))}心声">${avatar(contact, true)}</button>`;
   } else {
@@ -249,22 +255,22 @@ function renderMessage(message, previous, next, { contact, user, selected, delet
     ${messageAvatar}
     <div class="message-body">
       <div class="message-copy">
-        ${isGroup && !mine && !hasPrev ? `<span class="message-sender">${escape(displayName(sender || contact))}</span>` : ''}
+        ${(isGroup && !mine && !hasPrev) || (isSystemObserver && !hasPrev) ? `<span class="message-sender">${escape(senderDisplayName)}</span>` : ''}
         ${reasoningBlock}
         ${thoughtCard}
         <div class="bubble-line">
           ${reactionBar}
           <button type="button" class="bubble ${message.type ? `${message.type}-message` : ''}" ${bubbleAttributes}>${forwardedBlock}${body}</button>
           ${chosen ? `<div class="message-actions" role="group" aria-label="短信操作">
-            ${!readOnly && !observer ? action('reply-message', '引用', 'message-reply', 'message-action message-reply-action') : ''}
-            ${!readOnly && !message.type ? action('edit-message', '编辑', 'message-edit', 'message-action') : ''}
+            ${!readOnly && !observerMode ? action('reply-message', '引用', 'message-reply', 'message-action message-reply-action') : ''}
+            ${!readOnly && !observerMode && !message.type ? action('edit-message', '编辑', 'message-edit', 'message-action') : ''}
             ${action('copy-message', '复制', 'message-copy', 'message-action')}
             ${!readOnly ? action('favorite-message', message.favorite ? '已藏' : '收藏', message.favorite ? 'message-star-active' : 'message-star', `message-action${message.favorite ? ' is-active' : ''}`) : ''}
             ${!readOnly ? action('forward-message', '转发', 'message-forward', 'message-action') : ''}
             ${!readOnly ? action('multi-select-message', '多选', 'message-select', 'message-action') : ''}
             ${!readOnly && !mine ? action('open-message-thought', '心声', 'message-thought', `message-action${message.thought ? ' is-active' : ''}`) : ''}
-            ${!readOnly && !mine && !observer ? action('poke-contact', '拍拍', 'message-poke', 'message-action') : ''}
-            ${!readOnly ? action('withdraw-message', '撤回', 'message-undo', 'message-action') : ''}
+            ${!readOnly && !mine && !observerMode ? action('poke-contact', '拍拍', 'message-poke', 'message-action') : ''}
+            ${!readOnly && !observerMode ? action('withdraw-message', '撤回', 'message-undo', 'message-action') : ''}
             <button type="button" class="message-action message-delete danger" data-action="delete-message" aria-label="删除这条短信" ${deleting ? 'disabled' : ''}>${icon('message-delete')}<span>删除</span></button>
           </div>` : ''}
         </div>
@@ -378,12 +384,15 @@ export function renderChat(state, { ui, busy }) {
   const generating = busy.has(`continue:${contact.id}`), saving = busy.has(`send:${contact.id}`);
   const user = state.userProfile || { name: ui.defaultUser };
   const deleting = busy.has(`delete:${contact.id}`);
+  const isSystem = contact.id === SYSTEM_CONTACT_ID;
+  const isSystemObserver = isSystem && isOriginObserverMode(state.origin, user);
+  const observer = (isGroup && !contact.userIsMember) || isSystemObserver;
+  const hostName = state.origin?.bindTo || '宿主';
   const messageView = {
     contact, user, selected: ui.selectedMessage, state, ui, conversationId: contact.id,
-    deleting, isGroup, busy,
+    deleting, isGroup, busy, isSystemObserver, hostName, observer,
   };
   const profileAction = isGroup ? 'edit-group' : 'profile';
-  const observer = isGroup && !contact.userIsMember;
   const reply = ui.replyToId ? replyContext({ replyToId: ui.replyToId }, allMessages) : undefined;
   const replySenderName = reply && !reply.missing
     ? (reply.role === 'user'
@@ -459,7 +468,7 @@ export function renderChat(state, { ui, busy }) {
   const favCount = allMessages.filter(m => m.favorite && !m.withdrawn).length;
   const chatMenu = ui.chatMenu ? `<div class="chat-menu">
     ${action(profileAction, isGroup ? '编辑群聊' : '编辑联系人', '', 'menu-item')}
-    ${!isGroup ? action('poke-chat-partner', '拍一拍对方', '', 'menu-item') : ''}
+    ${!isGroup && !isSystemObserver ? action('poke-chat-partner', '拍一拍对方', '', 'menu-item') : ''}
     ${action('open-favorites', `收藏夹 (${favCount})`, '', 'menu-item')}
     ${action('enter-multi-select', '多选消息', '', 'menu-item')}
     ${action('clear-chat', '清空聊天', '', 'menu-item danger', generating || saving)}
@@ -487,8 +496,9 @@ export function renderChat(state, { ui, busy }) {
     </div>
   </div>`;
 
+  const observerLabel = isGroup ? '旁观群聊' : '旁观私聊';
   const composer = ui.multiSelectMode ? multiToolbar : observer ? `<div class="composer observer-composer">
-    <span>旁观群聊</span>
+    <span title="${isGroup ? '以旁观者身份查看群聊' : `旁观宿主【${escape(hostName)}】与系统私聊`}">${observerLabel}</span>
     ${action('continue', '继续', 'refresh', 'continue-button', generating)}
   </div>` : `<form class="composer">
     <div class="composer-input">
@@ -505,7 +515,7 @@ export function renderChat(state, { ui, busy }) {
       ${avatar(contact, true)}
       <button type="button" class="conversation-person" data-action="${profileAction}" aria-label="聊天资料">
         <h1>${escape(displayName(contact))}</h1>
-        ${isGroup ? `<small>${contact.memberIds.length + Number(contact.userIsMember)} 位成员${observer ? ' · 旁观' : ''}</small>` : ''}
+        ${isGroup ? `<small>${contact.memberIds.length + Number(contact.userIsMember)} 位成员${observer ? ' · 旁观' : ''}</small>` : (isSystemObserver ? `<small>宿主：${escape(hostName)} · 旁观</small>` : '')}
       </button>
       <div class="chat-options">
         ${action('chat-menu', '聊天选项', 'more', 'icon-button')}

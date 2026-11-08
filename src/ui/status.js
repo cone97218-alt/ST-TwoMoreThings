@@ -1,9 +1,9 @@
-import { escape, icon } from './shared.js';
+import { escape, icon, weatherSvgIcon } from './shared.js';
 
 export function renderLockMeta(weather) {
   return `<div class="lock-meta">
-    <span class="lock-weather" title="${weather.source === 'decoration' ? '装饰天气' : '构画剧情天气'}">
-      ${icon('sun')}<span>${escape(weather.text)} ${escape(weather.temperature)}</span>
+    <span class="lock-weather" title="${escape(weather?.title || (weather?.source === 'decoration' ? '装饰天气' : '构画剧情天气'))}">
+      ${weather?.type ? weatherSvgIcon(weather.type) : icon('sun')}<span>${escape(weather?.text || '')} ${escape(weather?.temperature || '')}</span>
     </span>
     <span class="home-date"></span>
   </div>`;

@@ -172,6 +172,53 @@ export function defaultOriginState() {
   };
 }
 
+/**
+ * 判断当前系统是否处于旁观模式（即系统绑定的宿主不是操作手机的 User）
+ */
+export function isOriginObserverMode(originState = {}, userProfile = {}) {
+  if (!originState) return false;
+  const bindTo = String(originState.bindTo || '').trim();
+  if (!bindTo || bindTo === '宿主' || bindTo === '我') return false;
+  const userName = String(userProfile?.name || '').trim();
+  if (userName && bindTo.toLowerCase() === userName.toLowerCase()) return false;
+  if (bindTo.toLowerCase() === 'user' || bindTo.toLowerCase() === '<user>') return false;
+  return true;
+}
+
+/**
+ * 仅重置系统的运行时数据（任务、属性、背包、商城、祈愿、成就、日志），
+ * 保留正文注入模块（sections）、提示词定制、标签正则、以及基础配置等，以保持系统配置稳定性。
+ */
+export function resetOriginData(origin = {}) {
+  const norm = normalizeOriginState(origin);
+  return {
+    ...norm,
+    points: 0,
+    level: 1,
+    exp: 0,
+    expMax: 100,
+    stats: [],
+    tasks: [],
+    bag: [],
+    shop: [],
+    shopCatalog: [],
+    gachaPool: [],
+    gachaCatalog: [],
+    achievements: [],
+    skills: [],
+    perks: [],
+    log: [],
+    rewardsLog: [],
+    pendingUse: [],
+    pendingEvent: [],
+    direction: '',
+    nextId: 1,
+    lastTaskTurn: -99,
+    lastShopTurn: -99,
+    lastGachaTurn: -99,
+  };
+}
+
 export function normalizeOriginState(raw) {
   const fallback = defaultOriginState();
   if (!raw || typeof raw !== 'object') return fallback;

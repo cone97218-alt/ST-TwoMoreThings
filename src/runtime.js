@@ -33,7 +33,7 @@ import { collapseMessages } from './preset-engine.js';
 import { createOriginService } from './origin.js';
 export { createPhoneControl, createPhoneImageService };
 
-export function initialize({ mode = 'standalone', host = createHostAdapter({ mode }), documentRef = document, qqjBridgeProvider, preset, coreUrl, release, updateError, replaceCore } = {}) {
+export function initialize({ mode = 'standalone', host = createHostAdapter({ mode }), documentRef = document, qqjBridgeProvider = () => globalThis.qqj_v3_public_bridge_v1, preset, coreUrl, release, updateError, replaceCore } = {}) {
   const updates = host.mode === 'embedded'
     ? createEmbeddedUpdates({ coreUrl, version: VERSION, release, updateError, replaceCore })
     : createPluginUpdates({ moduleUrl: import.meta.url, extensionTypes: () => host.readExtensionTypes(), headers: () => host.getRequestHeaders(), noticePath: UPDATE_NOTICE_PATH });
@@ -162,7 +162,7 @@ export function initialize({ mode = 'standalone', host = createHostAdapter({ mod
         else if (globalThis.toastr?.success) globalThis.toastr.success(notification.text);
         else globalThis.alert?.(notification.text);
       },
-      control, imageProviders, images: createPhoneImageService({ store, modelClient, files, providers: imageProviders, assertEnabled: control.assertEnabled, onBusyChange, defaultUser: target.user }), readWeather: readLockWeather,
+      control, imageProviders, images: createPhoneImageService({ store, modelClient, files, providers: imageProviders, assertEnabled: control.assertEnabled, onBusyChange, defaultUser: target.user }), readWeather: () => readLockWeather(typeof qqjBridgeProvider === 'function' ? qqjBridgeProvider() : globalThis.qqj_v3_public_bridge_v1, undefined, calendar),
       onContextChange: () => { host.setPrompt(''); logger.setLastBackflowPrompt(''); },
       onClose: () => entries.focus(),
     });

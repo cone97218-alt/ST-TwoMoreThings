@@ -1,5 +1,5 @@
 import { parsePayload, parseJsonObject, extractReasoning } from './api.js';
-import { getPrompt, CONTACTS_PROMPT, MESSAGES_PROMPT, TODO_SUGGESTIONS_PROMPT, THOUGHT_PROMPT } from './prompts.js';
+import { getPrompt, CONTACTS_PROMPT, MESSAGES_PROMPT, TODO_SUGGESTIONS_PROMPT, THOUGHT_PROMPT, ORIGIN_OBSERVER_CHAT_PROMPT } from './prompts.js';
 import { readTimeline } from './timeline.js';
 import { normalizeContent, messageText, formatForwardedContextText, generateMessageId, shortenMessageId, extractLatestUserInput, RICH_MESSAGES_PROMPT } from './content.js';
 import { CALENDAR_PROMPT } from './calendar.js';
@@ -16,8 +16,8 @@ import {
   useItem as buckshotUseItem,
   getAiBuckshotDecision,
 } from './games/buckshot-roulette.js';
-import { SYSTEM_CONTACT_ID } from './origin-engine.js';
-import { buildSystemChatPrompt } from './origin-chat.js';
+import { SYSTEM_CONTACT_ID, isOriginObserverMode, resolvePersona } from './origin-engine.js';
+import { buildSystemChatPrompt, fillOriginChatPrompt } from './origin-chat.js';
 
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
@@ -27,6 +27,58 @@ export function record(role, text, clock, translation, batch) {
     ...(batch ? { batch: { key: batch.key, label: batch.label } } : {}),
     ...(clock.source === 'story' ? { storyDate: clock.date, storyWeekday: clock.weekday } : {}),
   };
+}
+
+export async function applySystemChatCommands(cleanReply, { originService, store }) {
+  const taskMatches = cleanReply.match(/【(?:新任务|发布任务)[：:]([\s\S]*?)】/g);
+  if (taskMatches && originService?.saveTask) {
+    for (const tm of taskMatches) {
+      const inner = tm.replace(/^【(?:新任务|发布任务)[：:]/, '').replace(/】$/, '').trim();
+      const parts = inner.split('|').map(s => s.trim());
+      if (parts.length >= 2) {
+        const [typeOrTitle, titleOrCond, cond, reward, penalty, limit] = parts;
+        const isType = ['主线', '支线', '日常'].includes(typeOrTitle);
+        const taskType = isType ? typeOrTitle : '支线';
+        const taskTitle = isType ? titleOrCond : typeOrTitle;
+        const taskCond = isType ? (cond || '') : (titleOrCond || '');
+        const taskReward = isType ? (reward || '') : (cond || '');
+        const taskPenalty = isType ? (penalty || '') : (reward || '');
+        const rawLimit = String(isType ? limit : penalty || '');
+        const taskLimit = parseInt(rawLimit.replace(/[^0-9]/g, ''), 10) || 0;
+        await originService.saveTask(null, {
+          type: taskType,
+          title: taskTitle || '新任务',
+          cond: taskCond,
+          reward: taskReward,
+          penalty: taskPenalty,
+          limit: taskLimit,
+        });
+      }
+    }
+  }
+
+  const rewardMatches = cleanReply.match(/【(?:奖励|获得)[：:]([\s\S]*?)】/g);
+  if (rewardMatches && originService) {
+    for (const rm of rewardMatches) {
+      const inner = rm.replace(/^【(?:奖励|获得)[：:]/, '').replace(/】$/, '').trim();
+      const ptsMatch = inner.match(/积分([+-]?\d+)/);
+      if (ptsMatch) {
+        const delta = parseInt(ptsMatch[1], 10);
+        if (delta) {
+          await store.updateOrigin(curr => {
+            curr.points = Math.max(0, (curr.points || 0) + delta);
+            return curr;
+          });
+        }
+      }
+      const statMatches = inner.matchAll(/([\u4e00-\u9fa5a-zA-Z]+)([+-]\d+)/g);
+      for (const sm of statMatches) {
+        if (sm[1] !== '积分') {
+          await originService.updateStat(sm[1], parseInt(sm[2], 10));
+        }
+      }
+    }
+  }
 }
 
 export function createMessageService({ target, store, contextReader, modelClient, originService = null }) {
@@ -84,6 +136,9 @@ export function createMessageService({ target, store, contextReader, modelClient
       const content = String(text || '').trim();
       if (!content) return;
       const state = store.read();
+      if (id === SYSTEM_CONTACT_ID && isOriginObserverMode(state.origin, state.userProfile)) {
+        throw new Error(`当前系统绑定于宿主【${state.origin?.bindTo || '角色'}】，你正在以旁观模式查看，不能代宿主发送消息。`);
+      }
       if (!state.contacts.some(x => x.id === id)) throw new Error('请先选择一位联系人。');
       const batch = readTimeline(target.messages);
       const thread = state.conversations[id] || [];
@@ -161,15 +216,99 @@ export function createMessageService({ target, store, contextReader, modelClient
     async continueChat(id) {
       if (id === SYSTEM_CONTACT_ID) {
         const state = store.read();
+        const isObserver = isOriginObserverMode(state.origin, state.userProfile);
+        const hostName = (state.origin?.bindTo && state.origin?.bindTo !== '宿主') ? state.origin.bindTo : (state.userProfile?.name || '宿主');
         const activePreset = getActivePreset(state);
-        const rawThread = state.conversations[id] || [];
+        let rawThread = [...(state.conversations[id] || [])];
         const context = await contextReader.readForContact(id);
         const clock = context.clock;
+        const batch = readTimeline(target.messages);
         const storyHistoryText = (context.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
         const phoneContextData = sanitizePhoneContext(context);
+
+        // 若处于旁观模式（系统绑定的宿主不是 User），且当前最新一条不是宿主发言：
+        // 方案 A：单次 API 调用同时推演宿主与系统的即时对答，极速流畅且仅消耗 1 次 API
+        if (isObserver) {
+          const lastMsg = rawThread[rawThread.length - 1];
+          if (!lastMsg || lastMsg.role === 'assistant') {
+            const hostContact = (state.contacts || []).find(c => c.name === hostName || c.nickname === hostName);
+            const hostPersonality = hostContact
+              ? `${hostContact.name}：${hostContact.personality || ''}（性格/风格：${hostContact.expression || ''}）`
+              : `宿主角色【${hostName}】`;
+            const template = getPrompt('origin_observer_chat', state) || ORIGIN_OBSERVER_CHAT_PROMPT;
+            const observerPrompt = fillOriginChatPrompt(template, state.origin, state.userProfile, { hostPersonality });
+
+            const observerReply = await modelClient.complete({
+              label: '宿主与系统旁观私聊推演',
+              system: observerPrompt,
+              messages: [
+                ...(storyHistoryText ? [{ role: 'system', content: `【最近故事正文背景】\n${storyHistoryText.slice(-1500)}` }] : []),
+                ...rawThread.slice(-6).map(m => ({
+                  role: m.role === 'user' ? 'assistant' : 'user',
+                  content: m.text || '',
+                })),
+                { role: 'user', content: `请推演【${hostName}】与【${state.origin?.sysName || '系统'}】的一轮互动对话，输出 JSON：` },
+              ],
+            });
+
+            const parsed = parseJsonObject(observerReply);
+            let cleanHostMsg = String(parsed?.hostMessage || parsed?.host || parsed?.user || '').trim();
+            let cleanSysReply = String(parsed?.systemReply || parsed?.system || parsed?.reply || '').trim();
+
+            if (!cleanHostMsg || !cleanSysReply) {
+              const stripped = String(observerReply || '')
+                .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                .replace(/<origin>[\s\S]*?<\/origin>/gi, '')
+                .trim();
+              const hostRegex = new RegExp(`(?:宿主|${hostName}|User)[：:\\s]+([\\s\\S]*?)(?=(?:系统|${state.origin?.sysName || '系统'}|$))`, 'i');
+              const sysRegex = new RegExp(`(?:系统|${state.origin?.sysName || '系统'})[：:\\s]+([\\s\\S]*?)$`, 'i');
+              const hm = stripped.match(hostRegex);
+              const sm = stripped.match(sysRegex);
+              if (hm) cleanHostMsg = hm[1].trim();
+              if (sm) cleanSysReply = sm[1].trim();
+              if (!cleanHostMsg && !cleanSysReply) {
+                const lines = stripped.split('\n').map(l => l.trim()).filter(Boolean);
+                if (lines.length >= 2) {
+                  cleanHostMsg = lines[0].replace(/^[【\[]?\w+[】\]]?[：:]\s*/, '');
+                  cleanSysReply = lines.slice(1).join('\n').replace(/^[【\[]?\w+[】\]]?[：:]\s*/, '');
+                } else {
+                  cleanSysReply = stripped;
+                }
+              }
+            }
+
+            cleanHostMsg = cleanHostMsg.replace(/^["'“‘](.*)["'”’]$/s, '$1').trim();
+            cleanSysReply = cleanSysReply.replace(/^["'“‘](.*)["'”’]$/s, '$1').trim();
+
+            const newMessages = [];
+            if (cleanHostMsg) {
+              const hostMsg = {
+                ...record('user', cleanHostMsg, clock, '', batch),
+                text: cleanHostMsg,
+                speakerName: hostName,
+                ...(hostContact?.id ? { speakerId: hostContact.id } : {}),
+              };
+              newMessages.push(hostMsg);
+            }
+            if (cleanSysReply) {
+              await applySystemChatCommands(cleanSysReply, { originService, store });
+              const sysMsg = {
+                ...record('assistant', cleanSysReply, clock, '', batch),
+                text: cleanSysReply,
+              };
+              newMessages.push(sysMsg);
+            }
+
+            if (newMessages.length > 0) {
+              await store.appendMessages(id, newMessages);
+            }
+            return newMessages;
+          }
+        }
+
         const latestUserInput = extractLatestUserInput(rawThread, {
           contactName: state.origin?.sysName || '系统',
-          userName: state.userProfile?.name || '<user>',
+          userName: isObserver ? hostName : (state.userProfile?.name || '<user>'),
         });
 
         const promptData = buildSystemChatPrompt({
@@ -211,57 +350,8 @@ export function createMessageService({ target, store, contextReader, modelClient
           .trim();
 
         // 路线 A：解析系统私聊回复中的任务发布与属性/积分结算指令
-        const taskMatches = cleanReply.match(/【(?:新任务|发布任务)[：:]([\s\S]*?)】/g);
-        if (taskMatches && originService?.saveTask) {
-          for (const tm of taskMatches) {
-            const inner = tm.replace(/^【(?:新任务|发布任务)[：:]/, '').replace(/】$/, '').trim();
-            const parts = inner.split('|').map(s => s.trim());
-            if (parts.length >= 2) {
-              const [typeOrTitle, titleOrCond, cond, reward, penalty, limit] = parts;
-              const isType = ['主线', '支线', '日常'].includes(typeOrTitle);
-              const taskType = isType ? typeOrTitle : '支线';
-              const taskTitle = isType ? titleOrCond : typeOrTitle;
-              const taskCond = isType ? (cond || '') : (titleOrCond || '');
-              const taskReward = isType ? (reward || '') : (cond || '');
-              const taskPenalty = isType ? (penalty || '') : (reward || '');
-              const rawLimit = String(isType ? limit : penalty || '');
-              const taskLimit = parseInt(rawLimit.replace(/[^0-9]/g, ''), 10) || 0;
-              await originService.saveTask(null, {
-                type: taskType,
-                title: taskTitle || '新任务',
-                cond: taskCond,
-                reward: taskReward,
-                penalty: taskPenalty,
-                limit: taskLimit,
-              });
-            }
-          }
-        }
+        await applySystemChatCommands(cleanReply, { originService, store });
 
-        const rewardMatches = cleanReply.match(/【(?:奖励|获得)[：:]([\s\S]*?)】/g);
-        if (rewardMatches && originService) {
-          for (const rm of rewardMatches) {
-            const inner = rm.replace(/^【(?:奖励|获得)[：:]/, '').replace(/】$/, '').trim();
-            const ptsMatch = inner.match(/积分([+-]?\d+)/);
-            if (ptsMatch) {
-              const delta = parseInt(ptsMatch[1], 10);
-              if (delta) {
-                await store.updateOrigin(curr => {
-                  curr.points = Math.max(0, (curr.points || 0) + delta);
-                  return curr;
-                });
-              }
-            }
-            const statMatches = inner.matchAll(/([\u4e00-\u9fa5a-zA-Z]+)([+-]\d+)/g);
-            for (const sm of statMatches) {
-              if (sm[1] !== '积分') {
-                await originService.updateStat(sm[1], parseInt(sm[2], 10));
-              }
-            }
-          }
-        }
-
-        const batch = readTimeline(target.messages);
         const sysMsg = {
           ...record('assistant', cleanReply, clock, '', batch),
           text: cleanReply,

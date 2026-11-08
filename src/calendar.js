@@ -2,6 +2,18 @@ import { createPhoneCalendarApi, defaultGregorianCalendar, BUILTIN_FESTIVALS, pa
 import { readPhoneTime, latestAiFloor } from './time.js';
 import { readTodos } from './todos.js';
 import { displayName } from './profiles.js';
+import { defaultWeatherConfig, rollWeather, formatWeatherPrompt, resolveWeatherForDate, getSolarTerm, getHourlyTemperature } from './weather.js';
+
+export function extractStoryLocation(messages) {
+  if (!Array.isArray(messages) || !messages.length) return '';
+  const lastMes = latestAiFloor(messages)?.message?.mes || '';
+  if (!lastMes) return '';
+  const worldMatch = /\[\[WORLD\]\][\s\S]*?location=([^|\]\r\n]+)/iu.exec(lastMes);
+  if (worldMatch?.[1]?.trim()) return worldMatch[1].trim();
+  const tagMatch = /(?:【|\(|\[|`|\b)(?:地点|位置|Location)\s*[:：=＝]\s*([^】\)\]`\r\n]+)(?:】|\)|\]|`|\b)/iu.exec(lastMes);
+  if (tagMatch?.[1]?.trim()) return tagMatch[1].trim();
+  return '';
+}
 
 export const CALENDAR_PROMPT = 'calendar是已有的节日和纪念日，仅作可选话题线索。结合当前剧情、人物关系及各人实际知情判断是否提起，不因日历可见就让所有人知道私人纪念日，不强制提醒或安排活动；未来日期不代表庆祝或约定已经发生。若事项跨越多天（注明共几天、当前为第几天），应贴合当前所处的天数阶段自然推进话题，避免将多日行程或节庆每天当成首日重复开场。';
 
@@ -209,7 +221,43 @@ export function createCalendarReader({
     const weekdayReference = (today && Number.isInteger(today.weekday))
       ? { ...today, weekday: today.weekday }
       : null;
-    return { calendar, items, today, weekdayReference };
+    const weatherConfig = state.calendar?.weatherConfig;
+    let weather = null;
+    if (weatherConfig?.enabled) {
+      const month = today?.month || 1;
+      const day = today?.day || 1;
+      const year = today?.year || new Date().getFullYear();
+      const isAncient = weatherConfig.worldEra === 'ancient' || (weatherConfig.worldEra === 'auto' && Boolean(calendar.era));
+      const era = isAncient ? 'ancient' : 'modern';
+      const loc = extractStoryLocation(messages) || weatherConfig.defaultCity || '';
+      const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const manual = weatherConfig.weatherOverrides?.[dateKey] || weatherConfig.weatherOverrides?.[`${month}-${day}`];
+      if (manual) {
+        weather = {
+          type: manual.type || 'cloudy',
+          cn: manual.cn || '多云',
+          temp: typeof manual.temp === 'number' ? manual.temp : 20,
+          extreme: Boolean(manual.extreme),
+          icon: manual.icon || '⛅',
+          isManual: true,
+          note: manual.note || '剧情锁定',
+        };
+      } else {
+        const seed = `${dateKey}_${loc}_${weatherConfig.seedSalt || ''}`;
+        weather = rollWeather(month, { seed });
+      }
+      weather.location = loc;
+      weather.worldEra = era;
+      const solarTerm = (weatherConfig.solarTermsEnabled !== false && calendar.kind !== 'custom')
+        ? getSolarTerm(year, month, day)
+        : null;
+      if (solarTerm) weather.solarTerm = solarTerm;
+      weather.prompt = formatWeatherPrompt(weather, {
+        worldEra: era,
+        timeStr: timeInfo?.time || '',
+      });
+    }
+    return { calendar, items, today, weekdayReference, weather };
   };
 
   // 模型上下文源：只有在正文建立了有效剧情日期，或者 query 明确提及某节日时才提供参考，不无中生有编造倒计时
@@ -289,7 +337,43 @@ export function createCalendarReader({
     const weekdayReference = (today && Number.isInteger(today.weekday))
       ? { ...today, weekday: today.weekday }
       : null;
-    return { calendar, items, today, weekdayReference };
+    const weatherConfig = state.calendar?.weatherConfig;
+    let weather = null;
+    if (weatherConfig?.enabled && weatherConfig?.injectPrompt !== false) {
+      const month = today?.month || 1;
+      const day = today?.day || 1;
+      const year = today?.year || new Date().getFullYear();
+      const isAncient = weatherConfig.worldEra === 'ancient' || (weatherConfig.worldEra === 'auto' && Boolean(calendar.era));
+      const era = isAncient ? 'ancient' : 'modern';
+      const loc = extractStoryLocation(messages) || weatherConfig.defaultCity || '';
+      const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const manual = weatherConfig.weatherOverrides?.[dateKey] || weatherConfig.weatherOverrides?.[`${month}-${day}`];
+      if (manual) {
+        weather = {
+          type: manual.type || 'cloudy',
+          cn: manual.cn || '多云',
+          temp: typeof manual.temp === 'number' ? manual.temp : 20,
+          extreme: Boolean(manual.extreme),
+          icon: manual.icon || '⛅',
+          isManual: true,
+          note: manual.note || '剧情锁定',
+        };
+      } else {
+        const seed = `${dateKey}_${loc}_${weatherConfig.seedSalt || ''}`;
+        weather = rollWeather(month, { seed });
+      }
+      weather.location = loc;
+      weather.worldEra = era;
+      const solarTerm = (weatherConfig.solarTermsEnabled !== false && calendar.kind !== 'custom')
+        ? getSolarTerm(year, month, day)
+        : null;
+      if (solarTerm) weather.solarTerm = solarTerm;
+      weather.prompt = formatWeatherPrompt(weather, {
+        worldEra: era,
+        timeStr: timeInfo?.time || '',
+      });
+    }
+    return { calendar, items, today, weekdayReference, weather };
   };
 
   const uiApi = createPhoneCalendarApi({ read: uiSource });
@@ -371,6 +455,53 @@ export function createCalendarReader({
       const deduplicatedBuiltins = (disableBuiltin ? [] : BUILTIN_FESTIVALS).filter(b => !customItems.some(c => c.id === b.id));
       const festivals = [...deduplicatedBuiltins, ...customItems].filter(it => it?.type === 'festival');
       return resolveWorkdayHolidayPrompt(timeInfo, calendar, workdayConfig, festivals);
+    },
+    weatherPrompt(messages = null) {
+      const state = store?.read?.() || {};
+      const weatherConfig = state.calendar?.weatherConfig;
+      if (!weatherConfig?.enabled || weatherConfig?.injectPrompt === false) return null;
+      const msgs = messages || target?.messages || [];
+      const timeInfo = readPhoneTime(msgs);
+      const desc = state.calendar?.descriptor || {};
+      const calendar = { ...defaultGregorianCalendar(), ...desc };
+      const parsed = timeInfo?.date ? parseDateString(timeInfo.date, timeInfo.weekday, calendar) : null;
+      const month = parsed?.month || 1;
+      const day = parsed?.day || 1;
+      const year = parsed?.year || new Date().getFullYear();
+      const isAncient = weatherConfig.worldEra === 'ancient' || (weatherConfig.worldEra === 'auto' && Boolean(calendar.era));
+      const era = isAncient ? 'ancient' : 'modern';
+      const loc = extractStoryLocation(msgs) || weatherConfig.defaultCity || '';
+      const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const manual = weatherConfig.weatherOverrides?.[dateKey] || weatherConfig.weatherOverrides?.[`${month}-${day}`];
+      let weather = null;
+      if (manual) {
+        weather = {
+          type: manual.type || 'cloudy',
+          cn: manual.cn || '多云',
+          temp: typeof manual.temp === 'number' ? manual.temp : 20,
+          extreme: Boolean(manual.extreme),
+          icon: manual.icon || '⛅',
+          isManual: true,
+          note: manual.note || '剧情锁定',
+        };
+      } else {
+        const seed = `${dateKey}_${loc}_${weatherConfig.seedSalt || ''}`;
+        weather = rollWeather(month, { seed });
+      }
+      weather.location = loc;
+      weather.worldEra = era;
+      const solarTerm = (weatherConfig.solarTermsEnabled !== false && calendar.kind !== 'custom')
+        ? getSolarTerm(year, month, day)
+        : null;
+      if (solarTerm) weather.solarTerm = solarTerm;
+      weather.prompt = formatWeatherPrompt(weather, {
+        worldEra: era,
+        timeStr: timeInfo?.time || '',
+      });
+      return weather;
+    },
+    weatherInfo(messages = null) {
+      return this.weatherPrompt(messages);
     },
     async saveEvent(event) {
       if (!store?.saveCalendarEvent) throw new Error('当前未绑定存储接口。');

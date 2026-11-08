@@ -826,6 +826,198 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     root.querySelectorAll('.preset-item-card.drag-over-bottom').forEach(el => el.classList.remove('drag-over-bottom'));
   }
 
+  let touchDragState = null;
+  let touchAutoScrollRaf = null;
+  let touchFloatingPill = null;
+
+  function cleanupTouchDrag() {
+    if (touchAutoScrollRaf) {
+      cancelAnimationFrame(touchAutoScrollRaf);
+      touchAutoScrollRaf = null;
+    }
+    if (touchFloatingPill) {
+      touchFloatingPill.remove();
+      touchFloatingPill = null;
+    }
+    if (touchDragState?.handle) {
+      try {
+        if (touchDragState.handle.hasPointerCapture?.(touchDragState.pointerId)) {
+          touchDragState.handle.releasePointerCapture(touchDragState.pointerId);
+        }
+      } catch {}
+    }
+    doc.removeEventListener('pointermove', onPresetPointerMove);
+    doc.removeEventListener('pointerup', onPresetPointerUp);
+    doc.removeEventListener('pointercancel', onPresetPointerCancel);
+
+    touchDragState = null;
+    root.querySelectorAll('.preset-item-card.is-dragging, .preset-item-card.is-touch-dragging')
+      .forEach(el => el.classList.remove('is-dragging', 'is-touch-dragging'));
+    root.querySelectorAll('.preset-item-card.drag-over-top, .preset-item-card.drag-over-bottom')
+      .forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom'));
+  }
+
+  function findTargetPresetCard(clientX, clientY) {
+    const el = root.elementFromPoint?.(clientX, clientY) || doc.elementFromPoint?.(clientX, clientY);
+    const directCard = el?.closest?.('.preset-item-card');
+    if (directCard) return directCard;
+
+    const cards = [...root.querySelectorAll('.preset-item-card')];
+    if (!cards.length) return null;
+
+    let closestCard = null;
+    let minDistance = Infinity;
+
+    for (const c of cards) {
+      const r = c.getBoundingClientRect();
+      if (clientY >= r.top && clientY <= r.bottom) {
+        return c;
+      }
+      const dist = Math.min(Math.abs(clientY - r.top), Math.abs(clientY - r.bottom));
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestCard = c;
+      }
+    }
+
+    return closestCard;
+  }
+
+  function startTouchAutoScroll() {
+    if (touchAutoScrollRaf) return;
+    const scrollContainer = root.querySelector('.phone-main');
+    if (!scrollContainer) return;
+
+    function step() {
+      if (!touchDragState || !touchDragState.isDragging) {
+        touchAutoScrollRaf = null;
+        return;
+      }
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const edgeZone = 45;
+      const y = touchDragState.currentY;
+
+      if (y < containerRect.top + edgeZone && y > containerRect.top - 30) {
+        const ratio = 1 - Math.max(0, (y - containerRect.top) / edgeZone);
+        scrollContainer.scrollTop -= Math.round(3 + ratio * 10);
+      } else if (y > containerRect.bottom - edgeZone && y < containerRect.bottom + 30) {
+        const ratio = Math.min(1, (y - (containerRect.bottom - edgeZone)) / edgeZone);
+        scrollContainer.scrollTop += Math.round(3 + ratio * 10);
+      }
+      touchAutoScrollRaf = requestAnimationFrame(step);
+    }
+    touchAutoScrollRaf = requestAnimationFrame(step);
+  }
+
+  function onPresetPointerDown(event) {
+    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+
+    const handle = event.target.closest?.('.preset-drag-handle');
+    if (!handle) return;
+
+    const card = handle.closest?.('.preset-item-card');
+    if (!card) return;
+
+    const entryId = card.dataset.entryId;
+    if (!entryId) return;
+
+    event.preventDefault();
+
+    touchDragState = {
+      pointerId: event.pointerId,
+      handle,
+      card,
+      sourceId: entryId,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentY: event.clientY,
+      isDragging: false,
+      targetEntryId: null,
+      isTop: true,
+    };
+
+    try {
+      handle.setPointerCapture?.(event.pointerId);
+    } catch {}
+
+    doc.addEventListener('pointermove', onPresetPointerMove, { passive: false });
+    doc.addEventListener('pointerup', onPresetPointerUp);
+    doc.addEventListener('pointercancel', onPresetPointerCancel);
+  }
+
+  function onPresetPointerMove(event) {
+    if (!touchDragState || touchDragState.pointerId !== event.pointerId) return;
+
+    const dx = event.clientX - touchDragState.startX;
+    const dy = event.clientY - touchDragState.startY;
+
+    if (!touchDragState.isDragging) {
+      if (Math.hypot(dx, dy) < 5) return;
+      touchDragState.isDragging = true;
+      touchDragState.card.classList.add('is-dragging', 'is-touch-dragging');
+
+      if (!touchFloatingPill) {
+        touchFloatingPill = doc.createElement('div');
+        touchFloatingPill.className = 'preset-drag-floating-pill';
+        const name = touchDragState.card.querySelector('.preset-item-name')?.textContent?.trim() || '预设条目';
+        touchFloatingPill.textContent = `↕ ${name}`;
+        surface.append(touchFloatingPill);
+      }
+
+      startTouchAutoScroll();
+    }
+
+    event.preventDefault();
+    touchDragState.currentY = event.clientY;
+
+    if (touchFloatingPill) {
+      touchFloatingPill.style.left = `${event.clientX}px`;
+      touchFloatingPill.style.top = `${event.clientY}px`;
+    }
+
+    const targetCard = findTargetPresetCard(event.clientX, event.clientY);
+
+    root.querySelectorAll('.preset-item-card.drag-over-top, .preset-item-card.drag-over-bottom').forEach(el => {
+      if (el !== targetCard) el.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+
+    if (targetCard && targetCard.dataset.entryId !== touchDragState.sourceId) {
+      const rect = targetCard.getBoundingClientRect();
+      const isTop = event.clientY < rect.top + rect.height / 2;
+      targetCard.classList.toggle('drag-over-top', isTop);
+      targetCard.classList.toggle('drag-over-bottom', !isTop);
+      touchDragState.targetEntryId = targetCard.dataset.entryId;
+      touchDragState.isTop = isTop;
+    } else {
+      if (targetCard) {
+        targetCard.classList.remove('drag-over-top', 'drag-over-bottom');
+      }
+      touchDragState.targetEntryId = null;
+    }
+  }
+
+  function onPresetPointerUp(event) {
+    if (!touchDragState || touchDragState.pointerId !== event.pointerId) return;
+
+    const state = touchDragState;
+    const wasDragging = state.isDragging;
+    const sourceId = state.sourceId;
+    const targetEntryId = state.targetEntryId;
+    const isTop = state.isTop;
+
+    cleanupTouchDrag();
+
+    if (wasDragging && targetEntryId && targetEntryId !== sourceId) {
+      const currentActiveId = store.read()?.activePresetId || 'default_preset';
+      void store.reorderPresetEntries(currentActiveId, sourceId, targetEntryId, isTop).then(() => render());
+    }
+  }
+
+  function onPresetPointerCancel(event) {
+    if (!touchDragState || touchDragState.pointerId !== event.pointerId) return;
+    cleanupTouchDrag();
+  }
+
   function keydown(event) {
     if (ui.conflict) {
       event.stopPropagation();
@@ -2284,6 +2476,122 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         });
         break;
       }
+      case 'save-calendar-weather-config': {
+        const enabled = root.querySelector('#cal-we-enabled')?.checked === true;
+        const worldEra = root.querySelector('#cal-we-era')?.value || 'auto';
+        const defaultCity = root.querySelector('#cal-we-city')?.value?.trim() || '北京';
+        const solarTermsEnabled = root.querySelector('#cal-we-solar')?.checked !== false;
+        const continuity = Math.max(0, Math.min(100, Number(root.querySelector('#cal-we-continuity')?.value) || 80));
+        const prevConfig = store.read()?.calendar?.weatherConfig || {};
+        const injectPrompt = prevConfig.injectPrompt !== false;
+        void perform('calendar-weather', () => store.setCalendarWeatherConfig({
+          ...prevConfig,
+          enabled,
+          worldEra,
+          defaultCity,
+          injectPrompt,
+          solarTermsEnabled,
+          continuity,
+        }), () => {
+          ui.calendarSettingsOpen = false;
+          ui.feedback = { text: '已保存天气配置。' };
+          onContextChange();
+        });
+        break;
+      }
+      case 'lock-calendar-weather': {
+        const dateKey = button.dataset.date;
+        if (!dateKey) break;
+        const typeSelect = root.querySelector('#cal-we-lock-type');
+        const tempInput = root.querySelector('#cal-we-lock-temp');
+        const type = typeSelect?.value || 'sunny';
+        const typeText = typeSelect?.options?.[typeSelect.selectedIndex]?.text?.replace(/^[^\s]+\s*/, '') || '晴朗';
+        const temp = Number(tempInput?.value) || 20;
+        const extreme = ['heavy_rain', 'heavy_snow', 'thunderstorm', 'typhoon', 'heatwave', 'blizzard'].includes(type);
+        const prevConfig = store.read()?.calendar?.weatherConfig || {};
+        const overrides = { ...(prevConfig.weatherOverrides || {}) };
+        overrides[dateKey] = {
+          type,
+          cn: typeText,
+          temp,
+          extreme,
+          note: '剧情锁定',
+        };
+        void perform('calendar-weather', () => store.setCalendarWeatherConfig({
+          ...prevConfig,
+          weatherOverrides: overrides,
+        }), () => {
+          ui.feedback = { text: `已锁定 ${dateKey} 天气为「${typeText} ${temp}°C」` };
+          onContextChange();
+        });
+        break;
+      }
+      case 'unlock-calendar-weather': {
+        const dateKey = button.dataset.date;
+        if (!dateKey) break;
+        const prevConfig = store.read()?.calendar?.weatherConfig || {};
+        const overrides = { ...(prevConfig.weatherOverrides || {}) };
+        delete overrides[dateKey];
+        void perform('calendar-weather', () => store.setCalendarWeatherConfig({
+          ...prevConfig,
+          weatherOverrides: overrides,
+        }), () => {
+          ui.feedback = { text: `已解除 ${dateKey} 的天气锁定` };
+          onContextChange();
+        });
+        break;
+      }
+      case 'add-calendar-weather-map': {
+        const from = root.querySelector('#cal-we-map-from')?.value?.trim();
+        const to = root.querySelector('#cal-we-map-to')?.value?.trim();
+        if (!from || !to) {
+          ui.feedback = { text: '请同时填写古地名和现代城市' };
+          render();
+          break;
+        }
+        const prevConfig = store.read()?.calendar?.weatherConfig || {};
+        const mapList = Array.isArray(prevConfig.ancientLocationMap) ? [...prevConfig.ancientLocationMap] : [];
+        const existingIdx = mapList.findIndex(m => m.from === from);
+        if (existingIdx >= 0) {
+          mapList[existingIdx] = { from, to };
+        } else {
+          mapList.push({ from, to });
+        }
+        void perform('calendar-weather', () => store.setCalendarWeatherConfig({
+          ...prevConfig,
+          ancientLocationMap: mapList,
+        }), () => {
+          ui.feedback = { text: `已添加古地名映射「${from} → ${to}」` };
+        });
+        break;
+      }
+      case 'remove-calendar-weather-map': {
+        const idx = Number(button.dataset.index);
+        const prevConfig = store.read()?.calendar?.weatherConfig || {};
+        const mapList = Array.isArray(prevConfig.ancientLocationMap) ? [...prevConfig.ancientLocationMap] : [];
+        if (idx >= 0 && idx < mapList.length) {
+          const removed = mapList.splice(idx, 1)[0];
+          void perform('calendar-weather', () => store.setCalendarWeatherConfig({
+            ...prevConfig,
+            ancientLocationMap: mapList,
+          }), () => {
+            ui.feedback = { text: `已移除映射「${removed?.from}」` };
+          });
+        }
+        break;
+      }
+      case 'reroll-calendar-weather': {
+        const prevConfig = store.read()?.calendar?.weatherConfig || {};
+        const nextSalt = ((Number(prevConfig.seedSalt) || 0) + 1);
+        void perform('calendar-weather', () => store.setCalendarWeatherConfig({
+          ...prevConfig,
+          seedSalt: nextSalt,
+        }), () => {
+          ui.feedback = { text: '已重新生成当前天气。' };
+          onContextChange();
+        });
+        break;
+      }
       case 'authoring': ui.view = 'authoring'; ui.feedback = null; render(); break;
       case 'back-authoring': goBack(); break;
       case 'export-card':
@@ -3370,6 +3678,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const enabled = event.target.checked;
       void perform('injection-calendar', async () => { await store.setInjectCalendarEnabled(enabled); onContextChange(); });
     }
+    if (event.target.id === 'inject-weather-enabled') {
+      const enabled = event.target.checked;
+      void perform('injection-weather', async () => { await store.setInjectWeatherEnabled(enabled); onContextChange(); });
+    }
     if (event.target.id === 'inject-map-enabled' || event.target.matches('[data-action="toggle-map-inject"]')) {
       const enabled = event.target.checked;
       void perform('injection-map', async () => { await store.setInjectMapEnabled(enabled); onContextChange(); });
@@ -3606,6 +3918,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       const patch = {
         enabled: form.elements.enabled?.checked,
         sysName: form.elements.sysName?.value || '系统',
+        world: form.elements.world?.value?.trim() || '',
         bindTo: form.elements.bindTo?.value || '宿主',
         personality: form.elements.personality?.value || '冷澈',
         personaText: form.elements.personaText?.value || '',
@@ -3909,6 +4222,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
   root.addEventListener('dragleave', onPresetDragLeave);
   root.addEventListener('drop', onPresetDrop);
   root.addEventListener('dragend', onPresetDragEnd);
+  root.addEventListener('pointerdown', onPresetPointerDown);
   doc.addEventListener('pointerdown', dismissMenus, true);
   render();
   fillDefaultAvatars();
@@ -3998,6 +4312,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       root.removeEventListener('dragleave', onPresetDragLeave);
       root.removeEventListener('drop', onPresetDrop);
       root.removeEventListener('dragend', onPresetDragEnd);
+      root.removeEventListener('pointerdown', onPresetPointerDown);
+      cleanupTouchDrag();
       element.remove(); fontStyle.remove();
     },
   };

@@ -6,6 +6,7 @@ import { contentImagePaths, imagePath } from './image-files.js';
 import { readTodos, todoSourceMessageIds } from './todos.js';
 import { findCountryInfo, fetchNagerHolidays } from './calendar-presets.js';
 import { defaultGregorianCalendar, defaultWorkdayConfig } from './calendar-engine.js';
+import { defaultWeatherConfig } from './weather.js';
 import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.js';
 import { defaultOriginState, normalizeOriginState, SYSTEM_CONTACT_ID } from './origin-engine.js';
 import { createSystemContact } from './origin-chat.js';
@@ -1004,6 +1005,33 @@ export function createPhoneStore({
         };
       });
     },
+    setCalendarWeatherConfig(config) {
+      return update(state => {
+        const calendar = state.calendar || { items: [] };
+        const currentConfig = calendar.weatherConfig || defaultWeatherConfig();
+        const nextConfig = { ...currentConfig, ...config };
+        const charKey = getCharacterKey();
+        const phoneSettings = getPhoneSettings();
+        if (phoneSettings) {
+          if (!phoneSettings.characterCalendars) phoneSettings.characterCalendars = {};
+          if (!phoneSettings.characterCalendars[charKey]) {
+            phoneSettings.characterCalendars[charKey] = {
+              descriptor: structuredClone(calendar.descriptor || {}),
+              items: Array.isArray(calendar.items) ? structuredClone(calendar.items) : [],
+            };
+          }
+          phoneSettings.characterCalendars[charKey].weatherConfig = structuredClone(nextConfig);
+          void saveGlobalExtensionSettings();
+        }
+        return {
+          ...state,
+          calendar: {
+            ...calendar,
+            weatherConfig: nextConfig,
+          },
+        };
+      });
+    },
     async applyCalendarPreset({ countryId, keepCustom = true }) {
       const code = String(countryId || 'CN').toUpperCase();
       const info = findCountryInfo(code);
@@ -1265,6 +1293,10 @@ export function createPhoneStore({
     },
     setInjectionEnabled(enabled) { return update(state => ({ ...state, injectEnabled: Boolean(enabled) })); },
     setInjectCalendarEnabled(enabled) { return update(state => ({ ...state, injectCalendarEnabled: Boolean(enabled) })); },
+    setInjectWeatherEnabled(enabled) {
+      const current = this.read()?.calendar?.weatherConfig || defaultWeatherConfig();
+      return this.setCalendarWeatherConfig({ ...current, injectPrompt: Boolean(enabled) });
+    },
     setInjectMapEnabled(enabled) { return update(state => ({ ...state, injectMapEnabled: Boolean(enabled) })); },
     setInjectOriginEnabled(enabled) { return update(state => ({ ...state, injectOriginEnabled: Boolean(enabled) })); },
     setMapBasemap(basemap) {

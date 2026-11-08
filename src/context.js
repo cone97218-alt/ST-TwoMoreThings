@@ -495,6 +495,17 @@ export function createBackflowService({
         } catch {}
       }
 
+      // 天气提示（若开启天气提示）
+      let weatherLines = '';
+      if (calendar?.weatherPrompt) {
+        try {
+          const weatherInfo = calendar.weatherPrompt(target.messages.slice(0, beforeIndex));
+          if (weatherInfo?.prompt) {
+            weatherLines = `[${weatherInfo.prompt}]`;
+          }
+        } catch {}
+      }
+
       // 日历线索（若开启日历带入正文）
       let calendarContext = null;
       let calendarLines = '';
@@ -557,10 +568,11 @@ export function createBackflowService({
         } catch {}
       }
 
-      if (!conversations.length && !todos.length && !calendarLines && !workdayLines && !mapLines && !originLines) return '';
+      if (!conversations.length && !todos.length && !calendarLines && !workdayLines && !weatherLines && !mapLines && !originLines) return '';
       const parts = [];
       if (originLines) parts.push(originLines);
       if (workdayLines) parts.push(workdayLines);
+      if (weatherLines) parts.push(weatherLines);
       if (calendarLines) parts.push(calendarLines);
       if (mapLines) parts.push(mapLines);
       if (conversations.length) {

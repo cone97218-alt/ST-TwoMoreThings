@@ -636,9 +636,21 @@ button.buckshot-item-pill:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--pp-ink);
   background: color-mix(in srgb, var(--pp-pale) 80%, transparent);
 }
-.calendar-tabs { display: flex; gap: 4px; background: var(--pp-surface); padding: 2px; border-radius: 8px; border: 1px solid var(--pp-divider-soft); }
-.calendar-tab { border: none; background: transparent; padding: 4px 10px; font-size: 11px; border-radius: 6px; color: var(--pp-muted); cursor: pointer; }
+.calendar-tabs { display: flex; gap: 2px; background: var(--pp-surface); padding: 2px; border-radius: 8px; border: 1px solid var(--pp-divider-soft); overflow-x: auto; scrollbar-width: none; }
+.calendar-tabs::-webkit-scrollbar { display: none; }
+.calendar-tab { border: none; background: transparent; padding: 4px 6px; font-size: 11px; border-radius: 6px; color: var(--pp-muted); cursor: pointer; flex: 1 0 auto; text-align: center; white-space: nowrap; }
 .calendar-tab.is-active { background: var(--pp-pale); color: var(--pp-text); font-weight: 500; }
+.calendar-weather-inline { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; background: transparent; border: none; font-size: 11.5px; line-height: 1.2; color: var(--pp-muted); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.calendar-weather-inline .weather-svg-icon { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--pp-bronze); flex-shrink: 0; }
+.calendar-weather-inline .weather-svg-icon svg { width: 14px; height: 14px; }
+.calendar-weather-pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; background: transparent; border: none; font-size: 11.5px; line-height: 1.2; color: var(--pp-muted); cursor: default; }
+.calendar-weather-icon { font-size: 11px; line-height: 1; flex-shrink: 0; }
+.calendar-weather-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ancient-map-list { display: flex; flex-direction: column; gap: 4px; max-height: 110px; overflow-y: auto; margin-top: 6px; }
+.ancient-map-item { display: flex; align-items: center; justify-content: space-between; padding: 3px 6px; background: var(--pp-control-surface); border: 1px solid var(--pp-divider-soft); border-radius: 5px; font-size: 11px; }
+.weather-reroll-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 6px; font-size: 11px; text-decoration: none !important; border: 1px solid var(--pp-divider-soft); background: var(--pp-control-surface); color: var(--pp-text); cursor: pointer; transition: all 0.15s ease; }
+.weather-reroll-btn:hover { background: var(--pp-pale); border-color: var(--pp-bronze); color: var(--pp-bronze); }
+.weather-reroll-btn svg { width: 12px; height: 12px; }
 .calendar-ai-panel { display: flex; flex-direction: column; gap: 10px; }
 .calendar-ai-inputs { display: flex; flex-direction: column; gap: 8px; }
 .calendar-ai-results {
@@ -1088,9 +1100,58 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .preset-item-card.drag-over-top { box-shadow: 0 -3px 0 0 var(--pp-active); }
 .preset-item-card.drag-over-bottom { box-shadow: 0 3px 0 0 var(--pp-active); }
 
-.preset-drag-handle { display: inline-flex; align-items: center; justify-content: center; color: var(--pp-muted); cursor: grab; padding: 2px 3px; border-radius: 3px; flex-shrink: 0; transition: color .12s ease, background-color .12s ease; }
+.preset-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pp-muted);
+  cursor: grab;
+  padding: 4px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: color .12s ease, background-color .12s ease;
+}
 .preset-drag-handle:hover { color: var(--pp-active); background-color: var(--pp-feedback); }
 .preset-drag-handle:active { cursor: grabbing; }
+
+@media (pointer: coarse), (max-width: 600px) {
+  .preset-drag-handle {
+    padding: 7px 8px;
+    min-width: 28px;
+    min-height: 28px;
+  }
+}
+
+.preset-item-card.is-touch-dragging {
+  opacity: 0.45;
+  border-style: dashed;
+  border-color: var(--pp-active);
+  transform: scale(0.99);
+}
+
+.preset-drag-floating-pill {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  padding: 6px 12px;
+  background: var(--pp-active);
+  color: #fff;
+  border-radius: 18px;
+  font-size: 11.5px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, -135%);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.95;
+  will-change: left, top;
+}
 
 .preset-item-header { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; background: var(--pp-surface-soft); gap: 6px; user-select: none; }
 .preset-item-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
@@ -1154,15 +1215,26 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .preset-scope-item-name { font-size: 11px; font-weight: 600; color: var(--pp-ink); line-height: 1.25; }
 .preset-scope-item-desc { font-size: 9.5px; color: var(--pp-muted); line-height: 1.2; }
 
-/* 插槽宏插入快捷工具栏 */
-.preset-macro-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.preset-macro-title { font-size: 10px; font-weight: 600; color: var(--pp-muted); }
-.preset-macro-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+/* 插槽宏插入折叠区（默认折叠，节省手机端纵向空间） */
+.preset-macro-details { border: 1px dashed var(--pp-divider-soft); border-radius: 6px; background: var(--pp-surface-soft); overflow: hidden; transition: all .15s ease; }
+.preset-macro-summary { display: flex; align-items: center; justify-content: space-between; padding: 5px 9px; cursor: pointer; user-select: none; -webkit-user-select: none; font-size: 10.5px; color: var(--pp-muted); list-style: none; transition: background .12s ease; }
+.preset-macro-summary::-webkit-details-marker { display: none; }
+.preset-macro-summary:hover { background: var(--pp-feedback); color: var(--pp-active); }
+.preset-macro-title { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
+.preset-macro-title svg { width: 10px !important; height: 10px !important; max-width: 10px !important; max-height: 10px !important; min-width: 10px !important; min-height: 10px !important; flex-shrink: 0; display: inline-block; vertical-align: middle; opacity: 0.7; }
+.preset-macro-arrow { font-size: 9px; transition: transform .15s ease; color: var(--pp-muted); }
+.preset-macro-details[open] .preset-macro-arrow { transform: rotate(180deg); }
+.preset-macro-details .preset-macro-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 7px 9px 8px; border-top: 1px solid var(--pp-divider-soft); background: var(--pp-surface); }
 .preset-chip-btn { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--pp-divider-soft); background: var(--pp-surface-soft); color: var(--pp-ink); cursor: pointer; transition: all .12s ease; }
 .preset-chip-btn:hover { background: var(--pp-active); color: var(--pp-paper); border-color: var(--pp-active); }
 
 .preset-content-editor { font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; line-height: 1.45; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--pp-divider-soft); background: var(--pp-paper); color: var(--pp-ink); width: 100%; min-height: 240px; box-sizing: border-box; resize: vertical; outline: none; }
 .preset-content-editor:focus { border-color: var(--pp-active); }
+
+.preset-drawer-footer { display: flex; align-items: center; justify-content: flex-end; padding-top: 6px; border-top: 1px dashed var(--pp-divider-soft); }
+.preset-drawer-reorder { display: inline-flex; align-items: center; gap: 6px; }
+.preset-drawer-tip { font-size: 10.5px; color: var(--pp-muted); }
+.preset-tool-btn.preset-move-btn { width: auto; height: 22px; padding: 0 8px; font-size: 11px; gap: 2px; }
 
 /* 电波风格消息增强：气泡动作栏、Emoji回应、拍一拍、撤回、多选、心声与弹窗 */
 .chat-avatar-btn {

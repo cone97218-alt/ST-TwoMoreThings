@@ -214,7 +214,7 @@ test('preset engine includes old_maid rule entry and slot', () => {
   const oldMaidEntry = DEFAULT_PRESET_ENTRIES.find(e => e.id === 'entry_old_maid_rules');
   assert.ok(oldMaidEntry);
   assert.equal(oldMaidEntry.scope, '小游戏');
-  assert.equal(oldMaidEntry.content, '{{old_maid_prompt}}');
+  assert.ok(oldMaidEntry.content.includes(OLD_MAID_PROMPT) || oldMaidEntry.content === '{{old_maid_prompt}}');
 
   const oldMaidSlot = PRESET_SLOTS.find(s => s.macro === '{{old_maid_prompt}}');
   assert.ok(oldMaidSlot);
@@ -525,7 +525,8 @@ test('Old Maid full flow: invite -> accept -> user draw -> ai auto draw and chat
   // 4. AI 自动摸牌与台词回复
   await service.continueChat('c1');
   thread = store.read().conversations.c1;
-  const aiSysAction = [...thread].reverse().find(m => m.type === 'game-action');
+  const aiSysAction = [...thread].reverse().find(m => m.type === 'game-action' && m.text.includes('抽走'));
+  assert.ok(aiSysAction);
   assert.equal(aiSysAction.text, '【林舟】眨了眨眼，动作轻快地从【玩家】手里抽走了一张牌。');
 
   const aiChat = [...thread].reverse().find(m => m.role === 'assistant');

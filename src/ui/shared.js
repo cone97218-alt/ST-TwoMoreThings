@@ -76,6 +76,14 @@ const icons = {
   shield: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></g>',
   wind: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></g>',
   book: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/></g>',
+  'weather-sunny': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><path d="M12 2V4M12 20V22M4 12H2M22 12H20M5.636 5.636L4.222 4.222M19.778 19.778L18.364 18.364M5.636 18.364L4.222 19.778M19.778 4.222L18.364 5.636"/></g>',
+  'weather-cloudy': '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17.5 19H7a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 10.5a4 4 0 0 1-.5 8.5z"/>',
+  'weather-partly-cloudy': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M12 4a4 4 0 0 1 4 4c0 .4-.1.8-.2 1.2"/><path d="M12 2v1m4.9 1.1l-.7.7M19 8h-1m-7.5 11H7a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 10.5a4 4 0 0 1-.5 8.5z"/></g>',
+  'weather-rain': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M17 14H7a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.5 7a3.5 3.5 0 0 1-.5 7z"/><path d="M8 17v3m4-3v3m4-3v3"/></g>',
+  'weather-thunder': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M17 13H7a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.5 6a3.5 3.5 0 0 1-.5 7z"/><path d="M13 13l-3 5h4l-2 5"/></g>',
+  'weather-snow': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M17 14H7a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.5 7a3.5 3.5 0 0 1-.5 7z"/><circle cx="8" cy="18" r=".75" fill="currentColor"/><circle cx="12" cy="19" r=".75" fill="currentColor"/><circle cx="16" cy="18" r=".75" fill="currentColor"/></g>',
+  'weather-fog': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M4 10h16M6 14h12M8 18h8"/></g>',
+  'weather-wind': '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></g>',
 };
 export const asset = name => new URL(`../../assets/${name}`, import.meta.url).href;
 export const icon = name => ['messages', 'forum'].includes(name)
@@ -83,6 +91,19 @@ export const icon = name => ['messages', 'forum'].includes(name)
   : `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" aria-hidden="true">${icons[name] || ''}</svg>`;
 export const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 export const refKey = ref => ref ? `${ref.kind}:${ref.channelId || ref.presetId || ''}` : '';
+
+export function weatherSvgIcon(weatherType) {
+  const t = String(weatherType || '').toLowerCase();
+  if (['sunny', 'sunny_hot', 'heatwave'].includes(t)) return icon('weather-sunny');
+  if (['partly_cloudy'].includes(t)) return icon('weather-partly-cloudy');
+  if (['cloudy', 'overcast'].includes(t)) return icon('weather-cloudy');
+  if (['light_rain', 'moderate_rain', 'heavy_rain', 'shower'].includes(t)) return icon('weather-rain');
+  if (['thunderstorm'].includes(t)) return icon('weather-thunder');
+  if (['light_snow', 'moderate_snow', 'heavy_snow', 'blizzard', 'sleet', 'snow', 'ice_storm', 'frost'].includes(t)) return icon('weather-snow');
+  if (['foggy'].includes(t)) return icon('weather-fog');
+  if (['windy', 'windy_cold', 'typhoon'].includes(t)) return icon('weather-wind');
+  return icon('weather-partly-cloudy');
+}
 
 export function renderEmojiText(text) {
   return splitEmojiText(text).map(part => part.emoji

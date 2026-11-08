@@ -72,16 +72,18 @@ export function renderPromptPresetSettings(state, ui) {
       </div>
 
       <div class="preset-cards-stack">
-        ${!filteredEntries.length ? `<div class="preset-empty-hint">${ui.presetSearch ? `未找到匹配「${escape(ui.presetSearch)}」的预设条目。` : '当前预设暂无条目，请点击上方按钮新增条目。'}</div>` : filteredEntries.map((entry) => {
+        ${!filteredEntries.length ? `<div class="preset-empty-hint">${ui.presetSearch ? `未找到匹配「${escape(ui.presetSearch)}」的预设条目。` : '当前预设暂无条目，请点击上方按钮新增条目。'}</div>` : filteredEntries.map((entry, index) => {
           const isExpanded = ui.expandedPresetEntries instanceof Set ? ui.expandedPresetEntries.has(entry.id) : false;
           const scope = entry.scope || '通用';
+          const isFirst = index === 0;
+          const isLast = index === filteredEntries.length - 1;
 
           return `<div class="preset-item-card ${entry.enabled ? '' : 'is-muted'}" data-entry-id="${escape(entry.id)}" draggable="true">
             <div class="preset-item-header">
               <!-- 左侧：拖拽手柄、开关与折叠标题 -->
               <div class="preset-item-left">
                 <span class="preset-drag-handle" title="按住拖拽排序" aria-label="拖拽排序">
-                  <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
                     <circle cx="5" cy="3" r="1.5"/>
                     <circle cx="11" cy="3" r="1.5"/>
                     <circle cx="5" cy="8" r="1.5"/>
@@ -155,8 +157,16 @@ export function renderPromptPresetSettings(state, ui) {
                   </div>
                 </div>
 
-                <div class="preset-macro-toolbar">
-                  <span class="preset-macro-title">插入插槽：</span>
+                <details class="preset-macro-details">
+                  <summary class="preset-macro-summary">
+                    <span class="preset-macro-title">
+                      <svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor" style="width: 10px; height: 10px; max-width: 10px; max-height: 10px; min-width: 10px; min-height: 10px; flex-shrink: 0; opacity: 0.7;">
+                        <path d="M8 1a1 1 0 0 1 1 1v5h5a1 1 0 0 1 0 2H9v5a1 1 0 0 1-2 0V9H2a1 1 0 0 1 0-2h5V2a1 1 0 0 1 1-1z"/>
+                      </svg>
+                      <span>插入插槽宏 (点击展开)</span>
+                    </span>
+                    <span class="preset-macro-arrow">▾</span>
+                  </summary>
                   <div class="preset-macro-chips">
                     ${PRESET_SLOTS.map(s => `
                       <button type="button" class="preset-chip-btn" data-action="insert-slot-macro" data-entry-id="${escape(entry.id)}" data-macro="${escape(s.macro)}" title="${escape(s.desc)}">
@@ -164,9 +174,16 @@ export function renderPromptPresetSettings(state, ui) {
                       </button>
                     `).join('')}
                   </div>
-                </div>
+                </details>
 
                 <textarea class="preset-content-editor" rows="18" placeholder="输入提示词内容，可插入插槽宏..." data-action="edit-entry-content" data-entry-id="${escape(entry.id)}">${escape(entry.content || '')}</textarea>
+                <div class="preset-drawer-footer">
+                  <div class="preset-drawer-reorder">
+                    <span class="preset-drawer-tip">条目排序：</span>
+                    <button type="button" class="preset-tool-btn preset-move-btn" data-action="move-preset-entry" data-direction="up" data-entry-id="${escape(entry.id)}" ${isFirst ? 'disabled' : ''} title="上移条目">↑ 上移</button>
+                    <button type="button" class="preset-tool-btn preset-move-btn" data-action="move-preset-entry" data-direction="down" data-entry-id="${escape(entry.id)}" ${isLast ? 'disabled' : ''} title="下移条目">↓ 下移</button>
+                  </div>
+                </div>
               </div>`;
             })() : ''}
           </div>`;
@@ -550,6 +567,13 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
     <span>工作日/作息带入正文</span>
     <span class="switch">
       <input id="workday-enabled" type="checkbox" role="switch" aria-label="工作日/作息带入正文" ${state.calendar?.workdayConfig?.injectStory ? 'checked' : ''}>
+      <span></span>
+    </span>
+  </label>
+  <label class="compact-switch-row">
+    <span>环境天气带入正文</span>
+    <span class="switch">
+      <input id="inject-weather-enabled" type="checkbox" role="switch" aria-label="环境天气带入正文" ${state.calendar?.weatherConfig?.injectPrompt !== false ? 'checked' : ''}>
       <span></span>
     </span>
   </label>

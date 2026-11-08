@@ -1,6 +1,12 @@
 // 纯日历与历法计算引擎，自包含、无外部依赖。
 // 移植自构画 (ST-SevenDaysCal) 核心日历算法。
 
+import {
+  defaultWeatherConfig,
+  formatWeatherPrompt,
+  rollWeather,
+} from './weather.js';
+
 export function isGregorian(calendar) {
   return calendar == null || calendar.kind === 'gregorian' || calendar.id === 'default-gregorian';
 }
@@ -338,11 +344,13 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
             }),
           };
         }),
+        weather: state.weather || null,
       };
     },
     getPhoneCalendarContext({ query = '' } = {}) {
       const state = source(); if (!state) return null;
       const { calendar: cal, today } = state;
+      const weather = state.weather || null;
       const events = state.items.flatMap(item => {
         const d = today ? until(item, today, cal) : null;
         const mentioned = item.name.length >= 2 && String(query).includes(item.name);
@@ -376,7 +384,7 @@ export function createPhoneCalendarApi({ read, formatDate } = {}) {
           uniqueEvents.push(event);
         }
       }
-      return uniqueEvents.length ? { today: today ? label(today, cal) : '', events: uniqueEvents } : null;
+      return uniqueEvents.length ? { today: today ? label(today, cal) : '', events: uniqueEvents, weather } : (weather ? { today: today ? label(today, cal) : '', events: [], weather } : null);
     },
   });
 }
@@ -543,6 +551,31 @@ export function resolveWorkdayHolidayPrompt(timeInfo, calendar, workdayConfig, f
     time: timeInfo?.time || '',
     slotMatched: false,
     prompt: prompts.join('\n'),
+  };
+}
+
+export function resolveCalendarWeatherPrompt(timeInfo, calendar, weatherConfig = defaultWeatherConfig(), location = '') {
+  if (!weatherConfig?.enabled) return null;
+  const isAncient = weatherConfig.worldEra === 'ancient' || (weatherConfig.worldEra === 'auto' && Boolean(calendar?.era));
+  const era = isAncient ? 'ancient' : 'modern';
+  let month = 1;
+  let dateStr = '';
+  if (timeInfo?.date) {
+    const parsed = parseDateString(timeInfo.date, timeInfo.weekday, calendar);
+    if (parsed) {
+      month = parsed.month || 1;
+      if (parsed.year && parsed.month && parsed.day) {
+        dateStr = `${String(parsed.year).padStart(4, '0')}-${String(parsed.month).padStart(2, '0')}-${String(parsed.day).padStart(2, '0')}`;
+      }
+    }
+  }
+  const seed = `${dateStr || month}_${location || weatherConfig.defaultCity || ''}_${weatherConfig.seedSalt || ''}`;
+  const weather = rollWeather(month, { seed });
+  const prompt = formatWeatherPrompt(weather, { worldEra: era });
+  return {
+    weather,
+    worldEra: era,
+    prompt,
   };
 }
 

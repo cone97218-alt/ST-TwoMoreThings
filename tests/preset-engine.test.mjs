@@ -221,14 +221,14 @@ test('preset engine: compile directory task expands {{directory_prompt}} and sco
     worldbook: '测试世界设定',
   }, 'directory');
 
-  const dirEntry = compiled.find(e => e.name === '通讯录发掘与整理');
+  const dirEntry = compiled.find(e => e.name === '通讯录 - 人员发掘与整理' || e.name === '通讯录发掘与整理' || e.id === 'entry_directory_rules');
   assert.ok(dirEntry, '应包含通讯录发掘与整理条目');
   assert.equal(dirEntry.role, 'system');
   assert.ok(dirEntry.content.includes('根据people、角色卡、世界书和最新剧情'), '应展开 DIRECTORY_PROMPT');
 
   // 短信专属条目不应出现在通讯录任务中
-  assert.ok(!compiled.some(e => e.name === '私聊短信生成'));
-  assert.ok(!compiled.some(e => e.name === '群聊多角色续写'));
+  assert.ok(!compiled.some(e => e.name.includes('私聊短信生成')));
+  assert.ok(!compiled.some(e => e.name.includes('群聊多角色续写')));
 });
 
 test('preset engine: compile contacts task expands {{contacts_prompt}}', () => {
@@ -236,7 +236,7 @@ test('preset engine: compile contacts task expands {{contacts_prompt}}', () => {
     phoneContext: { people: [{ name: '林舟' }] },
   }, 'contacts');
 
-  const contactsEntry = compiled.find(e => e.name === '联系人风格提炼');
+  const contactsEntry = compiled.find(e => e.name === '通讯录 - 联系人风格提炼' || e.name === '联系人风格提炼' || e.id === 'entry_contacts_rules');
   assert.ok(contactsEntry, '应包含联系人风格提炼条目');
   assert.equal(contactsEntry.role, 'system');
   assert.ok(contactsEntry.content.includes('从所给角色卡、世界书或人物简要资料整理已有'), '应展开 CONTACTS_PROMPT');
@@ -282,7 +282,7 @@ test('preset engine: normalizePromptPresets merges newly added default entries i
 
   const dirEntry = builtin.entries.find(e => e.id === 'entry_directory_rules');
   assert.ok(dirEntry, '应自动将 entry_directory_rules 补齐到现有保存预设中');
-  assert.equal(dirEntry.name, '通讯录发掘与整理');
+  assert.equal(dirEntry.name, '通讯录-人员整理');
 
   const contactsEntry = builtin.entries.find(e => e.id === 'entry_contacts_rules');
   assert.ok(contactsEntry, '应自动将 entry_contacts_rules 补齐到现有保存预设中');

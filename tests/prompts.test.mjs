@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createHarness } from './harness.mjs';
 import { createPhoneStore } from '../src/store.js';
 import { PROMPT_DEFINITIONS, getPrompt, getAllPrompts } from '../src/prompts.js';
-import { renderPromptSettings, renderPromptLibrarySettings } from '../src/ui/settings.js';
+import { normalizePromptPresets } from '../src/preset-engine.js';
+import { renderPromptSettings, renderPromptLibrarySettings, renderPromptPresetSettings } from '../src/ui/settings.js';
 import { createAuthoringService, stateFromPreset } from '../src/authoring.js';
 import { createMessageService } from '../src/messages.js';
 import { createDirectoryService } from '../src/directory.js';
@@ -189,4 +190,50 @@ test('settings UI: renderPromptLibrarySettings renders tabs, search, and cards',
   const searchHtml = renderPromptLibrarySettings(state, { ...ui, promptSearch: '绘图' });
   assert.ok(searchHtml.includes('照片转绘图描述提示词'));
   assert.ok(!searchHtml.includes('私聊短信生成'));
+});
+
+test('preset settings UI & reordering: mobile drag handle and drawer move buttons', async () => {
+  const h = createHarness();
+  const target = h.host.captureChat();
+  const store = createPhoneStore({ target });
+
+  const state = store.read();
+  const presets = normalizePromptPresets(state.promptPresets);
+  const activePresetId = state.activePresetId || presets[0]?.id || 'default_preset';
+  const currentPreset = presets.find(p => p.id === activePresetId);
+  const firstEntryId = currentPreset?.entries?.[0]?.id;
+  const secondEntryId = currentPreset?.entries?.[1]?.id;
+
+  assert.ok(firstEntryId, 'first preset entry exists');
+  assert.ok(secondEntryId, 'second preset entry exists');
+
+  // Render preset settings with first entry expanded
+  const ui = {
+    expandedPresetEntries: new Set([firstEntryId]),
+    presetSearch: '',
+  };
+  const html = renderPromptPresetSettings(state, ui);
+
+  // 1. Drag handle is present and mobile-ready
+  assert.ok(html.includes('class="preset-drag-handle"'));
+  assert.ok(html.includes('title="按住拖拽排序"'));
+  assert.ok(html.includes('width="13" height="13"'));
+
+  // 2. Drawer footer with move buttons is present for expanded entry
+  assert.ok(html.includes('preset-drawer-footer'));
+  assert.ok(html.includes('data-action="move-preset-entry" data-direction="up"'));
+  assert.ok(html.includes('data-action="move-preset-entry" data-direction="down"'));
+
+  // 3. Move down first entry via store.movePresetEntry
+  await store.movePresetEntry(activePresetId, firstEntryId, 'down');
+  const afterMoveState = store.read();
+  const updatedPreset = afterMoveState.promptPresets.find(p => p.id === activePresetId);
+  assert.equal(updatedPreset.entries[1].id, firstEntryId, 'first entry moved down to index 1');
+  assert.equal(updatedPreset.entries[0].id, secondEntryId, 'second entry moved up to index 0');
+
+  // 4. Reorder via store.reorderPresetEntries
+  await store.reorderPresetEntries(activePresetId, firstEntryId, secondEntryId, true);
+  const afterReorderState = store.read();
+  const reorderedPreset = afterReorderState.promptPresets.find(p => p.id === activePresetId);
+  assert.equal(reorderedPreset.entries[0].id, firstEntryId, 'first entry reordered back to top');
 });

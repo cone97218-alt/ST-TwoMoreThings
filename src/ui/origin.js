@@ -579,6 +579,11 @@ function renderOriginSettings(origin) {
           <input type="text" name="sysName" value="${escape(origin.sysName || '系统')}" placeholder="系统名称">
         </div>
         <div class="origin-setting-item">
+          <label class="field-label">当前世界 / 位面名称（选填）</label>
+          <input type="text" name="world" value="${escape(origin.world || '')}" placeholder="例如：现代都市、修仙界、提瓦特... 留空显示未设定">
+          <small class="field-label">用于无限流/快穿等题材，告知系统宿主当前所处的位面环境</small>
+        </div>
+        <div class="origin-setting-item">
           <label class="field-label">绑定对象 (宿主)</label>
           <input type="text" name="bindTo" value="${escape(origin.bindTo || '宿主')}" placeholder="默认'宿主'；填角色名进入反串模式">
           <small class="field-label">若填入角色名，系统将绑定于该角色（主角金手指），宿主为旁观者</small>

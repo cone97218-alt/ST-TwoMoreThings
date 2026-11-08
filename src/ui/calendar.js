@@ -1,6 +1,7 @@
-import { action, escape, icon, pageHeading } from './shared.js';
+import { action, escape, icon, pageHeading, weatherSvgIcon } from './shared.js';
 import { ALL_NAGER_COUNTRIES, POPULAR_COUNTRIES } from '../calendar-presets.js';
 import { defaultWorkdayConfig } from '../calendar-engine.js';
+import { defaultWeatherConfig, ANCIENT_WEATHER_TEXT } from '../weather.js';
 
 export function renderCalendar(state, { ui, calendar }) {
   const headingActions = `
@@ -16,6 +17,23 @@ export function renderCalendar(state, { ui, calendar }) {
   const year = calendar.yearLabel;
   const events = [...new Map(days.flatMap(day => day.items).map(item => [item.id, item])).values()];
   const monthTitle = [calendar.title === calendar.eraLabel ? '' : calendar.title, year].filter(Boolean).join(' · ');
+
+  const weatherConfig = state?.calendar?.weatherConfig || defaultWeatherConfig();
+  const weatherInfo = calendar?.weather;
+  let weatherBadgeHtml = '';
+  if (weatherConfig.enabled && weatherInfo) {
+    const isAncient = weatherInfo.worldEra === 'ancient';
+    const text = (isAncient ? (ANCIENT_WEATHER_TEXT[weatherInfo.type] || weatherInfo.cn) : weatherInfo.cn) || '晴朗';
+    const tempText = isAncient ? '' : ` ${weatherInfo.temp}°C`;
+    const lockText = weatherInfo.isManual ? ' 🔒' : '';
+    const fullDesc = weatherInfo.prompt || '';
+    weatherBadgeHtml = `
+      <span class="calendar-weather-inline" title="${escape(fullDesc)}">
+        <span class="weather-svg-icon" aria-hidden="true">${weatherSvgIcon(weatherInfo.type)}</span>
+        <span class="calendar-weather-text">${escape(text)}${tempText}${lockText}</span>
+      </span>
+    `;
+  }
   const dayButtons = calendar.days.map(day => {
     const dots = [...new Set(day.items.map(item => item.type))];
     const label = `${escape(day.label)}${day.items.length ? `：${escape(day.items.map(item => item.name).join('、'))}` : ''}`;
@@ -252,6 +270,121 @@ export function renderCalendar(state, { ui, calendar }) {
     </div>
   `;
 
+  const ancientLocationMap = Array.isArray(weatherConfig.ancientLocationMap) ? weatherConfig.ancientLocationMap : [];
+
+  const weatherTabContent = `
+    <div class="calendar-ai-inputs">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px dashed var(--pp-divider-soft); gap: 8px;">
+        <div>
+          <span style="font-size: 13px; font-weight: 500;">启用环境天气</span>
+          <small style="color: var(--pp-muted); display: block; font-size: 11px;">支持现实气象 (Open-Meteo) 与四季古代/架空模拟</small>
+        </div>
+        <input id="cal-we-enabled" type="checkbox" ${weatherConfig.enabled ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--pp-bronze); cursor: pointer; flex-shrink: 0;">
+      </div>
+
+      <div class="form-row" style="margin-top: 10px;">
+        <div>
+          <label class="field-label" for="cal-we-era">时代与文风</label>
+          <select id="cal-we-era" style="width: 100%;">
+            <option value="auto" ${weatherConfig.worldEra === 'auto' ? 'selected' : ''}>自动 (随历法纪元)</option>
+            <option value="modern" ${weatherConfig.worldEra === 'modern' ? 'selected' : ''}>现代模式 (真实气温数字)</option>
+            <option value="ancient" ${weatherConfig.worldEra === 'ancient' ? 'selected' : ''}>古代模式 (节气物候古辞)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="cal-we-city">默认城市</label>
+          <input id="cal-we-city" type="text" placeholder="未解析到地点时使用" value="${escape(weatherConfig.defaultCity || '北京')}" style="width: 100%;">
+        </div>
+      </div>
+
+      <div style="margin-top: 8px;">
+        <label class="field-label" for="cal-we-continuity">天气连续性 (%)</label>
+        <input id="cal-we-continuity" type="number" min="0" max="100" value="${weatherConfig.continuity ?? 80}" style="width: 100%;">
+        <small style="color: var(--pp-muted); display: block; font-size: 10.5px; margin-top: 3px;">模拟气象连贯感，避免冷热骤变；提示词注入请在「设置 App → 内容设置」中独立管理</small>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+        <div>
+          <span style="font-size: 12px; font-weight: 500;">节气时令感知</span>
+          <small style="color: var(--pp-muted); display: block; font-size: 10.5px;">公历/现实历法中自动推算立春、惊蛰等二十四节气</small>
+        </div>
+        <input id="cal-we-solar" type="checkbox" ${weatherConfig.solarTermsEnabled !== false ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: var(--pp-bronze); cursor: pointer; flex-shrink: 0;">
+      </div>
+
+      <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--pp-divider-soft);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <div>
+            <span style="font-size: 12px; font-weight: 500;">剧情锁天气 (${calendar.month || 1}月${selected?.day || ui.calendarDay || 1}日)</span>
+            <small style="color: var(--pp-muted); display: block; font-size: 10.5px;">针对当前选中日期强制固定天气与气温</small>
+          </div>
+          ${(() => {
+            const tDay = selected?.day || ui.calendarDay || 1;
+            const tMonth = calendar.month || 1;
+            const tYear = calendar.year || new Date().getFullYear();
+            const tKey = `${tYear}-${String(tMonth).padStart(2, '0')}-${String(tDay).padStart(2, '0')}`;
+            const curLock = weatherConfig.weatherOverrides?.[tKey] || weatherConfig.weatherOverrides?.[`${tMonth}-${tDay}`];
+            return curLock ? `<button type="button" class="quiet-button" data-action="unlock-calendar-weather" data-date="${tKey}" style="color: var(--pp-error); font-size: 11px; padding: 2px 6px;">解除锁定</button>` : '';
+          })()}
+        </div>
+        ${(() => {
+          const tDay = selected?.day || ui.calendarDay || 1;
+          const tMonth = calendar.month || 1;
+          const tYear = calendar.year || new Date().getFullYear();
+          const tKey = `${tYear}-${String(tMonth).padStart(2, '0')}-${String(tDay).padStart(2, '0')}`;
+          const curLock = weatherConfig.weatherOverrides?.[tKey] || weatherConfig.weatherOverrides?.[`${tMonth}-${tDay}`];
+          if (curLock) {
+            return `<div style="display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; background: var(--pp-pale); font-size: 11.5px;">
+              <span>🔒 已锁定：${escape(curLock.cn)} ${curLock.temp}°C</span>
+              ${curLock.extreme ? `<span style="color: var(--pp-error); font-size: 10px;">(极端)</span>` : ''}
+            </div>`;
+          }
+          return `<div style="display: flex; gap: 6px; align-items: center;">
+            <select id="cal-we-lock-type" style="flex: 1; min-width: 0; padding: 3px 5px; font-size: 11px;">
+              <option value="sunny">晴朗</option>
+              <option value="partly_cloudy">晴间多云</option>
+              <option value="cloudy">多云</option>
+              <option value="overcast">阴天</option>
+              <option value="light_rain">小雨</option>
+              <option value="moderate_rain">中雨</option>
+              <option value="heavy_rain">大雨 (极端)</option>
+              <option value="thunderstorm">雷阵雨</option>
+              <option value="light_snow">小雪</option>
+              <option value="heavy_snow">大暴雪 (极端)</option>
+              <option value="sunny_hot">酷热烈日</option>
+              <option value="foggy">晨雾弥漫</option>
+            </select>
+            <input id="cal-we-lock-temp" type="number" placeholder="温度℃" style="width: 58px; padding: 3px; font-size: 11px;" value="20">
+            <button type="button" class="quiet-button" data-action="lock-calendar-weather" data-date="${tKey}" style="font-size: 11px; padding: 3px 8px; white-space: nowrap;">锁定此日</button>
+          </div>`;
+        })()}
+      </div>
+
+      <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--pp-divider-soft);">
+        <label class="field-label" style="margin-bottom: 4px;">自定义古地名映射 (古代地名 → 现代城市)</label>
+        <div style="display: flex; gap: 6px;">
+          <input id="cal-we-map-from" type="text" placeholder="古地名 (如: 江东)" style="flex: 1; min-width: 0; padding: 4px; font-size: 11px;">
+          <input id="cal-we-map-to" type="text" placeholder="现代城市 (如: 南京)" style="flex: 1; min-width: 0; padding: 4px; font-size: 11px;">
+          <button type="button" class="quiet-button" data-action="add-calendar-weather-map" style="font-size: 11px; padding: 3px 8px; white-space: nowrap;">添加</button>
+        </div>
+        <div class="ancient-map-list">
+          ${ancientLocationMap.map((item, idx) => `
+            <div class="ancient-map-item">
+              <span><strong>${escape(item.from)}</strong> → ${escape(item.to)}</span>
+              <button type="button" class="icon-button" data-action="remove-calendar-weather-map" data-index="${idx}" aria-label="删除映射" style="color: var(--pp-error); padding: 0; width: 18px; height: 18px; min-height: 18px;">${icon('close')}</button>
+            </div>
+          `).join('')}
+          ${ancientLocationMap.length === 0 ? `<div style="text-align: center; color: var(--pp-muted); font-size: 10.5px; padding: 4px 0;">已内置长安、临安、金陵、姑苏等数十处名城映射</div>` : ''}
+        </div>
+      </div>
+
+      <div class="compact-switch-row" style="margin-top: 12px; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="weather-reroll-btn" data-action="reroll-calendar-weather" title="重新随机或刷新当前天气" style="margin-right: auto;">${icon('refresh')}<span>重新生成</span></button>
+        <button type="button" class="quiet-button" data-action="close-calendar-settings">取消</button>
+        <button type="button" class="save-button" style="margin-top: 0; width: auto; padding: 4px 16px;" data-action="save-calendar-weather-config">保存配置</button>
+      </div>
+    </div>
+  `;
+
   const settingsHtml = ui.calendarSettingsOpen ? `
     <div class="calendar-modal-backdrop">
       <div class="calendar-modal-dialog">
@@ -260,10 +393,11 @@ export function renderCalendar(state, { ui, calendar }) {
             <button type="button" class="calendar-tab${settingsTab === 'workday' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="workday">作息设置</button>
             <button type="button" class="calendar-tab${settingsTab === 'presets' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="presets">历法预设</button>
             <button type="button" class="calendar-tab${settingsTab === 'custom' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="custom">自定义历法</button>
+            <button type="button" class="calendar-tab${settingsTab === 'weather' ? ' is-active' : ''}" data-action="switch-calendar-settings-tab" data-calendar-settings-tab="weather">天气设置</button>
           </div>
           <button type="button" class="icon-button" data-action="close-calendar-settings" aria-label="关闭">${icon('close')}</button>
         </div>
-        ${settingsTab === 'workday' ? workdayTabContent : settingsTab === 'presets' ? presetTabContent : customTabContent}
+        ${settingsTab === 'workday' ? workdayTabContent : settingsTab === 'presets' ? presetTabContent : settingsTab === 'custom' ? customTabContent : weatherTabContent}
       </div>
     </div>
   ` : '';
@@ -402,7 +536,10 @@ export function renderCalendar(state, { ui, calendar }) {
         ${dayButtons}
       </div>
       <div class="calendar-detail-head">
-        <span class="calendar-detail-date">${escape(selected?.label || '本月')}</span>
+        <div style="display: inline-flex; align-items: center; gap: 6px; min-width: 0;">
+          <span class="calendar-detail-date">${escape(selected?.label || '本月')}</span>
+          ${weatherBadgeHtml}
+        </div>
         <div class="calendar-detail-actions">
           ${selected ? action('calendar-month', '看全月', '', 'quiet-button') : ''}
           ${action('open-calendar-form', '添加', 'plus', 'quiet-button')}

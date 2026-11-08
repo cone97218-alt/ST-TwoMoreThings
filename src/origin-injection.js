@@ -97,21 +97,23 @@ export function buildOriginInjection(state, { currentTurn = 0 } = {}) {
   const theirs = active.filter(t => (t.owner || '宿主') !== primary);
 
   if (secTasks.enabled !== false && secTasks.template && secTasks.template.trim()) {
-    let taskText = `${hostName ? `【${hostName}】` : '宿主(user)'}的进行中任务：\n`;
+    let taskText = '';
     if (mine.length) {
       for (const t of mine) taskText += fmtT(t);
-    } else {
-      taskText += '  （暂无）\n';
+    } else if (!theirs.length) {
+      taskText += '  （暂无进行中任务）\n';
     }
 
     if (theirs.length) {
+      if (taskText) taskText += '\n';
       taskText += '系统给角色布置的任务（请让对应角色在剧情里自己朝这些目标行动）：\n';
       for (const t of theirs) taskText += `  【给${t.owner}】${fmtT(t).trimStart()}`;
     }
 
+    const pureTasks = taskText.trim();
     let custom = secTasks.template.trim()
-      .replace(/\{\{content\}\}/g, taskText.trim())
-      .replace(/\{\{tasks\}\}/g, taskText.trim());
+      .replace(/\{\{content\}\}/g, pureTasks)
+      .replace(/\{\{tasks\}\}/g, pureTasks);
     if (custom.trim()) parts.push(custom.trim());
   }
 

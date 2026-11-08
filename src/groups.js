@@ -70,7 +70,7 @@ export function createGroupService({ target, store, contextReader, modelClient }
       const reply = await modelClient.complete({
         label: '群聊多角色续写',
         system: systemPrompt,
-        messages: userEntries.length ? userEntries : messagesPayload,
+        messages: userEntries.length ? userEntries : [{ role: 'user', content: JSON.stringify(phoneContextData) }],
         entries: messagesPayload,
         collapsedMessages: collapsed,
       });

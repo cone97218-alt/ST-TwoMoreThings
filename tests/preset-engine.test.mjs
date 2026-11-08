@@ -308,7 +308,14 @@ test('preset engine: sanitizePhoneContext strips story, storyMemory, worldbook, 
     history: [{ role: 'user', text: '你好' }],
   };
 
-  const compiled = compilePromptPreset(DEFAULT_PROMPT_PRESETS[0], {
+  const testPreset = {
+    id: 'test_sanitize',
+    entries: [
+      { id: 'entry_phone_data', name: '手机上下文', scope: '通用', role: 'user', enabled: true, content: '{{phone_context}}' },
+    ],
+  };
+
+  const compiled = compilePromptPreset(testPreset, {
     worldbook: dirtyContext.worldbook,
     storyHistory: '姜惟汀：一大段正文内容',
     storyMemory: dirtyContext.storyMemory,

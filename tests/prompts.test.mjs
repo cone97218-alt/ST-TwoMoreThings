@@ -11,20 +11,20 @@ import { createDirectoryService } from '../src/directory.js';
 import { createForumService } from '../src/forum.js';
 import { createCalendarAiService } from '../src/calendar-ai.js';
 
-test('prompts: definition registry has 29 items across 8 categories', () => {
-  assert.equal(PROMPT_DEFINITIONS.length, 29);
+test('prompts: definition registry has 36 items across 7 streamlined modules', () => {
+  assert.equal(PROMPT_DEFINITIONS.length, 36);
   const categories = new Set(PROMPT_DEFINITIONS.map(p => p.category));
-  assert.ok(categories.has('短信与通讯'));
-  assert.ok(categories.has('群聊'));
-  assert.ok(categories.has('社交与论坛'));
-  assert.ok(categories.has('日历与日程'));
-  assert.ok(categories.has('地图与场景'));
-  assert.ok(categories.has('待办与正文'));
-  assert.ok(categories.has('通用规则'));
-  assert.ok(categories.has('小游戏'));
+  assert.ok(categories.has('通讯'));
+  assert.ok(categories.has('社交'));
+  assert.ok(categories.has('工具'));
+  assert.ok(categories.has('系统'));
+  assert.ok(categories.has('游戏'));
+  assert.ok(categories.has('协议'));
+  assert.ok(categories.has('线索'));
   assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'map_calibrate'));
   assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_system'));
   assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_chat'));
+  assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_observer_chat'));
   assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_task_conceive'));
   assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_stats_eval'));
   assert.ok(PROMPT_DEFINITIONS.some(p => p.id === 'origin_shop_conceive'));
@@ -39,10 +39,13 @@ test('prompts: getPrompt and getAllPrompts default vs customized', () => {
   assert.equal(getPrompt('messages', customState), '自定义短信提示词内容');
 
   const all = getAllPrompts(customState);
-  assert.equal(all.length, 29);
+  assert.equal(all.length, 36);
   const messagesItem = all.find(p => p.id === 'messages');
   assert.equal(messagesItem.isCustom, true);
   assert.equal(messagesItem.currentPrompt, '自定义短信提示词内容');
+  // 别名与双向兼容支持
+  assert.equal(getPrompt('chat_messages', customState), '自定义短信提示词内容');
+  assert.equal(getPrompt('messages', customState), '自定义短信提示词内容');
 
   const groupsItem = all.find(p => p.id === 'groups');
   assert.equal(groupsItem.isCustom, false);
@@ -182,14 +185,14 @@ test('settings UI: renderPromptLibrarySettings renders tabs, search, and cards',
   assert.ok(!collapsedHtml.includes('已定制的私聊提示词'));
 
   // Filter by category
-  const filteredHtml = renderPromptLibrarySettings(state, { ...ui, promptCategory: '群聊' });
-  assert.ok(filteredHtml.includes('群聊多角色续写'));
-  assert.ok(!filteredHtml.includes('私聊短信生成'));
+  const filteredHtml = renderPromptLibrarySettings(state, { ...ui, promptCategory: '通讯' });
+  assert.ok(filteredHtml.includes('通讯-群聊'));
+  assert.ok(filteredHtml.includes('通讯-私聊'));
 
   // Search filter
-  const searchHtml = renderPromptLibrarySettings(state, { ...ui, promptSearch: '绘图' });
-  assert.ok(searchHtml.includes('照片转绘图描述提示词'));
-  assert.ok(!searchHtml.includes('私聊短信生成'));
+  const searchHtml = renderPromptLibrarySettings(state, { ...ui, promptSearch: '生图' });
+  assert.ok(searchHtml.includes('工具-生图'));
+  assert.ok(!searchHtml.includes('通讯-私聊'));
 });
 
 test('preset settings UI & reordering: mobile drag handle and drawer move buttons', async () => {

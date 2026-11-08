@@ -2,6 +2,7 @@ import { parseJsonObject } from './api.js';
 import { getSocialAuthor } from './social.js';
 import { createImageProviders } from './image-providers.js';
 import { getPrompt, IMAGE_PROMPT } from './prompts.js';
+import { TOOL_BRANCHES } from './prompts/branches.js';
 
 export function createPhoneImageService({ store, modelClient, files, host, providers = host ? createImageProviders({ host }) : null, apiProvider = () => globalThis.STBaiBaiImage, assertEnabled = () => {}, onBusyChange = () => {}, defaultUser = '我' }) {
   // 两种图片入口共用绘图步骤，各自拥有目标记录和保存约束。
@@ -12,9 +13,9 @@ export function createPhoneImageService({ store, modelClient, files, host, provi
     const status = api.getBackendStatus();
     if (!status.configured) throw new Error(status.reason || `请先在${label}中完成生图设置。`);
     const catalog = api.getCharacters(), library = catalog.characters || [], outfits = catalog.outfits || [];
-    const outfitRule = outfits.length ? '如照片需要库中的服装，可附outfits数组，只填outfits给定的准确名称；没有对应就省略。' : '';
+    const outfitRule = outfits.length ? TOOL_BRANCHES.imageOutfitRule : '';
     const basePrompt = getPrompt('image_prompt', store?.read?.()) || IMAGE_PROMPT;
-    const sceneryInstruction = sceneryOnly ? '此图来自动态NPC，只允许风景、静物、动植物或环境画面；若画面涉及动物、路人或怪物，请直接在prompt中用英文标签表现，characters必须为空数组[]，不计入角色列表。' : '';
+    const sceneryInstruction = sceneryOnly ? TOOL_BRANCHES.imageSceneryOnly : '';
     const recipe = parseJsonObject(await modelClient.complete({
       label: '生图描述生成',
       system: basePrompt.replaceAll('柏宝绘', label) + outfitRule + sceneryInstruction,

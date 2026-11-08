@@ -1,6 +1,7 @@
 import { findSticker } from './stickers.js';
 import { replyContext } from './replies.js';
 import { formatBuckshotChronicle, formatBuckshotActionPrompt } from './games/buckshot-roulette.js';
+import { GAME_BRANCHES } from './prompts/branches.js';
 
 const text = value => typeof value === 'string' ? value.trim() : '';
 const states = { pending: '待收款', accepted: '已收下', returned: '已退回' };
@@ -309,15 +310,7 @@ export function extractLatestUserInput(messages, { contactName = '角色', userN
       gameActionPrompt = formatBuckshotActionPrompt(rawGameState);
     } else {
       const isAiTurn = activeGame.game?.turn === 'ai';
-      if (isAiTurn) {
-        gameActionPrompt = `[小游戏对弈推进]
-【回合方判定】：当前明确轮到【角色】抽牌！
-【角色行动指令】：角色必须在 JSON 顶层返回结构化动作指令（gameAction），从<user>手牌中抽牌，并在 messages 中发表对弈台词。`;
-      } else {
-        gameActionPrompt = `[小游戏对弈推进]
-【回合方判定】：当前处于【<user>】的摸牌回合，等待【<user>】抽牌！
-【角色行动指令】：当前不是角色的回合，角色严禁在顶层返回 gameAction 动作指令。角色仅在 messages 中以纯私聊台词做出反应。`;
-      }
+      gameActionPrompt = isAiTurn ? GAME_BRANCHES.oldMaidAiTurn : GAME_BRANCHES.oldMaidUserTurn;
     }
   }
 

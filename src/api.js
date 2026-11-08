@@ -208,6 +208,11 @@ export function createModelClient({ host, sourceProvider, onBusyChange = () => {
           for (const m of ordered) {
             payloadMessages.push({ role: m.role, content: m.content });
           }
+          if (!payloadMessages.some(m => m.role !== 'system') && Array.isArray(messages)) {
+            for (const m of messages) {
+              if (m.role !== 'system') payloadMessages.push({ role: m.role || 'user', content: m.content });
+            }
+          }
         } else {
           if (system && String(system).trim()) {
             payloadMessages.push({ role: 'system', content: String(system) });

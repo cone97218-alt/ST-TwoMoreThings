@@ -4,7 +4,7 @@ import { action, avatar, escape, icon, pageHeading, refKey } from './shared.js';
 import { displayName } from '../profiles.js';
 import { renderBackgroundPicker } from './backgrounds.js';
 import { VERSION } from '../version.js';
-import { getAllPrompts } from '../prompts.js';
+import { getAllPrompts, PROMPT_MODULES } from '../prompts.js';
 import { DEFAULT_PROMPT_PRESETS, PRESET_SLOTS, PRESET_SCOPES, normalizePromptPresets } from '../preset-engine.js';
 import { readBaiBaiExcludeSettings } from '../worldbook.js';
 
@@ -195,19 +195,23 @@ export function renderPromptPresetSettings(state, ui) {
 }
 
 export function renderPromptSettings(state, ui) {
-  const activeTab = ui.promptSettingsTab || 'presets';
+  const activeTab = (ui.promptSettingsTab === 'presets') ? 'presets' : 'library';
+  const tabContent = activeTab === 'presets'
+    ? renderPromptPresetSettings(state, ui)
+    : renderPromptLibrarySettings(state, ui);
+
   return `<div class="prompts-outer-container">
     <div class="calendar-tabs" style="margin-bottom: 12px;">
-      <button type="button" class="calendar-tab${activeTab === 'presets' ? ' is-active' : ''}" data-action="switch-prompt-settings-tab" data-prompt-tab="presets">提示词预设与装配</button>
-      <button type="button" class="calendar-tab${activeTab === 'library' ? ' is-active' : ''}" data-action="switch-prompt-settings-tab" data-prompt-tab="library">功能提示词库</button>
+      <button type="button" class="calendar-tab${activeTab === 'library' ? ' is-active' : ''}" data-action="switch-prompt-settings-tab" data-prompt-tab="library">提示词库</button>
+      <button type="button" class="calendar-tab${activeTab === 'presets' ? ' is-active' : ''}" data-action="switch-prompt-settings-tab" data-prompt-tab="presets">预设装配</button>
     </div>
-    ${activeTab === 'presets' ? renderPromptPresetSettings(state, ui) : renderPromptLibrarySettings(state, ui)}
+    ${tabContent}
   </div>`;
 }
 
 export function renderPromptLibrarySettings(state, ui) {
   const allPrompts = getAllPrompts(state);
-  const categories = ['全部', '随身系统', '短信与通讯', '群聊', '社交与论坛', '日历与日程', '地图与场景', '待办与正文', '通用规则', '小游戏'];
+  const categories = ['全部', '通讯', '社交', '工具', '系统', '游戏', '线索', '协议'];
   const activeCategory = ui.promptCategory || '全部';
   const customCount = allPrompts.filter(p => p.isCustom).length;
   const search = (ui.promptSearch || '').trim().toLowerCase();
@@ -592,20 +596,6 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
       <span></span>
     </span>
   </label>
-  <label class="compact-switch-row">
-    <span>私聊感知社交动态</span>
-    <span class="switch">
-      <input id="contact-social-enabled" type="checkbox" role="switch" aria-label="私聊感知社交动态" ${state.contactSocialEnabled !== false ? 'checked' : ''} ${busy?.has?.('contact-social') ? 'disabled' : ''}>
-      <span></span>
-    </span>
-  </label>
-  <label class="compact-switch-row">
-    <span>群聊感知社交动态</span>
-    <span class="switch">
-      <input id="group-social-enabled" type="checkbox" role="switch" aria-label="群聊感知社交动态" ${state.groupSocialEnabled !== false ? 'checked' : ''} ${busy?.has?.('group-social') ? 'disabled' : ''}>
-      <span></span>
-    </span>
-  </label>
   <small class="field-label">临近 7 天内的节日、纪念日与工作日/时段作息可作为背景线索带入正文或提示词。</small>
   <label class="compact-switch-row" for="summary-mode">
     <span>短信总结方式</span>
@@ -672,7 +662,7 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
     ${drawer('appearance', '外观设置', appearanceContent)}
     ${drawer('content', '内容设置', content)}
     ${drawer('worldbook_excludes', '排除世界书内容', renderWorldbookExcludeSettings(state, ui, busy, { host }))}
-    ${drawer('prompts', '提示词可视化', renderPromptSettings(state, ui))}
+    ${drawer('prompts', '提示词管理', renderPromptSettings(state, ui))}
     ${drawer('logs', '提示词与生成日志', renderLogSettings(state, ui, { logger, backflowPreview }))}
     <small class="app-version"><span class="app-version-label"><span>两三事 ${VERSION}</span> · <span>${instanceLabel}</span></span>${updates ? '<span data-update-notice></span>' : ''}</small>
     ${renderExcludeWorldModal(ui, host?.listWorldInfoNames?.() || [], readBaiBaiExcludeSettings(() => host?.readSettings?.()))}`;

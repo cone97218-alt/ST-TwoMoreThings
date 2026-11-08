@@ -18,6 +18,7 @@ import {
 } from './games/buckshot-roulette.js';
 import { SYSTEM_CONTACT_ID, isOriginObserverMode, resolvePersona } from './origin-engine.js';
 import { buildSystemChatPrompt, fillOriginChatPrompt } from './origin-chat.js';
+import { ORIGIN_BRANCHES } from './prompts/branches.js';
 
 export function record(role, text, clock, translation, batch) {
   const now = new Date();
@@ -247,7 +248,7 @@ export function createMessageService({ target, store, contextReader, modelClient
                   role: m.role === 'user' ? 'assistant' : 'user',
                   content: m.text || '',
                 })),
-                { role: 'user', content: `请推演【${hostName}】与【${state.origin?.sysName || '系统'}】的一轮互动对话，输出 JSON：` },
+                { role: 'user', content: ORIGIN_BRANCHES.observerPromptRequest(hostName, state.origin?.sysName) },
               ],
             });
 
@@ -391,7 +392,7 @@ export function createMessageService({ target, store, contextReader, modelClient
       const reply = await modelClient.complete({
         label: '私聊短信生成',
         system: systemPrompt,
-        messages: userEntries.length ? userEntries : messagesPayload,
+        messages: userEntries.length ? userEntries : [{ role: 'user', content: JSON.stringify(phoneContextData) }],
         entries: messagesPayload,
         collapsedMessages: collapsed,
       });

@@ -7,6 +7,7 @@ import {
   normalizeQianchuangMapLayout,
 } from './map-engine.js';
 import { compilePromptPreset, collapseMessages, getActivePreset, sanitizePhoneContext } from './preset-engine.js';
+import { TOOL_BRANCHES } from './prompts/branches.js';
 
 export function createMapAiService({ contextReader, modelClient, target, store }) {
   return {
@@ -45,7 +46,7 @@ export function createMapAiService({ contextReader, modelClient, target, store }
         currentLocation: projection.userPosition?.label || '',
         currentLocationPath: (projection.userPosition?.breadcrumb || []).map(b => b.name).join(' > '),
         existingPlaces,
-        rules: '标注“柏宝书既定”的地点来自剧情记录，名称与层级不可更改、不可重复创建；新增地点必须通过 parentName 挂到已有地点（或本次新增的地点）之下，parentName 须与已有名称完全一致；不要输出 currentLocation，当前位置由剧情自动决定。',
+        rules: TOOL_BRANCHES.mapOrganizeRules,
         userInstruction: instruction ? `用户特别指定的地图整理/构想要求：${instruction}` : '',
       });
       const activePreset = getActivePreset(state);
@@ -166,7 +167,7 @@ export function createMapAiService({ contextReader, modelClient, target, store }
         currentLocation: baibaiSnapshot?.location || '',
         currentLocationPath: (baibaiSnapshot?.locationPath || []).join(' > '),
         scenes: existingScenes,
-        rules: '【铁律限制】严禁添加列表中不存在的任何新地点，严禁修改已有地点名称。只针对给出的 scenes 列表，审阅世界观补齐 role（area分区/site建筑/interior室内）、quadrant（east/west/south/north/center/inner/outer）、facilities 设施标签与 relations 拓扑关系。',
+        rules: TOOL_BRANCHES.mapCalibrateRules,
         userInstruction: instruction ? `用户补充校准要求：${instruction}` : '',
       });
 

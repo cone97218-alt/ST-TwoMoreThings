@@ -100,7 +100,7 @@ test('BBS story clock reaches generated SMS, batch storage and short main-story 
   const input = JSON.parse(requests[0].messages[0].content), saved = s.store.read().conversations.a[0];
   assert.equal(input.storyMemory, undefined); assert.ok(requests[0].system.includes('【2031/4/7】过去的共同经历'));
   assert.match(requests[0].system, /storyMemory.*不代表每个人都知情/);
-  assert.equal(input.story, undefined); assert.equal(requests[0].system.includes('09:30'), false, 'BBS endpoint content is stripped only from the narrative copy'); assert.ok(requests[0].system.includes('街上很安静。'));
+  assert.equal(input.story, undefined); const storyEntry = requests[0].entries?.find(e => e.id === 'entry_story_history'); assert.equal(storyEntry ? storyEntry.content.includes('09:30') : requests[0].system.includes('09:30'), false, 'BBS endpoint content is stripped only from the narrative copy'); assert.ok(requests[0].system.includes('街上很安静。'));
   assert.deepEqual([saved.storyDate, saved.timeLabel, saved.storyWeekday], ['2031/4/8', '09:30', '']);
   assert.deepEqual(JSON.parse(saved.batch.key), [0, '2031/4/8', '09:30']);
   await s.store.setInjectionEnabled(true);

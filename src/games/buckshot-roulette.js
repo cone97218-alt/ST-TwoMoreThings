@@ -1,6 +1,7 @@
 // 恶魔轮盘（Buckshot Roulette）核心规则引擎与状态机
 // 规则：生死对决，霰弹枪装填已知数量的实弹与空弹，顺序未知。
 // 回合可选择射击对手或朝自己开枪（空弹则奖励额外回合），配合 5 种战术道具。
+import { GAME_BRANCHES } from '../prompts/branches.js';
 
 export const BUCKSHOT_ITEMS = {
   MAGNIFIER: 'magnifier',
@@ -884,7 +885,7 @@ export function formatBuckshotChronicle(game, { userName = '<user>', contactName
   const turnDesc = isAiTurn ? '【角色】' : '【<user>】';
 
   const lines = [
-    `【恶魔轮盘 · 战局客观档案（请严格依据实时数据推进，不同轮次严禁混淆）】`,
+    GAME_BRANCHES.buckshotBattleHeader,
     `● 战况概览：`,
     `  - 双方赌注：【${game.wager || '纯娱乐'}】`,
     `  - 实时血量：【<user>】${game.userHp}/${game.maxHp} HP | 【角色】${game.aiHp}/${game.maxHp} HP`,
@@ -947,11 +948,7 @@ export function formatBuckshotActionPrompt(game) {
 
   lines.push(`- 当前/下一行动回合归属（最关键）：【${turnActor}】（仅该方拥有开火或使用道具的行动权）`);
 
-  if (isAiTurn) {
-    lines.push(`【行动指令】：当前明确轮到【角色】行动！角色必须在 JSON 顶层返回结构化动作指令（gameAction），执行扣动扳机（朝自身开枪或朝<user>开枪）或使用道具，并在 messages 中输出纯私聊台词。严禁不发 gameAction。`);
-  } else {
-    lines.push(`【行动指令】：当前处于【<user>】的回合，等待【<user>】开火或使用道具！当前不是角色回合，角色严禁在顶层返回 gameAction 动作指令（严禁替<user>开枪或代打），仅在 messages 中以纯私聊台词做出反应。`);
-  }
+  lines.push(isAiTurn ? GAME_BRANCHES.buckshotAiTurn : GAME_BRANCHES.buckshotUserTurn);
 
   return lines.join('\n');
 }

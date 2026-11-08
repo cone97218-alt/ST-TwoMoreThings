@@ -32,6 +32,42 @@ import {
   ORIGIN_STATS_EVAL_PROMPT,
   ORIGIN_SHOP_CONCEIVE_PROMPT,
   ORIGIN_GACHA_CONCEIVE_PROMPT,
+  CLUE_WORKDAY,
+  CLUE_CALENDAR,
+  CLUE_MAP,
+  CLUE_ORIGIN,
+  CLUE_CLOCK,
+  CLUE_TARGET,
+  CLUE_TODOS,
+  CLUE_SOCIAL,
+  CLUE_STICKERS,
+  CLUE_HISTORY,
+  PROTO_LANG,
+  PROTO_MEMORY,
+  CHAT_MESSAGES,
+  CHAT_GROUPS,
+  CHAT_THOUGHT,
+  CHAT_CONTACTS,
+  CHAT_DIRECTORY,
+  SOCIAL_FEED,
+  SOCIAL_COMMENT,
+  SOCIAL_FORUM,
+  TOOL_FESTIVALS,
+  TOOL_SCHEDULES,
+  TOOL_MAPS,
+  TOOL_MAP_CALIBRATE,
+  TOOL_TODOS,
+  TOOL_SUMMARY,
+  TOOL_IMAGE,
+  GAME_OLD_MAID,
+  GAME_BUCKSHOT,
+  GAME_RICH,
+  ORIGIN_CHAT,
+  ORIGIN_OBSERVER_CHAT,
+  ORIGIN_TASKS,
+  ORIGIN_STATS,
+  ORIGIN_SHOP,
+  ORIGIN_GACHA,
 } from './prompts.js';
 import { shortenMessageId, extractLatestUserInput } from './content.js';
 import { resolvePersona } from './origin-engine.js';
@@ -42,7 +78,13 @@ export const PRESET_SLOTS = [
   { macro: '{{worldbook}}', name: '世界书', desc: '蓝灯常驻条目必定注入 + 绿灯关键字动态激活' },
   { macro: '{{story_history}}', name: '主聊天历史', desc: '主聊天最近 n 层的正文对白与动作' },
   { macro: '{{story_memory}}', name: '柏宝书记忆', desc: '若开启柏宝书，注入其长线剧情记忆摘要' },
-  { macro: '{{phone_context}}', name: '手机内部数据', desc: '包含待办事项、日历节日、短信往来记录、公开动态等' },
+  { macro: '{{clue_clock}}', name: '虚拟时钟与日程', desc: '提供当前手机虚拟日期、星期几与时段线索，锚定真实生活时间感' },
+  { macro: '{{clue_target}}', name: '聊天对象设定与风格', desc: '提供当前私聊联系人或群聊成员的名片设定、打字习惯与线上风格' },
+  { macro: '{{clue_history}}', name: '对话历史消息记录', desc: '提供当前会话近期消息往来上下文记录，保持对话连贯流畅' },
+  { macro: '{{clue_todos}}', name: '备忘录待办与约定', desc: '提示备忘录中与当前角色相关的未完成待办事项、约定与截止时间' },
+  { macro: '{{clue_social}}', name: '社交动态与朋友圈', desc: '提供通讯录好友最新发布的公开朋友圈动态，作为自然闲聊谈资' },
+  { macro: '{{clue_stickers}}', name: '专属表情包与贴纸', desc: '提供角色当前可用的专属贴纸表情包及常用 emoji 候选池' },
+  { macro: '{{phone_context}}', name: '手机内部数据 (已废弃·旧版兼容)', desc: '旧版未拆解的原始全量 JSON 字典，已被各细粒度线索条目替代' },
   { macro: '{{latest_user_input}}', name: '最新用户输入', desc: '单聊/群聊中用户最新发出的连续发言、动态用户评论、或日历推演要求' },
   { macro: '{{char_personality}}', name: '角色线上表达', desc: '角色的线上文字风格、习惯与人设' },
   { macro: '{{messages_prompt}}', name: '私聊短信生成', desc: '仅私聊：短信回复与主动发信规则' },
@@ -142,181 +184,7 @@ export function toggleScopeSelection(currentScope, clickedScope) {
 }
 
 export const DEFAULT_PRESET_ENTRIES = [
-  {
-    id: 'entry_system_rules',
-    name: '基础-通用规则',
-    scope: '通用',
-    role: 'system',
-    enabled: true,
-    content: `你在手机应用中模拟角色进行线上交互。
-结合当前剧情、地点与时间；没有依据不虚构正在发生的重大事件。
-
-${LANGUAGE_RULE}
-
-${STORY_MEMORY_RULE}
-
-只输出合法的 JSON 格式。`,
-  },
-  {
-    id: 'entry_messages_rules',
-    name: '短信-私聊',
-    scope: '短信',
-    role: 'system',
-    enabled: true,
-    content: `${MESSAGES_PROMPT}\n\n${RICH_MESSAGES_PROMPT}`,
-  },
-  {
-    id: 'entry_old_maid_rules',
-    name: '小游戏-抽鬼牌',
-    scope: '小游戏',
-    role: 'system',
-    enabled: true,
-    content: `${OLD_MAID_PROMPT}`,
-  },
-  {
-    id: 'entry_buckshot_rules',
-    name: '小游戏-恶魔轮盘',
-    scope: '小游戏',
-    role: 'system',
-    enabled: true,
-    content: `${BUCKSHOT_ROULETTE_PROMPT}`,
-  },
-  {
-    id: 'entry_thought_rules',
-    name: '短信-心声',
-    scope: '心声',
-    role: 'system',
-    enabled: true,
-    content: `${THOUGHT_PROMPT}`,
-  },
-  {
-    id: 'entry_groups_rules',
-    name: '群聊-角色整理',
-    scope: '群聊',
-    role: 'system',
-    enabled: true,
-    content: `${GROUP_PROMPT}\n\n${RICH_MESSAGES_PROMPT}`,
-  },
-  {
-    id: 'entry_directory_rules',
-    name: '通讯录-人员整理',
-    scope: '通讯录',
-    role: 'system',
-    enabled: true,
-    content: `${DIRECTORY_PROMPT}`,
-  },
-  {
-    id: 'entry_contacts_rules',
-    name: '通讯录-人设提炼',
-    scope: '联系人',
-    role: 'system',
-    enabled: true,
-    content: `${CONTACTS_PROMPT}`,
-  },
-  {
-    id: 'entry_social_rules',
-    name: '社交-动态',
-    scope: '动态发布',
-    role: 'system',
-    enabled: true,
-    content: `${SOCIAL_PROMPT}`,
-  },
-  {
-    id: 'entry_comment_rules',
-    name: '社交-评论',
-    scope: '动态评论',
-    role: 'system',
-    enabled: true,
-    content: `${COMMENT_PROMPT}`,
-  },
-  {
-    id: 'entry_forum_rules',
-    name: '论坛-帖子',
-    scope: '论坛',
-    role: 'system',
-    enabled: true,
-    content: `${FORUM_PROMPT}`,
-  },
-  {
-    id: 'entry_festival_rules',
-    name: '日历-节日',
-    scope: '节日构想',
-    role: 'system',
-    enabled: true,
-    content: `${FESTIVAL_CONCEIVE_PROMPT}`,
-  },
-  {
-    id: 'entry_schedule_rules',
-    name: '日历-日程',
-    scope: '日程推演',
-    role: 'system',
-    enabled: true,
-    content: `${SCHEDULE_DEDUCE_PROMPT}`,
-  },
-  {
-    id: 'entry_map_organize_rules',
-    name: '地图-空间整理',
-    scope: '地图构想',
-    role: 'system',
-    enabled: true,
-    content: `${MAP_ORGANIZE_PROMPT}`,
-  },
-  {
-    id: 'entry_map_calibrate_rules',
-    name: '地图-方位校准',
-    scope: '地图校准',
-    role: 'system',
-    enabled: true,
-    content: `${MAP_CALIBRATE_PROMPT}`,
-  },
-  {
-    id: 'entry_map_context',
-    name: '地图-位置线索',
-    scope: '短信+群聊',
-    role: 'system',
-    enabled: true,
-    content: `${MAP_PROMPT}\n[地图与位置线索：\n{{map_prompt}}\n]`,
-  },
-  {
-    id: 'entry_todo_rules',
-    name: '短信-待办提取',
-    scope: '待办',
-    role: 'system',
-    enabled: true,
-    content: `${TODO_SUGGESTIONS_PROMPT}`,
-  },
-  {
-    id: 'entry_calendar_context',
-    name: '日历-节日线索',
-    scope: '短信+群聊',
-    role: 'system',
-    enabled: true,
-    content: `${CALENDAR_PROMPT}\n[日历线索：\n{{calendar_prompt}}\n]`,
-  },
-  {
-    id: 'entry_workday_holiday',
-    name: '日历-作息提示',
-    scope: '短信+群聊',
-    role: 'system',
-    enabled: true,
-    content: `${WORKDAY_HOLIDAY_PROMPT}\n{{workday_holiday_prompt}}`,
-  },
-  {
-    id: 'entry_summary_rules',
-    name: '短信-正文摘要',
-    scope: '摘要',
-    role: 'system',
-    enabled: true,
-    content: `${SUMMARY_PROMPT}`,
-  },
-  {
-    id: 'entry_image_rules',
-    name: '相册-生图提示',
-    scope: '生图',
-    role: 'system',
-    enabled: true,
-    content: `${IMAGE_PROMPT}`,
-  },
+  // 1. 基础世界观与背景
   {
     id: 'entry_worldbook',
     name: '基础-世界书',
@@ -341,73 +209,324 @@ ${STORY_MEMORY_RULE}
     enabled: true,
     content: `[主聊天最近正文历史：\n{{story_history}}\n]`,
   },
+
+  // 2. 细粒度手机生活与背景线索
   {
-    id: 'entry_latest_user_input',
-    name: '基础-用户输入',
+    id: 'entry_clue_clock',
+    name: '线索-时钟',
     scope: '通用',
     role: 'system',
     enabled: true,
-    content: `[用户最新发言/当前诉求：\n{{latest_user_input}}\n]`,
+    content: `{{clue_clock}}`,
   },
   {
-    id: 'entry_origin_chat_rules',
-    name: '系统-专属私聊',
-    scope: '系统私聊',
+    id: 'entry_clue_target',
+    name: '线索-资料',
+    scope: '短信+群聊',
     role: 'system',
     enabled: true,
-    content: `${ORIGIN_CHAT_PROMPT}`,
+    content: `{{clue_target}}`,
   },
   {
-    id: 'entry_origin_task_rules',
-    name: '系统-任务推演',
-    scope: '系统推演任务',
+    id: 'entry_clue_history',
+    name: '线索-消息',
+    scope: '短信+群聊+心声',
     role: 'system',
     enabled: true,
-    content: `${ORIGIN_TASK_CONCEIVE_PROMPT}`,
+    content: `{{clue_history}}`,
   },
   {
-    id: 'entry_origin_stats_rules',
-    name: '系统-成长评估',
-    scope: '系统成长评估',
+    id: 'entry_clue_todos',
+    name: '线索-待办',
+    scope: '短信+群聊',
     role: 'system',
     enabled: true,
-    content: `${ORIGIN_STATS_EVAL_PROMPT}`,
+    content: `{{clue_todos}}`,
   },
   {
-    id: 'entry_origin_shop_rules',
-    name: '系统-商城进货',
-    scope: '系统商城进货',
+    id: 'entry_clue_social',
+    name: '线索-动态',
+    scope: '短信+群聊',
     role: 'system',
     enabled: true,
-    content: `${ORIGIN_SHOP_CONCEIVE_PROMPT}`,
+    content: `{{clue_social}}`,
   },
   {
-    id: 'entry_origin_gacha_rules',
-    name: '系统-奖池扩充',
-    scope: '系统祈愿扩充',
+    id: 'entry_clue_stickers',
+    name: '线索-表情',
+    scope: '短信+群聊',
     role: 'system',
     enabled: true,
-    content: `${ORIGIN_GACHA_CONCEIVE_PROMPT}`,
+    content: `{{clue_stickers}}`,
+  },
+  {
+    id: 'entry_map_context',
+    name: '线索-地图',
+    scope: '短信+群聊',
+    role: 'system',
+    enabled: true,
+    content: `${CLUE_MAP}\n[地图与位置线索：\n{{map_prompt}}\n]`,
+  },
+  {
+    id: 'entry_calendar_context',
+    name: '线索-节日',
+    scope: '短信+群聊',
+    role: 'system',
+    enabled: true,
+    content: `${CLUE_CALENDAR}\n[日历线索：\n{{calendar_prompt}}\n]`,
+  },
+  {
+    id: 'entry_workday_holiday',
+    name: '线索-作息',
+    scope: '短信+群聊',
+    role: 'system',
+    enabled: true,
+    content: `${CLUE_WORKDAY}\n{{workday_holiday_prompt}}`,
   },
   {
     id: 'entry_origin_context',
-    name: '系统-任务线索',
+    name: '线索-系统',
     scope: '短信+系统私聊',
     role: 'system',
     enabled: true,
-    content: `${ORIGIN_SYSTEM_PROMPT}\n{{origin_prompt}}`,
+    content: `${CLUE_ORIGIN}\n{{origin_prompt}}`,
+  },
+
+  // 3. 通用规范与协议
+  {
+    id: 'entry_system_rules',
+    name: '基础-通用规则',
+    scope: '通用',
+    role: 'system',
+    enabled: true,
+    content: `你在手机应用中模拟角色进行线上交互。
+结合当前剧情、地点与时间；没有依据不虚构正在发生的重大事件。
+
+${PROTO_LANG}
+
+${PROTO_MEMORY}
+
+只输出合法的 JSON 格式。`,
+  },
+
+  // 4. 任务标签开始
+  {
+    id: 'entry_task_start',
+    name: '任务-开始',
+    scope: '通用',
+    role: 'system',
+    enabled: true,
+    content: `<task>`,
+  },
+
+  // 5. 各场景具体任务规则
+  {
+    id: 'entry_messages_rules',
+    name: '短信-私聊',
+    scope: '短信',
+    role: 'system',
+    enabled: true,
+    content: `${CHAT_MESSAGES}\n\n${GAME_RICH}`,
+  },
+  {
+    id: 'entry_thought_rules',
+    name: '短信-心声',
+    scope: '心声',
+    role: 'system',
+    enabled: true,
+    content: `${CHAT_THOUGHT}`,
+  },
+  {
+    id: 'entry_groups_rules',
+    name: '群聊-多角色',
+    scope: '群聊',
+    role: 'system',
+    enabled: true,
+    content: `${CHAT_GROUPS}\n\n${GAME_RICH}`,
+  },
+  {
+    id: 'entry_directory_rules',
+    name: '通讯录-人员整理',
+    scope: '通讯录',
+    role: 'system',
+    enabled: true,
+    content: `${CHAT_DIRECTORY}`,
   },
   {
     id: 'entry_phone_data',
-    name: '基础-手机上下文',
-    scope: '通用',
+    name: '通讯录-已有名单',
+    scope: '通讯录',
     role: 'user',
     enabled: true,
     content: `{{phone_context}}`,
   },
+  {
+    id: 'entry_contacts_rules',
+    name: '通讯录-人设提炼',
+    scope: '联系人',
+    role: 'system',
+    enabled: true,
+    content: `${CHAT_CONTACTS}`,
+  },
+  {
+    id: 'entry_social_rules',
+    name: '社交-动态',
+    scope: '动态发布',
+    role: 'system',
+    enabled: true,
+    content: `${SOCIAL_FEED}`,
+  },
+  {
+    id: 'entry_comment_rules',
+    name: '社交-评论',
+    scope: '动态评论',
+    role: 'system',
+    enabled: true,
+    content: `${SOCIAL_COMMENT}`,
+  },
+  {
+    id: 'entry_forum_rules',
+    name: '社交-论坛',
+    scope: '论坛',
+    role: 'system',
+    enabled: true,
+    content: `${SOCIAL_FORUM}`,
+  },
+  {
+    id: 'entry_festival_rules',
+    name: '工具-节日',
+    scope: '节日构想',
+    role: 'system',
+    enabled: true,
+    content: `${TOOL_FESTIVALS}`,
+  },
+  {
+    id: 'entry_schedule_rules',
+    name: '工具-作息',
+    scope: '日程推演',
+    role: 'system',
+    enabled: true,
+    content: `${TOOL_SCHEDULES}`,
+  },
+  {
+    id: 'entry_map_organize_rules',
+    name: '工具-地图',
+    scope: '地图构想',
+    role: 'system',
+    enabled: true,
+    content: `${TOOL_MAPS}`,
+  },
+  {
+    id: 'entry_map_calibrate_rules',
+    name: '工具-校准',
+    scope: '地图校准',
+    role: 'system',
+    enabled: true,
+    content: `${TOOL_MAP_CALIBRATE}`,
+  },
+  {
+    id: 'entry_todo_rules',
+    name: '工具-待办',
+    scope: '待办',
+    role: 'system',
+    enabled: true,
+    content: `${TOOL_TODOS}`,
+  },
+  {
+    id: 'entry_summary_rules',
+    name: '工具-总结',
+    scope: '摘要',
+    role: 'system',
+    enabled: true,
+    content: `${TOOL_SUMMARY}`,
+  },
+  {
+    id: 'entry_image_rules',
+    name: '工具-生图',
+    scope: '生图',
+    role: 'system',
+    enabled: true,
+    content: `${TOOL_IMAGE}`,
+  },
+  {
+    id: 'entry_old_maid_rules',
+    name: '游戏-抽鬼牌',
+    scope: '小游戏',
+    role: 'system',
+    enabled: true,
+    content: `${GAME_OLD_MAID}`,
+  },
+  {
+    id: 'entry_buckshot_rules',
+    name: '游戏-轮盘',
+    scope: '小游戏',
+    role: 'system',
+    enabled: true,
+    content: `${GAME_BUCKSHOT}`,
+  },
+  {
+    id: 'entry_origin_chat_rules',
+    name: '系统-私聊',
+    scope: '系统私聊',
+    role: 'system',
+    enabled: true,
+    content: `${ORIGIN_CHAT}`,
+  },
+  {
+    id: 'entry_origin_task_rules',
+    name: '系统-构思',
+    scope: '系统推演任务',
+    role: 'system',
+    enabled: true,
+    content: `${ORIGIN_TASKS}`,
+  },
+  {
+    id: 'entry_origin_stats_rules',
+    name: '系统-评估',
+    scope: '系统成长评估',
+    role: 'system',
+    enabled: true,
+    content: `${ORIGIN_STATS}`,
+  },
+  {
+    id: 'entry_origin_shop_rules',
+    name: '系统-商店',
+    scope: '系统商城进货',
+    role: 'system',
+    enabled: true,
+    content: `${ORIGIN_SHOP}`,
+  },
+  {
+    id: 'entry_origin_gacha_rules',
+    name: '系统-抽卡',
+    scope: '系统祈愿扩充',
+    role: 'system',
+    enabled: true,
+    content: `${ORIGIN_GACHA}`,
+  },
+
+  // 6. 任务标签闭合
+  {
+    id: 'entry_task_end',
+    name: '任务-闭合',
+    scope: '通用',
+    role: 'system',
+    enabled: true,
+    content: `</task>`,
+  },
+
+  // 7. 用户最新诉求输入
+  {
+    id: 'entry_latest_user_input',
+    name: '基础-用户输入',
+    scope: '通用',
+    role: 'user',
+    enabled: true,
+    content: `[用户最新发言/当前诉求：\n{{latest_user_input}}\n]`,
+  },
 ];
 
-export const PRESET_SCHEMA_VERSION = 12;
+export const PRESET_SCHEMA_VERSION = 13;
 
 export const DEFAULT_PROMPT_PRESETS = [
   {
@@ -670,6 +789,69 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
   }
 
   const cleanedPhoneContext = sanitizePhoneContext(phoneContext);
+  // 提取与格式化细粒度手机线索
+  const clockObj = contextData.clock || cleanedPhoneContext?.clock;
+  let clockText = '';
+  if (clockObj && typeof clockObj === 'object') {
+    const parts = [clockObj.date, clockObj.weekday, clockObj.time].filter(Boolean);
+    if (parts.length) clockText = `[当前手机时间：${parts.join(' ')}]`;
+  } else if (typeof clockObj === 'string' && clockObj.trim()) {
+    clockText = `[当前手机时间：${clockObj.trim()}]`;
+  }
+
+  const contactObj = contextData.contact || cleanedPhoneContext?.contact;
+  const groupObj = contextData.group || cleanedPhoneContext?.group;
+  let targetText = '';
+  if (contactObj && typeof contactObj === 'object' && contactObj.name) {
+    const lines = [
+      `角色姓名：${contactObj.name}`,
+      contactObj.nickname ? `角色网名：${contactObj.nickname}` : '',
+      contactObj.personality ? `性格特征：${contactObj.personality}` : '',
+      contactObj.expression ? `线上表达习惯：${contactObj.expression}` : '',
+      contactObj.language ? `语种习惯：${contactObj.language}` : '',
+    ].filter(Boolean);
+    if (lines.length) targetText = `[当前对话角色资料：\n${lines.join('\n')}\n]`;
+  } else if (groupObj && typeof groupObj === 'object' && (groupObj.name || groupObj.members)) {
+    const memberList = Array.isArray(groupObj.members)
+      ? groupObj.members.map(m => `- ${m.name || '成员'}${m.nickname ? ` (${m.nickname})` : ''}：${m.expression || m.personality || '正常发言'}`).join('\n')
+      : '';
+    targetText = `[当前群聊信息：\n群聊名称：${groupObj.name || '群聊'}\n${memberList ? `群成员列表：\n${memberList}\n` : ''}]`;
+  }
+
+  const historyMsgs = contextData.history || cleanedPhoneContext?.history;
+  let historyText = '';
+  if (Array.isArray(historyMsgs) && historyMsgs.length > 0) {
+    const formatted = historyMsgs.map(m => {
+      const speaker = m.speaker || m.sender || m.name || (m.role === 'user' ? (contextData.user || '用户') : '角色');
+      const text = m.text || m.content || '';
+      const reply = m.replyTo ? ` (引用回复: "${typeof m.replyTo === 'object' ? (m.replyTo.text || '') : m.replyTo}")` : '';
+      return `${speaker}: ${text}${reply}`;
+    }).filter(line => line.trim() && line !== '角色: ').join('\n');
+    if (formatted.trim()) historyText = `[近期聊天记录：\n${formatted}\n]`;
+  }
+
+  const todosList = contextData.todos || cleanedPhoneContext?.todos;
+  let todosText = '';
+  if (Array.isArray(todosList) && todosList.length > 0) {
+    const list = todosList.map(t => `- [${t.done ? '已完成' : '待办'}] ${t.title || t.content || ''}${t.endAt ? ` (截止: ${t.endAt})` : ''}`).filter(l => l.trim()).join('\n');
+    if (list.trim()) todosText = `[备忘录待办与约定：\n${list}\n]`;
+  }
+
+  const socialList = contextData.social || cleanedPhoneContext?.social;
+  let socialText = '';
+  if (Array.isArray(socialList) && socialList.length > 0) {
+    const posts = socialList.map(p => `- ${p.author || '好友'} 发布动态: "${p.text || ''}"${p.publishedAt ? ` (${p.publishedAt})` : ''}`).filter(l => l.trim()).join('\n');
+    if (posts.trim()) socialText = `[好友公开社交动态：\n${posts}\n]`;
+  }
+
+  const stickersList = contextData.stickers || cleanedPhoneContext?.stickers;
+  const emojisList = contextData.emojis || cleanedPhoneContext?.emojis;
+  let stickerText = '';
+  const stickerParts = [];
+  if (Array.isArray(stickersList) && stickersList.length) stickerParts.push(`可用专属贴纸: ${stickersList.join('、')}`);
+  if (Array.isArray(emojisList) && emojisList.length) stickerParts.push(`常用表情: ${emojisList.slice(0, 20).join(' ')}`);
+  if (stickerParts.length) stickerText = `[表情与贴纸候选池：\n${stickerParts.join('\n')}\n]`;
+
   const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
 
   for (const entry of entries) {
@@ -803,6 +985,32 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       })
       .join('\n');
 
+    // 细粒度线索插槽判空过滤
+    if (content.includes('{{clue_clock}}') && !clockText) {
+      content = content.replace(/\{\{clue_clock\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
+    }
+    if (content.includes('{{clue_target}}') && !targetText) {
+      content = content.replace(/\{\{clue_target\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
+    }
+    if (content.includes('{{clue_history}}') && !historyText) {
+      content = content.replace(/\{\{clue_history\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
+    }
+    if (content.includes('{{clue_todos}}') && !todosText) {
+      content = content.replace(/\{\{clue_todos\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
+    }
+    if (content.includes('{{clue_social}}') && !socialText) {
+      content = content.replace(/\{\{clue_social\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
+    }
+    if (content.includes('{{clue_stickers}}') && !stickerText) {
+      content = content.replace(/\{\{clue_stickers\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
+    }
+
     // 如果日历插槽在当前批次无日历数据，且无其他文本包装，安全跳过
     if (hasCalendarMacro && (!hasCalendar || !calLines)) {
       content = content.replace(calPromptBase, '').replace(CALENDAR_PROMPT, '').replace(/\[日历线索：\s*\{\{calendar_prompt\}\}\s*\]/g, '').replace(/\{\{calendar_prompt\}\}/g, '').trim();
@@ -916,7 +1124,43 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{workday_holiday_prompt\}\}/g, finalWorkdayPrompt)
       .replace(/\{\{weather_prompt\}\}/g, weatherPromptText)
       .replace(/\{\{summary_prompt\}\}/g, sumPrompt)
-      .replace(/\{\{image_prompt\}\}/g, imgPrompt);
+      .replace(/\{\{image_prompt\}\}/g, imgPrompt)
+      .replace(/\{\{chat_messages\}\}/g, msgPrompt)
+      .replace(/\{\{chat_thought\}\}/g, thoughtPrompt)
+      .replace(/\{\{chat_groups\}\}/g, grpPrompt)
+      .replace(/\{\{chat_directory\}\}/g, dirPrompt)
+      .replace(/\{\{chat_contacts\}\}/g, contactsPrompt)
+      .replace(/\{\{social_feed\}\}/g, socPrompt)
+      .replace(/\{\{social_comment\}\}/g, cmtPrompt)
+      .replace(/\{\{social_forum\}\}/g, frmPrompt)
+      .replace(/\{\{tool_festivals\}\}/g, fstPrompt)
+      .replace(/\{\{tool_schedules\}\}/g, schPrompt)
+      .replace(/\{\{tool_maps\}\}/g, mapOrgPrompt)
+      .replace(/\{\{tool_map_calibrate\}\}/g, mapCalibratePrompt)
+      .replace(/\{\{tool_todos\}\}/g, todoPrompt)
+      .replace(/\{\{tool_summary\}\}/g, sumPrompt)
+      .replace(/\{\{tool_image\}\}/g, imgPrompt)
+      .replace(/\{\{game_old_maid\}\}/g, oldMaidPrompt)
+      .replace(/\{\{game_buckshot\}\}/g, buckshotPrompt)
+      .replace(/\{\{game_rich\}\}/g, richPrompt)
+      .replace(/\{\{proto_lang\}\}/g, langPrompt)
+      .replace(/\{\{proto_memory\}\}/g, storyMemPrompt)
+      .replace(/\{\{origin_chat\}\}/g, originChatPrompt)
+      .replace(/\{\{origin_observer_chat\}\}/g, originObserverChatPrompt)
+      .replace(/\{\{origin_tasks\}\}/g, originTaskPrompt)
+      .replace(/\{\{origin_stats\}\}/g, originStatsPrompt)
+      .replace(/\{\{origin_shop\}\}/g, originShopPrompt)
+      .replace(/\{\{origin_gacha\}\}/g, originGachaPrompt)
+      .replace(/\{\{clue_clock\}\}/g, clockText)
+      .replace(/\{\{clue_target\}\}/g, targetText)
+      .replace(/\{\{clue_history\}\}/g, historyText)
+      .replace(/\{\{clue_todos\}\}/g, todosText)
+      .replace(/\{\{clue_social\}\}/g, socialText)
+      .replace(/\{\{clue_stickers\}\}/g, stickerText)
+      .replace(/\{\{clue_map\}\}/g, finalMapPrompt)
+      .replace(/\{\{clue_calendar\}\}/g, finalCalendarPrompt)
+      .replace(/\{\{clue_workday\}\}/g, finalWorkdayPrompt)
+      .replace(/\{\{clue_origin\}\}/g, finalOriginPrompt);
 
     // 提示词库自定义同步：若用户在“功能提示词库”中定制了某提示词，将条目中仍为默认文案的部分无缝替换为定制文案
     const libraryOverrides = [
@@ -993,9 +1237,16 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       content = isPlain ? serialized : content.replace(/\{\{phone_context\}\}/g, serialized);
     }
 
-    if (hasLatestUserInput && !latestUserInput.trim()) {
-      content = content.replace(/\{\{latest_user_input\}\}/g, '').trim();
-      if (isOnlySlotTitle(content)) continue;
+    if (hasLatestUserInput) {
+      if (effectiveTaskScope === 'social-comment') {
+        content = JSON.stringify(cleanedPhoneContext);
+      } else if (!latestUserInput.trim()) {
+        content = content.replace(/\{\{latest_user_input\}\}/g, '').trim();
+        if (isOnlySlotTitle(content)) continue;
+      } else {
+        const isPlain = content.trim() === '{{latest_user_input}}';
+        content = isPlain ? latestUserInput.trim() : content.replace(/\{\{latest_user_input\}\}/g, latestUserInput.trim());
+      }
     } else if (hasLatestUserInput) {
       const isPlain = content.trim() === '{{latest_user_input}}';
       content = isPlain ? latestUserInput.trim() : content.replace(/\{\{latest_user_input\}\}/g, latestUserInput.trim());

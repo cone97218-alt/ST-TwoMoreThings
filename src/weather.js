@@ -33,7 +33,7 @@ export function readLockWeather(api = globalThis.STSevenDaysCal, now = new Date(
   // 2. 外部构画天气 api
   if (targetApi?.apiVersion === 1 && typeof targetApi.getPhoneSnapshot === 'function') {
     const snapshot = targetApi.getPhoneSnapshot();
-    if (snapshot?.weather?.text) return { text: String(snapshot.weather.text), temperature: String(snapshot.weather.temperature || ''), source: 'gouhua', type: 'sunny' };
+    if (snapshot?.weather?.text) return { text: String(snapshot.weather.text), temperature: String(snapshot.weather.temperature || ''), source: 'gouhua', ...(snapshot.weather.type ? { type: snapshot.weather.type } : {}) };
   }
 
   // 3. 装饰天气回退

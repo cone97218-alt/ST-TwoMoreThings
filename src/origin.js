@@ -544,24 +544,7 @@ export function createOriginService({ target, store, host, logger = null, notify
       const activePreset = getActivePreset(state);
       const { storyText, worldbook, storyMemory } = await readOriginContext(activePreset);
 
-      const defaultTaskSystemPrompt = `你是随身金手指系统【${sysName}】的任务构想中枢。
-当前宿主：${hostName}
-系统等级：Lv.${originState.level || 1}
-宿主属性：${statsSummary}
-当前进行中任务：${activeTasksSummary}
-宿主期望任务方向：${effectiveDirection}
-
-请结合最近正文剧情与期望方向，为宿主构想 1 个契合情境的新任务。
-必须严格输出合法的 JSON 格式，不输出任何思考过程或多余解释：
-{
-  "type": "主线",
-  "title": "任务简明标题",
-  "desc": "任务背景描述",
-  "cond": "具体完成目标与触发条件",
-  "reward": "任务奖励描述（例如 积分+200 敏捷+1）",
-  "penalty": "失败惩罚（例如 积分-50 或 无）",
-  "limit": 0
-}`;
+      const defaultTaskSystemPrompt = getPrompt('origin_tasks', state) || getPrompt('origin_task_conceive', state) || ORIGIN_TASK_CONCEIVE_PROMPT;
 
       const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
 

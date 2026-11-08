@@ -4807,3 +4807,159 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   margin: 0;
   color: var(--pp-muted);
 }
+
+/* 系统履历日志页 */
+.origin-log-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.origin-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.origin-clear-log-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--pp-muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+.origin-clear-log-btn:hover {
+  color: #dc2626;
+}
+
+.origin-clear-log-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.origin-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.origin-log-item {
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 10px;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.15s ease;
+}
+
+.origin-log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.origin-log-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.origin-log-badge.badge-task {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+}
+
+.origin-log-badge.badge-progress {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+.origin-log-badge.badge-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+
+.origin-log-badge.badge-warning {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.origin-log-badge.badge-points {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+}
+
+.origin-log-badge.badge-stat {
+  background: rgba(139, 92, 246, 0.12);
+  color: #7c3aed;
+}
+
+.origin-log-badge.badge-skill {
+  background: rgba(6, 182, 212, 0.12);
+  color: #0891b2;
+}
+
+.origin-log-badge.badge-level {
+  background: var(--pp-active);
+  color: var(--pp-paper);
+}
+
+.origin-log-badge.badge-perk {
+  background: rgba(236, 72, 153, 0.12);
+  color: #db2777;
+}
+
+.origin-log-badge.badge-achieve {
+  background: rgba(234, 179, 8, 0.15);
+  color: #b45309;
+}
+
+.origin-log-badge.badge-eval {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+
+.origin-log-badge.badge-shop,
+.origin-log-badge.badge-item {
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+}
+
+.origin-log-badge.badge-gacha {
+  background: rgba(244, 63, 94, 0.12);
+  color: #e11d48;
+}
+
+.origin-log-badge.badge-broadcast,
+.origin-log-badge.badge-info {
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+}
+
+.origin-log-time {
+  font-size: 10.5px;
+  color: var(--pp-muted);
+}
+
+.origin-log-text {
+  font-size: 12px;
+  color: var(--pp-ink);
+  line-height: 1.5;
+  word-break: break-word;
+}

@@ -787,6 +787,40 @@ test('latest_user_input macro: slot, default entry and compilation across scopes
   assert.ok(compiledSched[0].content.includes('5天'));
 });
 
+test('preset engine: isOnlySlotTitle strips empty titles across various formats and avoids empty rule shells', async () => {
+  const { isOnlySlotTitle } = await import('../src/preset-engine.js');
+  assert.equal(isOnlySlotTitle('[剧情长线摘要（来自柏宝书）：\n\n]'), true);
+  assert.equal(isOnlySlotTitle('【剧情长线摘要】'), true);
+  assert.equal(isOnlySlotTitle('### 世界书条目'), true);
+  assert.equal(isOnlySlotTitle('用户最新发言：'), true);
+  assert.equal(isOnlySlotTitle(''), true);
+  assert.equal(isOnlySlotTitle('[剧情长线摘要（来自柏宝书）：\n主角参加了大比\n]'), false);
+  assert.equal(isOnlySlotTitle('### 世界书条目\n青云宗是第一大宗派'), false);
+
+  const preset = {
+    id: 'shell_test',
+    entries: [
+      { id: 'e1', name: '括号摘要', scope: '通用', role: 'system', enabled: true, content: '【剧情摘要】\n{{story_memory}}' },
+      { id: 'e2', name: 'MD世界书', scope: '通用', role: 'system', enabled: true, content: '### 世界书\n{{worldbook}}' },
+      { id: 'e3', name: '日历线索', scope: '短信', role: 'system', enabled: true, content: '{{calendar_prompt}}' },
+      { id: 'e4', name: '地图线索', scope: '短信', role: 'system', enabled: true, content: '{{map_prompt}}' },
+      { id: 'e5', name: '作息提示', scope: '短信', role: 'system', enabled: true, content: '{{workday_holiday_prompt}}' },
+      { id: 'e6', name: '系统线索', scope: '短信', role: 'system', enabled: true, content: '{{origin_prompt}}' },
+    ],
+  };
+
+  // 全空上下文装配
+  const compiled = compilePromptPreset(preset, {}, 'chat', { origin: { enabled: false } });
+  // 所有空壳应全部被安全剔除，不残留任何一个空标题
+  assert.equal(compiled.some(m => m.content.includes('剧情摘要')), false);
+  assert.equal(compiled.some(m => m.content.includes('世界书')), false);
+  assert.equal(compiled.some(m => m.content.includes('日历')), false);
+  assert.equal(compiled.some(m => m.content.includes('地图')), false);
+  assert.equal(compiled.some(m => m.content.includes('作息')), false);
+  assert.equal(compiled.some(m => m.content.includes('金手指系统')), false);
+});
+
+
 
 
 

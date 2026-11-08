@@ -207,7 +207,7 @@ export function renderPromptSettings(state, ui) {
 
 export function renderPromptLibrarySettings(state, ui) {
   const allPrompts = getAllPrompts(state);
-  const categories = ['全部', '短信与通讯', '群聊', '社交与论坛', '日历与日程', '地图与场景', '待办与正文', '通用规则', '小游戏'];
+  const categories = ['全部', '随身系统', '短信与通讯', '群聊', '社交与论坛', '日历与日程', '地图与场景', '待办与正文', '通用规则', '小游戏'];
   const activeCategory = ui.promptCategory || '全部';
   const customCount = allPrompts.filter(p => p.isCustom).length;
   const search = (ui.promptSearch || '').trim().toLowerCase();

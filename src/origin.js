@@ -32,6 +32,13 @@ import { createSystemMessage } from './origin-chat.js';
 import { readTimeline } from './timeline.js';
 import { parseJsonObject } from './api.js';
 import { compilePromptPreset, getActivePreset, collapseMessages } from './preset-engine.js';
+import {
+  getPrompt,
+  ORIGIN_TASK_CONCEIVE_PROMPT,
+  ORIGIN_STATS_EVAL_PROMPT,
+  ORIGIN_SHOP_CONCEIVE_PROMPT,
+  ORIGIN_GACHA_CONCEIVE_PROMPT,
+} from './prompts.js';
 
 export function extractJsonArray(text) {
   if (!text) return null;
@@ -69,6 +76,35 @@ export function findLastAiMessage(messages = []) {
 }
 
 export function createOriginService({ target, store, host, logger = null, notifyPhone = () => {}, modelClient = null, contextReader = null }) {
+  async function readOriginContext(preset = null) {
+    let storyText = '';
+    let worldbook = '';
+    let storyMemory = '';
+    const layers = Number(preset?.storyLayers) || 1;
+    if (contextReader) {
+      let ctx = null;
+      if (typeof contextReader.readForContact === 'function') {
+        try {
+          ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID, { layers });
+        } catch (_) {}
+      }
+      if (!ctx && typeof contextReader.readDirectorySources === 'function') {
+        try {
+          ctx = await contextReader.readDirectorySources({ readMemory: true });
+        } catch (_) {}
+      }
+      if (ctx) {
+        storyText = (ctx.story || []).map(item => `${item.speaker || '角色'}：${item.text || ''}`).join('\n\n');
+        worldbook = ctx.worldbook || '';
+        storyMemory = ctx.storyMemory || '';
+      }
+    }
+    if (!storyText && Array.isArray(target?.messages)) {
+      const sliceCount = Math.max(8, layers * 8);
+      storyText = target.messages.slice(-sliceCount).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
+    }
+    return { storyText, worldbook, storyMemory };
+  }
   function getTurn() {
     return countAiTurns(target?.messages || []);
   }
@@ -505,17 +541,8 @@ export function createOriginService({ target, store, host, logger = null, notify
         : '无进行中任务';
       const statsSummary = (originState.stats || []).map(s => `${s.name}:${s.val}`).join('，') || '暂无属性';
       const effectiveDirection = direction || originState.direction || '切合当前世界观与剧情，自然展开';
-
-      let storyText = '';
-      if (contextReader) {
-        try {
-          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
-          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
-        } catch (_) {}
-      }
-      if (!storyText && Array.isArray(target?.messages)) {
-        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
-      }
+      const activePreset = getActivePreset(state);
+      const { storyText, worldbook, storyMemory } = await readOriginContext(activePreset);
 
       const defaultTaskSystemPrompt = `你是随身金手指系统【${sysName}】的任务构想中枢。
 当前宿主：${hostName}
@@ -536,13 +563,12 @@ export function createOriginService({ target, store, host, logger = null, notify
   "limit": 0
 }`;
 
-      const activePreset = getActivePreset(state);
       const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
 
       const messagesPayload = compilePromptPreset(activePreset, {
-        worldbook: '',
+        worldbook,
         storyHistory: storyText,
-        storyMemory: '',
+        storyMemory,
         charPersonality: `【随身系统】${sysName} · 任务推演中枢\n当前宿主：${hostName}\n当前属性：${statsSummary}\n进行中任务：${activeTasksSummary}`,
         latestUserInput: `[宿主期望新任务方向]\n${effectiveDirection}`,
         originPromptText: originInjectionText,
@@ -620,58 +646,21 @@ export function createOriginService({ target, store, host, logger = null, notify
         ? originState.perks.map(p => p.name).join('，')
         : '暂无特权';
 
-      let storyText = '';
-      if (contextReader) {
-        try {
-          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
-          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
-        } catch (_) {}
-      }
-      if (!storyText && Array.isArray(target?.messages)) {
-        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
-      }
+      const activePreset = getActivePreset(state);
+      const { storyText, worldbook, storyMemory } = await readOriginContext(activePreset);
 
       const userGuidanceText = direction?.trim()
         ? `\n\n【宿主指定的成长与构想引导方向】\n${direction.trim()}\n★注意：请务必紧扣宿主给出的上述流派/成长偏好，构想或演进相应的属性、技能与特权！`
         : '';
 
-      const defaultStatsSystemPrompt = `你是随身金手指系统【${sysName}】的角色综合成长评估与能力构建中枢。
-当前宿主：${hostName}
-宿主当前数值属性：${statsSummary}
-宿主当前已掌握技能：${skillsSummary}
-宿主当前已开启特权：${perksSummary}
-${userGuidanceText}
+      const defaultStatsSystemPrompt = (getPrompt('origin_stats_eval', state) || ORIGIN_STATS_EVAL_PROMPT) + userGuidanceText;
 
-请结合宿主在最近剧情中的经历、战斗、顿悟、机缘或社交进展，全面评估宿主的能力成长（属性提升、技能领悟或熟练度增长、特权觉醒）：
-${!hasStats ? '★宿主当前尚无属性面板，请结合世界观（修仙玄幻、西幻魔法、科幻赛博、末世、现代都市等）及宿主期望为宿主构想新建 4~6 项核心属性（放入 newStats 数组，初始值约 10 左右）。\n' : ''}
-必须严格输出合法的 JSON 格式，不输出任何多余分析：
-{
-  "summary": "1-2句简炼总结宿主本次在属性、技能或特权上的突破与成长因由",
-  "statChanges": [
-    { "name": "属性名", "delta": 1 }
-  ],
-  "newStats": [
-    { "name": "属性名", "val": 10 }
-  ],
-  "newSkills": [
-    { "name": "技能名", "desc": "技能效果说明", "hasExp": true, "level": 1, "expMax": 100 }
-  ],
-  "skillExpChanges": [
-    { "name": "已有技能名", "exp": 30 }
-  ],
-  "newPerks": [
-    { "name": "特权名", "desc": "特权效果说明" }
-  ],
-  "pointsGain": 100
-}`;
-
-      const activePreset = getActivePreset(state);
       const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
 
       const messagesPayload = compilePromptPreset(activePreset, {
-        worldbook: '',
+        worldbook,
         storyHistory: storyText,
-        storyMemory: '',
+        storyMemory,
         charPersonality: `【随身系统】${sysName} · ${hasStats ? '角色能力综合评估中枢' : '角色能力综合构建中枢'}\n当前宿主：${hostName}\n当前属性：${statsSummary}\n当前技能：${skillsSummary}\n当前特权：${perksSummary}`,
         latestUserInput: (hasStats
           ? `[宿主最近剧情与成长诉求]\n请评估近期剧情对宿主属性、技能熟练度、特权及积分的成长影响。`
@@ -870,28 +859,19 @@ ${!hasStats ? '★宿主当前尚无属性面板，请结合世界观（修仙�
       const sysName = originState.sysName || '系统';
       const hostName = originState.bindTo || state.userProfile?.name || '宿主';
 
-      let storyText = '';
-      if (contextReader) {
-        try {
-          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
-          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
-        } catch (_) {}
-      }
-      if (!storyText && Array.isArray(target?.messages)) {
-        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
-      }
+      const activePreset = getActivePreset(state);
+      const { storyText, worldbook, storyMemory } = await readOriginContext(activePreset);
 
       const userGuidanceText = direction?.trim()
         ? `\n\n【宿主特别指定的进货偏好 / 构想期望】\n${direction.trim()}\n★注意：请务必紧扣宿主给出的上述商品流派或物品偏好构想新商品！`
         : '';
 
-      const activePreset = getActivePreset(state);
       const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
 
       const messagesPayload = compilePromptPreset(activePreset, {
-        worldbook: '',
+        worldbook,
         storyHistory: storyText,
-        storyMemory: '',
+        storyMemory,
         charPersonality: `【随身系统】${sysName} · 商城进货推演中枢\n当前宿主：${hostName}\n当前等级：Lv.${originState.level || 1}`,
         latestUserInput: `[商城进货诉求]\n请结合剧情世界观，批量构想 8 到 12 种全新商品。${userGuidanceText}`,
         originPromptText: originInjectionText,
@@ -900,7 +880,7 @@ ${!hasStats ? '★宿主当前尚无属性面板，请结合世界观（修仙�
 
       const collapsed = collapseMessages(messagesPayload);
       const systemMessages = collapsed.filter(m => m.role === 'system');
-      const systemPrompt = (systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的商城商品，输出合法 JSON 数组。') + userGuidanceText;
+      const systemPrompt = (systemMessages.map(m => m.content).join('\n\n') || (getPrompt('origin_shop_conceive', state) || ORIGIN_SHOP_CONCEIVE_PROMPT)) + userGuidanceText;
       const otherMessages = collapsed.filter(m => m.role !== 'system');
       const modelMessages = otherMessages.length > 0 ? otherMessages : [
         { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统商城构想 8~12 种商品，严格输出 JSON 数组格式。${userGuidanceText}` },
@@ -953,28 +933,19 @@ ${!hasStats ? '★宿主当前尚无属性面板，请结合世界观（修仙�
       const sysName = originState.sysName || '系统';
       const hostName = originState.bindTo || state.userProfile?.name || '宿主';
 
-      let storyText = '';
-      if (contextReader) {
-        try {
-          const ctx = await contextReader.readForContact(SYSTEM_CONTACT_ID);
-          storyText = (ctx.story || []).map(item => `${item.speaker}：${item.text}`).join('\n\n');
-        } catch (_) {}
-      }
-      if (!storyText && Array.isArray(target?.messages)) {
-        storyText = target.messages.slice(-8).map(m => `${m.name || (m.is_user ? '用户' : '角色')}：${m.mes || m.text || ''}`).join('\n\n');
-      }
+      const activePreset = getActivePreset(state);
+      const { storyText, worldbook, storyMemory } = await readOriginContext(activePreset);
 
       const userGuidanceText = direction?.trim()
         ? `\n\n【宿主特别指定的奖池偏好 / 构想期望】\n${direction.trim()}\n★注意：请务必紧扣宿主给出的上述奖品流派或设定偏好构想涵盖各品阶的新奖品！`
         : '';
 
-      const activePreset = getActivePreset(state);
       const originInjectionText = buildOriginInjection(originState, { currentTurn: getTurn() });
 
       const messagesPayload = compilePromptPreset(activePreset, {
-        worldbook: '',
+        worldbook,
         storyHistory: storyText,
-        storyMemory: '',
+        storyMemory,
         charPersonality: `【随身系统】${sysName} · 祈愿奖池推演中枢\n当前宿主：${hostName}\n当前等级：Lv.${originState.level || 1}`,
         latestUserInput: `[祈愿奖池扩充诉求]\n请结合剧情世界观，批量构想 8 到 15 种涵盖 N/R/SR/SSR/UR 的祈愿奖品。${userGuidanceText}`,
         originPromptText: originInjectionText,
@@ -983,7 +954,7 @@ ${!hasStats ? '★宿主当前尚无属性面板，请结合世界观（修仙�
 
       const collapsed = collapseMessages(messagesPayload);
       const systemMessages = collapsed.filter(m => m.role === 'system');
-      const systemPrompt = (systemMessages.map(m => m.content).join('\n\n') || '请为随身金手指系统构想一批切合剧情世界观的祈愿奖池奖品，输出合法 JSON 数组。') + userGuidanceText;
+      const systemPrompt = (systemMessages.map(m => m.content).join('\n\n') || (getPrompt('origin_gacha_conceive', state) || ORIGIN_GACHA_CONCEIVE_PROMPT)) + userGuidanceText;
       const otherMessages = collapsed.filter(m => m.role !== 'system');
       const modelMessages = otherMessages.length > 0 ? otherMessages : [
         { role: 'user', content: `[最近剧情参考]\n${storyText || '（暂无前序正文）'}\n\n请结合剧情为系统祈愿池构想 8~15 种奖品（含各稀有度），严格输出 JSON 数组格式。${userGuidanceText}` },

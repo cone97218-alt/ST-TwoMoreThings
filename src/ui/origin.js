@@ -105,6 +105,7 @@ function renderOriginTabBar(activeTab) {
     { id: 'shop', label: '商城' },
     { id: 'gacha', label: '祈愿' },
     { id: 'achieve', label: '成就' },
+    { id: 'log', label: '日志' },
   ];
   return `<nav class="origin-nav-tabs" aria-label="系统分页">
     ${tabs.map(t => `<button type="button" class="origin-nav-tab ${activeTab === t.id ? 'is-active' : ''}" data-action="origin-switch-tab" data-origin-tab="${t.id}">
@@ -121,6 +122,7 @@ function renderTabContent(activeTab, origin, ui, state) {
     case 'shop': return renderShopTab(origin, ui);
     case 'gacha': return renderGachaTab(origin, ui);
     case 'achieve': return renderAchieveTab(origin);
+    case 'log': return renderLogTab(origin, ui);
     default: return renderTasksTab(origin, ui);
   }
 }
@@ -522,14 +524,96 @@ function renderAchieveTab(origin) {
   </div>`;
 }
 
+// ---------------- 日志页 ----------------
+function renderLogTab(origin, ui) {
+  const logs = origin.log || [];
+  const filter = ui.originLogFilter || 'all';
+
+  const matchesFilter = (item) => {
+    if (filter === 'all') return true;
+    const type = item.type || 'info';
+    if (filter === 'task') return ['new-task', 'progress', 'success', 'warning'].includes(type);
+    if (filter === 'stat') return ['stat', 'skill', 'level-up', 'perk', 'eval-stats'].includes(type);
+    if (filter === 'points') return type === 'points';
+    if (filter === 'item') return ['bag', 'shop', 'use-item', 'gacha', 'item-gain'].includes(type);
+    if (filter === 'eval') return ['eval-stats', 'shop-refresh'].includes(type);
+    return true;
+  };
+
+  const filtered = logs.filter(matchesFilter);
+
+  const getLogTypeBadge = (type) => {
+    switch (type) {
+      case 'new-task': return { label: '新任务', cls: 'badge-task' };
+      case 'progress': return { label: '任务进度', cls: 'badge-progress' };
+      case 'success': return { label: '任务达成', cls: 'badge-success' };
+      case 'warning': return { label: '任务警示', cls: 'badge-warning' };
+      case 'points': return { label: '积分变动', cls: 'badge-points' };
+      case 'stat': return { label: '属性变动', cls: 'badge-stat' };
+      case 'skill': return { label: '技能领悟', cls: 'badge-skill' };
+      case 'level-up': return { label: '等级提升', cls: 'badge-level' };
+      case 'perk': return { label: '特权觉醒', cls: 'badge-perk' };
+      case 'achievement': return { label: '成就达成', cls: 'badge-achieve' };
+      case 'eval-stats': return { label: 'AI评估', cls: 'badge-eval' };
+      case 'shop':
+      case 'shop-refresh': return { label: '系统商城', cls: 'badge-shop' };
+      case 'use-item':
+      case 'bag':
+      case 'item-gain': return { label: '道具物品', cls: 'badge-item' };
+      case 'gacha': return { label: '祈愿抽取', cls: 'badge-gacha' };
+      case 'broadcast': return { label: '系统播报', cls: 'badge-broadcast' };
+      default: return { label: '系统记录', cls: 'badge-info' };
+    }
+  };
+
+  return `<div class="origin-log-view">
+    <div class="origin-log-header">
+      <div class="origin-filter-pills">
+        ${[
+          { id: 'all', label: '全部' },
+          { id: 'task', label: '任务' },
+          { id: 'stat', label: '属性/技能' },
+          { id: 'points', label: '积分' },
+          { id: 'item', label: '道具/商城' },
+          { id: 'eval', label: 'AI推演' },
+        ].map(f => `<button type="button" class="origin-pill ${filter === f.id ? 'is-active' : ''}" data-action="origin-filter-logs" data-origin-filter="${f.id}">
+          ${escape(f.label)}
+        </button>`).join('')}
+      </div>
+      ${logs.length > 0 ? `
+        <button type="button" class="quiet-button origin-clear-log-btn" data-action="origin-clear-logs" title="清空所有履历日志">
+          ${icon('trash')} <span>清空日志</span>
+        </button>
+      ` : ''}
+    </div>
+
+    <div class="origin-log-list">
+      ${filtered.length === 0 ? `
+        <div class="origin-empty-placeholder">
+          <p>${logs.length === 0 ? '暂无系统履历日志，在剧情中推进任务、获得属性成长或积分结算时将在此完整保留理由与记录。' : '当前分类下暂无日志记录。'}</p>
+        </div>
+      ` : filtered.map(item => {
+        const badge = getLogTypeBadge(item.type);
+        return `<div class="origin-log-item origin-log-type-${escape(item.type || 'info')}">
+          <div class="origin-log-meta">
+            <span class="origin-log-badge ${badge.cls}">${badge.label}</span>
+            <span class="origin-log-time">${escape(item.time || '')}${item.turn !== undefined && item.turn !== null ? ` · 回合#${item.turn}` : ''}</span>
+          </div>
+          <div class="origin-log-text">${escape(item.text)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
 // ---------------- 设置页 ----------------
 const INJECT_SECTION_DEFS = [
-  { key: 'panel', name: '宿主与系统面板', desc: '等级、积分、属性与技能' },
-  { key: 'tasks', name: '进行中任务清单', desc: '主线/支线/日常任务与进度' },
-  { key: 'inventory', name: '背包道具与商城', desc: '持有物品与商城在售货架' },
-  { key: 'action', name: '本回合动作与事件', desc: '道具生效与系统事件反应' },
-  { key: 'rules', name: '系统行为与口吻规则', desc: '人设口吻、发布频率与规则' },
-  { key: 'output', name: '数据回传与输出规范', desc: '回传数据块规范 (关或留空则不索取数据块)' },
+  { key: 'panel', name: '宿主与系统面板', desc: '等级、积分、属性与技能', vars: '{{sysName}}, {{hostName}}, {{world}}, {{points}}, {{level}}, {{stats}}, {{skills}}, {{perks}}' },
+  { key: 'tasks', name: '进行中任务清单', desc: '主线/支线/日常任务与进度', vars: '{{tasks}}, {{content}}' },
+  { key: 'inventory', name: '背包道具与商城', desc: '持有物品与商城在售货架', vars: '{{bag}}, {{shop}}, {{content}}' },
+  { key: 'action', name: '本回合动作与事件', desc: '道具生效与系统事件反应', vars: '{{actions}}, {{content}}' },
+  { key: 'rules', name: '系统行为与口吻规则', desc: '人设口吻、发布频率与规则', vars: '{{taskRule}} (冷却纯文字规则), {{persona}}, {{direction}}, {{content}}' },
+  { key: 'output', name: '数据回传与输出规范', desc: '回传数据块规范 (关或留空则不索取数据块)', vars: '留空或关闭则不索取数据块' },
 ];
 
 function renderOriginSectionsSettings(sections = {}) {
@@ -555,6 +639,7 @@ function renderOriginSectionsSettings(sections = {}) {
         </summary>
         <div style="margin-top:6px;">
           <textarea name="section_${def.key}_template" rows="3" placeholder="留空则不注入该模块">${escape(currentVal)}</textarea>
+          ${def.vars ? `<div style="font-size:10.5px;color:var(--pp-muted);margin-top:3px;line-height:1.4;">可用变量：${escape(def.vars)}</div>` : ''}
         </div>
       </details>
     </div>`;

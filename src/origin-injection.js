@@ -47,7 +47,7 @@ export function buildOriginInjection(state, { currentTurn = 0 } = {}) {
     panelText += `积分：${state.points || 0} ｜ 等级 Lv.${state.level || 1}\n`;
 
     const statsStr = (state.mods?.stat && Array.isArray(state.stats) && state.stats.length)
-      ? state.stats.map(x => `${x.name}${x.val >= 0 ? '+' : ''}${x.val}`).join(' ')
+      ? state.stats.map(x => `${x.name} ${x.val}`).join(' ')
       : '';
     if (statsStr) {
       panelText += `属性：${statsStr}\n`;
@@ -169,19 +169,21 @@ export function buildOriginInjection(state, { currentTurn = 0 } = {}) {
     }
     rulesText += '1. 依据正文里实际发生的事更新任务进度；若完成条件达成，请输出『完成|任务id』。禁止替宿主无理由自动完结。\n';
 
+    let taskRuleText = '';
     if (state.taskSource === 'manual') {
-      rulesText += '2. 本回合不要自动发布新任务（用户设置为手动）。\n';
+      taskRuleText = '本回合不要自动发布新任务（用户设置为手动）。';
     } else if (allowNew) {
       if (!active.length) {
-        rulesText += '2. 当前无任务：请在本回合发起 1 个贴合当前情境的新任务（优先主线）。';
+        taskRuleText = '当前无任务：请在本回合发起 1 个贴合当前情境的新任务（优先主线）。';
       } else {
-        rulesText += '2. 允许发布新任务：若当前剧情合适，可发起 1 个新任务（主线/支线/日常）。';
+        taskRuleText = '允许发布新任务：若当前剧情合适，可发起 1 个新任务（主线/支线/日常）。';
       }
-      if (state.direction) rulesText += ` 宿主期望的任务方向：${state.direction}。`;
-      rulesText += '\n';
+      if (state.direction) taskRuleText += ` 宿主期望的任务方向：${state.direction}。`;
     } else {
-      rulesText += '2. 本回合不要发布新任务。\n';
+      taskRuleText = '本回合不要发布新任务。';
     }
+
+    rulesText += `2. ${taskRuleText}\n`;
 
     if (state.fourthWall > 0) {
       rulesText += `3. 第四面墙：有约 ${state.fourthWall}% 的几率，系统可短暂吐槽一句打破第四面墙。\n`;
@@ -197,6 +199,10 @@ export function buildOriginInjection(state, { currentTurn = 0 } = {}) {
 
     let custom = secRules.template.trim()
       .replace(/\{\{content\}\}/g, rulesText.trim())
+      .replace(/\{\{taskRule\}\}/g, taskRuleText)
+      .replace(/\{\{task_rule\}\}/g, taskRuleText)
+      .replace(/2\.\s*允许结合情境发布新任务[^\n]*/g, `2. ${taskRuleText}`)
+      .replace(/允许结合情境发布新任务[^\n]*/g, taskRuleText)
       .replace(/\{\{persona\}\}/g, personaStr)
       .replace(/\{\{direction\}\}/g, state.direction || '契合当前情境自然展开')
       .replace(/\{\{freq\}\}/g, String(freq));
@@ -543,7 +549,8 @@ export function parseOriginActionLine(line) {
     case '属性': {
       const name = parts[1];
       const delta = parseInt(parts[2], 10);
-      if (name && !isNaN(delta)) return { type: 'stat', name, delta };
+      const reason = parts[3] || '';
+      if (name && !isNaN(delta)) return { type: 'stat', name, delta, reason };
       break;
     }
     case '技能': {
@@ -782,7 +789,7 @@ export function applyOriginBlock(state, block, { currentTurn = 0 } = {}) {
         if (t && t.status === 'active') {
           t.progress = Math.min(100, Math.max(0, act.progress));
           if (t.progress >= 100) completeOriginTask(state, t.id);
-          else if (act.reason) pushOriginLog(state, `任务「${t.title}」进度: ${t.progress}%（${act.reason}）`, 'progress');
+          else if (act.reason) pushOriginLog(state, `任务「${t.title}」进度: ${t.progress}%（${act.reason}）`, 'progress', currentTurn);
         }
         break;
       }
@@ -807,18 +814,18 @@ export function applyOriginBlock(state, block, { currentTurn = 0 } = {}) {
         };
         state.tasks.push(task);
         state.lastTaskTurn = currentTurn;
-        pushOriginLog(state, `发布新任务「${task.title}」[${task.type}]`, 'new-task');
+        pushOriginLog(state, `发布新任务「${task.title}」[${task.type}]`, 'new-task', currentTurn);
         broadcasts.push(`【系统新任务】[${task.type}] ${task.title}：${task.cond || task.desc || ''}`);
         break;
       }
       case 'points': {
         state.points = Math.max(0, (state.points || 0) + act.delta);
-        pushOriginLog(state, `积分变动 ${act.delta >= 0 ? `+${act.delta}` : act.delta}${act.reason ? `（${act.reason}）` : ''}`, 'points');
+        pushOriginLog(state, `积分变动 ${act.delta >= 0 ? `+${act.delta}` : act.delta}${act.reason ? `（${act.reason}）` : ''}`, 'points', currentTurn);
         break;
       }
       case 'stat': {
         applyStatEffect(state, `${act.name}${act.delta >= 0 ? `+${act.delta}` : act.delta}`);
-        pushOriginLog(state, `属性变动: ${act.name} ${act.delta >= 0 ? `+${act.delta}` : act.delta}`, 'stat');
+        pushOriginLog(state, `属性变动: ${act.name} ${act.delta >= 0 ? `+${act.delta}` : act.delta}${act.reason ? `（${act.reason}）` : ''}`, 'stat', currentTurn);
         break;
       }
       case 'skill': {

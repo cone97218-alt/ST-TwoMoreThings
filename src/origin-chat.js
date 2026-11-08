@@ -1,5 +1,6 @@
 import { SYSTEM_CONTACT_ID, resolvePersona } from './origin-engine.js';
 import { generateMessageId } from './content.js';
+import { ORIGIN_CHAT_PROMPT } from './prompts.js';
 
 export const RAW_SYSTEM_AVATAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
   <rect width="100" height="100" rx="28" fill="#2d3748"/>
@@ -23,8 +24,8 @@ export function createSystemContact(originState = {}) {
   };
 }
 
-export function buildSystemChatPrompt({ originState = {}, userProfile = {}, conversation = [], customChatPrompt = '' }) {
-  const hostName = userProfile.name || '宿主';
+export function formatOriginChatMacros(originState = {}, userProfile = {}) {
+  const hostName = (originState.bindTo && originState.bindTo !== '宿主') ? originState.bindTo : (userProfile?.name || '宿主');
   const persona = resolvePersona(originState);
   const activeTasks = (originState.tasks || []).filter(t => t.status === 'active');
   const tasksSummary = activeTasks.length
@@ -34,26 +35,38 @@ export function buildSystemChatPrompt({ originState = {}, userProfile = {}, conv
   const statsSummary = (originState.stats || []).map(s => `${s.name}:${s.val}`).join('，') || '暂无特殊属性';
   const bagSummary = (originState.bag || []).map(b => `${b.name}×${b.count}`).join('，') || '背包为空';
 
-  let systemInstruction = `你是绑定在【${hostName}】身上的专属金手指系统【${originState.sysName || '系统'}】。
-你的人格风格设定：${persona}
+  return {
+    sysName: originState.sysName || '系统',
+    hostName,
+    persona,
+    level: originState.level || 1,
+    exp: originState.exp || 0,
+    expMax: originState.expMax || 100,
+    points: originState.points || 0,
+    stats: statsSummary,
+    tasks: tasksSummary,
+    bag: bagSummary,
+  };
+}
 
-当前宿主状态：
-- 宿主称呼：${hostName}
-- 系统等级：Lv.${originState.level || 1} (EXP: ${originState.exp || 0}/${originState.expMax || 100})
-- 宿主积分：${originState.points || 0}
-- 宿主属性：${statsSummary}
-- 进行中任务：${tasksSummary}
-- 背包物品：${bagSummary}
+export function fillOriginChatPrompt(template, originState = {}, userProfile = {}) {
+  const m = formatOriginChatMacros(originState, userProfile);
+  return (template || '')
+    .replace(/\{\{sysName\}\}/g, m.sysName)
+    .replace(/\{\{hostName\}\}/g, m.hostName)
+    .replace(/\{\{persona\}\}/g, m.persona)
+    .replace(/\{\{level\}\}/g, String(m.level))
+    .replace(/\{\{exp\}\}/g, String(m.exp))
+    .replace(/\{\{expMax\}\}/g, String(m.expMax))
+    .replace(/\{\{points\}\}/g, String(m.points))
+    .replace(/\{\{stats\}\}/g, m.stats)
+    .replace(/\{\{tasks\}\}/g, m.tasks)
+    .replace(/\{\{bag\}\}/g, m.bag);
+}
 
-你现在正通过随身手机的专属端与宿主进行直接私聊。
-回复规则：
-1. 始终严格贯彻你的人格口吻（如冷澈公事公办、毒舌傲娇、或温和指引）。
-2. 解答宿主关于任务推进、商城兑换、积分获取或世界观的疑问，给予中肯的建议或符合性格的吐槽。
-3. 保持简短精炼（通常 1 到 3 句话，不要啰嗦长篇大论），像真实的手机即时通讯对话。禁止输出 <origin> 标签。`;
-
-  if (customChatPrompt) {
-    systemInstruction += `\n\n[自定义规则与补充说明]\n${customChatPrompt}`;
-  }
+export function buildSystemChatPrompt({ originState = {}, userProfile = {}, conversation = [], customChatPrompt = '' }) {
+  const template = customChatPrompt || ORIGIN_CHAT_PROMPT;
+  const systemInstruction = fillOriginChatPrompt(template, originState, userProfile);
 
   const messages = (conversation || []).slice(-10).map(m => ({
     role: m.role === 'user' ? 'user' : 'assistant',

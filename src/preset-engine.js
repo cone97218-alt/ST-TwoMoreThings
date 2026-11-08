@@ -33,7 +33,9 @@ import {
   ORIGIN_GACHA_CONCEIVE_PROMPT,
 } from './prompts.js';
 import { shortenMessageId, extractLatestUserInput } from './content.js';
+import { resolvePersona } from './origin-engine.js';
 import { formatCalendarEventPromptLine } from './calendar-engine.js';
+import { fillOriginChatPrompt } from './origin-chat.js';
 
 export const PRESET_SLOTS = [
   { macro: '{{worldbook}}', name: '世界书', desc: '蓝灯常驻条目必定注入 + 绿灯关键字动态激活' },
@@ -577,6 +579,26 @@ export function getActivePreset(state) {
 }
 
 /**
+ * 判定一段文本是否仅为插槽的外壳标题（如中英文括号、书名号、Markdown标题等），而内部宏为空。
+ * 若为纯外壳标题，则在宏被清空后安全丢弃该条目，避免残留空标题给模型。
+ */
+export function isOnlySlotTitle(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return true;
+  // 匹配各类中英文方括号、大括号、书名号包裹的外壳且内部无正文：[标题\n], 【标题】, 《标题》, {标题}
+  if (/^\[\s*[^\n\]]{1,80}[：:]?\s*\]$/s.test(trimmed)) return true;
+  if (/^【\s*[^\n】]{1,80}[：:]?\s*】$/s.test(trimmed)) return true;
+  if (/^《\s*[^\n》]{1,80}[：:]?\s*》$/s.test(trimmed)) return true;
+  if (/^\{[^\n}]{1,80}[：:]?\s*\}$/s.test(trimmed)) return true;
+  // 匹配 Markdown 各级标题无实质正文：如 ### 剧情长线摘要、# 世界书 等
+  if (/^#{1,6}\s+[^\n]+(?:\n\s*)?$/s.test(trimmed)) return true;
+  // 匹配单行标题头（如 “剧情长线摘要（来自柏宝书）：”、“[用户最新发言/当前诉求]：”）
+  if (/^[^\n]{1,80}[：:]\s*$/s.test(trimmed)) return true;
+  if (/^(?:用户最新(?:输入|发言|诉求)|当前诉求|剧情长线摘要|世界书条目|主聊天历史)[：:]\s*$/s.test(trimmed)) return true;
+  return false;
+}
+
+/**
  * 将预设条目严格按预设开关与顺序展开并替换插槽宏，组装成发送给模型的 messages 数组
  */
 export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat', state = null) {
@@ -762,34 +784,51 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const resolvedOriginText = String(originPromptText || contextData.originPrompt || cleanedPhoneContext?.originPrompt || '').trim();
     const originEnabled = Boolean(effectiveState?.origin?.enabled ?? true) && (effectiveTaskScope === '系统' || (effectiveState?.injectOriginEnabled ?? true));
 
+    const mapPromptBase = getPrompt('map_context', state) || MAP_PROMPT;
+    const calPromptBase = getPrompt('calendar_context', state) || CALENDAR_PROMPT;
+    const workdayPromptRule = getPrompt('workday_holiday', state) || WORKDAY_HOLIDAY_PROMPT;
+    const originSysPrompt = getPrompt('origin_system', state) || ORIGIN_SYSTEM_PROMPT;
+
+    const calObj = contextData.calendar || cleanedPhoneContext?.calendar;
+    const calEvents = Array.isArray(calObj?.events) ? calObj.events : (Array.isArray(calObj) ? calObj : []);
+    const seenCalLines = new Set();
+    const calLines = calEvents
+      .map(e => formatCalendarEventPromptLine(e))
+      .filter(line => {
+        if (!line || seenCalLines.has(line)) return false;
+        seenCalLines.add(line);
+        return true;
+      })
+      .join('\n');
+
     // 如果日历插槽在当前批次无日历数据，且无其他文本包装，安全跳过
-    if (hasCalendarMacro && !hasCalendar) {
-      content = content.replace(/\[日历线索：\s*\{\{calendar_prompt\}\}\s*\]/g, '').replace(/\{\{calendar_prompt\}\}/g, '').trim();
-      if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
+    if (hasCalendarMacro && (!hasCalendar || !calLines)) {
+      content = content.replace(calPromptBase, '').replace(CALENDAR_PROMPT, '').replace(/\[日历线索：\s*\{\{calendar_prompt\}\}\s*\]/g, '').replace(/\{\{calendar_prompt\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
     }
 
     // 如果天气插槽在当前未启用或无提示词，且无其他文本包装，安全跳过
     if (hasWeatherMacro && (!weatherEnabled || !weatherPromptText)) {
       content = content.replace(/\{\{weather_prompt\}\}/g, '').trim();
-      if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
+      if (isOnlySlotTitle(content)) continue;
     }
 
     // 如果地图插槽在当前批次无地图线索，且无其他文本包装，安全跳过
     if (hasMapMacro && !mapPromptText) {
-      content = content.replace(/\[地图与位置线索：\s*\{\{map_prompt\}\}\s*\]/g, '').replace(/\{\{map_prompt\}\}/g, '').trim();
-      if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
+      content = content.replace(mapPromptBase, '').replace(MAP_PROMPT, '').replace(/\[地图与位置线索：\s*\{\{map_prompt\}\}\s*\]/g, '').replace(/\{\{map_prompt\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
     }
 
     // 如果工作日/节假日插槽在当前未启用或无提示词，且无其他文本包装，安全跳过
     if (hasWorkdayMacro && (!workdayEnabled || !workdayPromptText)) {
-      content = content.replace(/\{\{workday_holiday_prompt\}\}/g, '').trim();
-      if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
+      content = content.replace(workdayPromptRule, '').replace(WORKDAY_HOLIDAY_PROMPT, '').replace(/\{\{workday_holiday_prompt\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
     }
 
     // 如果系统插槽在当前未启用或无提示词，且无其他文本包装，安全跳过
     if (hasOriginMacro && (!originEnabled || !resolvedOriginText)) {
-      content = content.replace(/\{\{origin_prompt\}\}/g, '').trim();
-      if (!content || /^\[[^\]]+\]\s*$/.test(content)) continue;
+      content = content.replace(originSysPrompt, '').replace(ORIGIN_SYSTEM_PROMPT, '').replace(/\{\{origin_prompt\}\}/g, '').trim();
+      if (isOnlySlotTitle(content)) continue;
     }
 
     // 功能提示词宏替换：动态支持用户在功能库中修改过的提示词
@@ -805,7 +844,6 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const isOrganize = effectiveTaskScope === 'map_organize';
     const mapOrgPrompt = isCalibrate ? '' : (getPrompt('map_organize', state) || MAP_ORGANIZE_PROMPT);
     const mapCalibratePrompt = isOrganize ? '' : (getPrompt('map_calibrate', state) || MAP_CALIBRATE_PROMPT);
-    const mapPromptBase = getPrompt('map_context', state) || MAP_PROMPT;
     const resolvedMapPrompt = mapPromptText ? `${mapPromptBase}\n[地图与位置线索：\n${mapPromptText}\n]` : '';
     const baseTodoPrompt = getPrompt('todo_suggestions', state) || TODO_SUGGESTIONS_PROMPT;
     const todoPrompt = ['social-feed', 'social-comment'].includes(taskScope)
@@ -816,20 +854,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const storyMemPrompt = getPrompt('story_memory_rule', state) || STORY_MEMORY_RULE;
     const contactsPrompt = getPrompt('contacts', state) || CONTACTS_PROMPT;
     const dirPrompt = getPrompt('directory', state) || DIRECTORY_PROMPT;
-    const calPromptBase = getPrompt('calendar_context', state) || CALENDAR_PROMPT;
-    const calObj = contextData.calendar || cleanedPhoneContext?.calendar;
-    const calEvents = Array.isArray(calObj?.events) ? calObj.events : (Array.isArray(calObj) ? calObj : []);
-    const seenCalLines = new Set();
-    const calLines = calEvents
-      .map(e => formatCalendarEventPromptLine(e))
-      .filter(line => {
-        if (!line || seenCalLines.has(line)) return false;
-        seenCalLines.add(line);
-        return true;
-      })
-      .join('\n');
     const calPrompt = calLines ? `${calPromptBase}\n[日历线索：\n${calLines}\n]` : calPromptBase;
-    const workdayPromptRule = getPrompt('workday_holiday', state) || WORKDAY_HOLIDAY_PROMPT;
     const resolvedWorkdayPrompt = workdayPromptText ? (workdayPromptRule ? `${workdayPromptRule}\n${workdayPromptText}` : workdayPromptText) : '';
     const maxChars = contextData.maxCharacters || Number(state?.summaryMaxCharacters) || 100;
     const sumPromptRaw = getPrompt('summary', state) || SUMMARY_PROMPT;
@@ -837,8 +862,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     const imgPrompt = getPrompt('image_prompt', state) || IMAGE_PROMPT;
     const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
     const buckshotPrompt = getPrompt('buckshot_roulette', state) || BUCKSHOT_ROULETTE_PROMPT;
-    const originSysPrompt = getPrompt('origin_system', state) || ORIGIN_SYSTEM_PROMPT;
-    const originChatPrompt = getPrompt('origin_chat', state) || ORIGIN_CHAT_PROMPT;
+    const originChatPrompt = fillOriginChatPrompt(getPrompt('origin_chat', state) || ORIGIN_CHAT_PROMPT, state?.origin, state?.userProfile);
     const originTaskPrompt = getPrompt('origin_task_conceive', state) || ORIGIN_TASK_CONCEIVE_PROMPT;
     const originStatsPrompt = getPrompt('origin_stats_eval', state) || ORIGIN_STATS_EVAL_PROMPT;
     const originShopPrompt = getPrompt('origin_shop_conceive', state) || ORIGIN_SHOP_CONCEIVE_PROMPT;
@@ -932,21 +956,21 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
     // 如果该条目单纯是某个空插槽（如柏宝书未开启导致 storyMemory 为空），且除该宏外无其他有效文本，则跳过
     if (hasStoryMemory && !storyMemory.trim()) {
       content = content.replace(/\{\{story_memory\}\}/g, '').trim();
-      if (!content || /^\[[^\]]*\]\s*$/s.test(content)) continue;
+      if (isOnlySlotTitle(content)) continue;
     } else if (hasStoryMemory) {
       content = content.replace(/\{\{story_memory\}\}/g, storyMemory.trim());
     }
 
     if (hasWorldbook && !worldbook.trim()) {
       content = content.replace(/\{\{worldbook\}\}/g, '').trim();
-      if (!content || /^\[[^\]]*\]\s*$/s.test(content)) continue;
+      if (isOnlySlotTitle(content)) continue;
     } else if (hasWorldbook) {
       content = content.replace(/\{\{worldbook\}\}/g, worldbook.trim());
     }
 
     if (hasStoryHistory && !storyHistory.trim()) {
       content = content.replace(/\{\{story_history\}\}/g, '').trim();
-      if (!content || /^\[[^\]]*\]\s*$/s.test(content)) continue;
+      if (isOnlySlotTitle(content)) continue;
     } else if (hasStoryHistory) {
       const isPlain = content.trim() === '{{story_history}}';
       content = isPlain ? storyHistory.trim() : content.replace(/\{\{story_history\}\}/g, storyHistory.trim());
@@ -954,7 +978,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
 
     if (hasCharPersonality && !charPersonality.trim()) {
       content = content.replace(/\{\{char_personality\}\}/g, '').trim();
-      if (!content || /^\[[^\]]*\]\s*$/s.test(content)) continue;
+      if (isOnlySlotTitle(content)) continue;
     } else if (hasCharPersonality) {
       content = content.replace(/\{\{char_personality\}\}/g, charPersonality.trim());
     }
@@ -967,7 +991,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
 
     if (hasLatestUserInput && !latestUserInput.trim()) {
       content = content.replace(/\{\{latest_user_input\}\}/g, '').trim();
-      if (!content || /^\[[^\]]*\]\s*$/s.test(content) || /^(?:用户最新(?:输入|发言|诉求)|当前诉求)[：:]\s*$/s.test(content)) continue;
+      if (isOnlySlotTitle(content)) continue;
     } else if (hasLatestUserInput) {
       const isPlain = content.trim() === '{{latest_user_input}}';
       content = isPlain ? latestUserInput.trim() : content.replace(/\{\{latest_user_input\}\}/g, latestUserInput.trim());

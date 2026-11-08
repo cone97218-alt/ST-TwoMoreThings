@@ -73,8 +73,8 @@ export const DEFAULT_ORIGIN_TEMPLATES = {
   tasks: `宿主进行中任务：\n{{tasks}}`,
   inventory: `宿主背包：{{bag}}\n商城（可花积分买）：{{shop}}`,
   action: `{{actions}}`,
-  rules: `【本回合系统指引与规则】\n1. 依据正文里实际发生的事更新任务进度；若完成条件达成，请输出『完成|任务id』。禁止替宿主无理由自动完结。\n2. 允许结合情境发布新任务，宿主期望方向：{{direction}}\n3. 系统说话口吻：{{persona}}`,
-  output: `【输出】在回复最末尾另起一行，输出数据块（此块不属于正文，不向读者展示）：\n<origin>\n进度|任务id|新百分比0-100|依据\n完成|任务id\n失败|任务id\n新任务|类型:主线或支线或日常|标题:…|描述:…|条件:…|奖励:积分300|惩罚:…|时限:整数|对象:宿主或角色名\n积分|+N或-N|理由\n属性|名称|+N或-N\n获得|名称|数量\n用道具|名称\n播报|一句系统口吻的话\n私聊|系统 或 角色名|一句话\n成就|名称|说明\n</origin>`,
+  rules: `【本回合系统指引与规则】\n1. 依据正文里实际发生的事更新任务进度；若完成条件达成，请输出『完成|任务id』。禁止替宿主无理由自动完结。\n2. {{taskRule}}\n3. 系统说话口吻：{{persona}}`,
+  output: `【输出】在回复最末尾另起一行，输出数据块（此块不属于正文，不向读者展示）：\n<origin>\n进度|任务id|新百分比0-100|依据\n完成|任务id\n失败|任务id\n新任务|类型:主线或支线或日常|标题:…|描述:…|条件:…|奖励:积分300|惩罚:…|时限:整数|对象:宿主或角色名\n积分|+N或-N|理由\n属性|名称|+N或-N|理由\n获得|名称|数量\n用道具|名称\n播报|一句系统口吻的话\n私聊|系统 或 角色名|一句话\n成就|名称|说明\n</origin>`,
 };
 
 export function defaultOriginSections() {
@@ -192,6 +192,14 @@ export function normalizeOriginState(raw) {
       template: rawSections[key]?.template !== undefined ? String(rawSections[key].template) : defaultSections[key].template,
     };
   }
+  for (const key of Object.keys(rawSections)) {
+    if (!merged.sections[key]) {
+      merged.sections[key] = {
+        enabled: rawSections[key]?.enabled !== false,
+        template: rawSections[key]?.template !== undefined ? String(rawSections[key].template) : '',
+      };
+    }
+  }
   if (!Array.isArray(merged.tasks)) merged.tasks = [];
   if (!Array.isArray(merged.stats)) merged.stats = [];
   if (!Array.isArray(merged.bag)) merged.bag = [];
@@ -244,15 +252,21 @@ export function isTaskExpired(task, currentTurn = 0) {
   return rem !== null && rem <= 0;
 }
 
-export function pushOriginLog(state, text, type = 'info') {
+export function pushOriginLog(state, text, type = 'info', turn = null) {
   if (!state || !text) return;
   state.log = state.log || [];
   state.log.unshift({
     text: String(text),
     type,
     time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+    turn: turn !== null ? turn : (state.currentTurn ?? null),
   });
-  if (state.log.length > 50) state.log.length = 50;
+  if (state.log.length > 200) state.log.length = 200;
+}
+
+export function clearOriginLogs(state) {
+  if (!state) return;
+  state.log = [];
 }
 
 export function applyStatEffect(state, effectText, multiplier = 1) {

@@ -1764,6 +1764,13 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'origin-open-sms': openConversation(SYSTEM_CONTACT_ID, false); break;
       case 'origin-jump-app': ui.view = 'origin'; ui.originTab = 'tasks'; render(); break;
       case 'origin-filter-tasks': ui.taskFilter = button.dataset.originFilter || button.dataset.filter; render(); break;
+      case 'origin-filter-logs': ui.originLogFilter = button.dataset.originFilter || button.dataset.filter; render(); break;
+      case 'origin-clear-logs':
+        void perform('origin-log-clear', () => originService.clearLogs(), () => {
+          ui.feedback = { text: '已清空系统履历日志。' };
+          onContextChange();
+        });
+        break;
       case 'origin-open-new-task': ui.originModal = 'edit-task'; ui.originModalData = {}; render(); break;
       case 'origin-edit-task': {
         const taskId = button.dataset.taskId;

@@ -16,6 +16,16 @@ import { createMemorySources } from './memory-sources.js';
 import { getActivePreset, compilePromptPreset, collapseMessages, sanitizePhoneContext } from './preset-engine.js';
 import { buildMapProjection, formatMapContextPrompt, readBaiBaiBookMapSnapshot } from './map-engine.js';
 import { buildOriginInjection } from './origin-injection.js';
+import { SYSTEM_CONTACT_ID } from './origin-engine.js';
+
+function safeReadWorldInfo(target, options) {
+  if (typeof target?.readWorldInfo !== 'function') return Promise.resolve('');
+  try {
+    return Promise.resolve(target.readWorldInfo(options)).catch(() => '');
+  } catch {
+    return Promise.resolve('');
+  }
+}
 
 function recentStory(messages, beforeIndex = messages.length, wrappers = {}, layers = 1) {
   const maxLayers = Math.max(1, Number(layers) || 1);
@@ -165,7 +175,18 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
   return {
     assertMemorySources() { memorySources.select(); },
     async readForContact(id, { layers } = {}) {
-      const state = store.read(), contact = state.contacts.find(x => x.id === id);
+      const state = store.read();
+      let contact = state.contacts.find(x => x.id === id);
+      if (!contact && id === SYSTEM_CONTACT_ID) {
+        contact = {
+          id: SYSTEM_CONTACT_ID,
+          name: state.origin?.sysName || '系统',
+          nickname: '',
+          personality: state.origin?.personality || '冷澈客观',
+          expression: '系统口吻',
+          language: '',
+        };
+      }
       if (!contact) throw new Error('这个联系人已不存在，请返回短信重新选择。');
       const current = base(layers);
       const thread = state.conversations[id] || [];
@@ -186,7 +207,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         const context = await bridge.readContext({ query, entityIds: [entityId], maxCharacters: 4000 });
         if (context?.status === 'ready') related = (context.actors || []).filter(x => x.entityId === entityId).map(x => [x.stateText, x.memoryText].filter(Boolean).join('\n')).join('\n').slice(0, 4000);
       }
-      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: [{ id: '@user', name: current.user }, { id, name: contact.name }], todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), ...(todos.length || previousMessages.length ? { storyProgress: storyProgress(target.messages, [...previousMessages.map(message => message.sourceBatch), ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), ...(mapPrompt ? { mapPrompt } : {}), emojis: emojiChoices(), stickers: stickerChoices(), contact: { name: contact.name, nickname: contact.nickname || '', personality: contact.personality, expression: contact.expression, language: contact.language || '' }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), related, worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), contact.name, ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
+      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: [{ id: '@user', name: current.user }, { id, name: contact.name }], todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), ...(todos.length || previousMessages.length ? { storyProgress: storyProgress(target.messages, [...previousMessages.map(message => message.sourceBatch), ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), ...(mapPrompt ? { mapPrompt } : {}), emojis: emojiChoices(), stickers: stickerChoices(), contact: { name: contact.name, nickname: contact.nickname || '', personality: contact.personality, expression: contact.expression, language: contact.language || '' }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), related, worldbook: await safeReadWorldInfo(target, { scanText: [...current.story.map(item => item.text), contact.name, ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
     },
     async readForForum({ readMemory = false } = {}) {
       const current = base();
@@ -204,7 +225,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
       // 正文只提供时代、地域与环境背景，公众知情由论坛任务判断，不传用户档案或人物记忆。
       return { clock: current.clock, setting: current.character, storyBackground: current.story,
         ...(storyMemory ? { storyMemory } : {}),
-        worldbook: await target.readWorldInfo({ scanText: current.story.map(item => item.text).join('\n') }) };
+        worldbook: await safeReadWorldInfo(target, { scanText: current.story.map(item => item.text).join('\n') }) };
     },
     async readForSocial(authors, { includePrivateMessages = false } = {}) {
       const current = base(), source = memorySources.select(), bridge = source.bridge, state = store.read();
@@ -227,7 +248,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         ...(includePrivateMessages && person.kind !== 'npc' ? { privateHistory: privateHistories.get(person.id) || [], todoPeople: [{ id: '@user', name: current.user }, { id: person.id, name: person.name }], todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)) } : {}),
         related: actors.filter(actor => ids.has(person.id) && actor.entityId === ids.get(person.id))
           .map(actor => [actor.stateText, actor.memoryText].filter(Boolean).join('\n')).join('\n'),
-      }; }), worldbook: await target.readWorldInfo({ scanText }) };
+      }; }), worldbook: await safeReadWorldInfo(target, { scanText }) };
     },
     async readDirectorySources({ readMemory = false } = {}) {
       const snapshot = qqjBridgeProvider?.()?.getPeopleSnapshot?.();
@@ -241,7 +262,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
           storyMemory = memorySources.readStoryMemory(source, 6000) || '';
         } catch {}
       }
-      return { ...base(), people, contacts: state.contacts.map(({ id, name, nickname }) => ({ id, name, nickname })), groups: (state.groups || []).map(({ id, name, memberIds, userIsMember }) => ({ id, name, memberIds, userIsMember })), ...(storyMemory ? { storyMemory } : {}), worldbook: await target.readWorldInfo() };
+      return { ...base(), people, contacts: state.contacts.map(({ id, name, nickname }) => ({ id, name, nickname })), groups: (state.groups || []).map(({ id, name, memberIds, userIsMember }) => ({ id, name, memberIds, userIsMember })), ...(storyMemory ? { storyMemory } : {}), worldbook: await safeReadWorldInfo(target) };
     },
     async readForGroup(id, { layers } = {}) {
       const state = store.read(), group = state.groups?.find(item => item.id === id);
@@ -282,7 +303,7 @@ export function createContextReader({ target, store, qqjBridgeProvider = () => g
         return messages.length ? [{ contactId: person.id, knownToIds: ['@user', person.id], messages }] : [];
       });
       const evidence = [...previousMessages, ...privateHistories.flatMap(thread => thread.messages)].map(message => message.sourceBatch);
-      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: roster.map(({ id, name }) => ({ id, name })), todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), privateHistories, ...(todos.length || evidence.length ? { storyProgress: storyProgress(target.messages, [...evidence, ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), ...(mapPrompt ? { mapPrompt } : {}), emojis: emojiChoices(), stickers: stickerChoices(), group: { name: group.name, userIsMember: group.userIsMember, members: roster }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), worldbook: await target.readWorldInfo({ scanText: [...current.story.map(item => item.text), ...members.map(person => person.name), ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
+      return { ...current, ...(storyMemory ? { storyMemory } : {}), todoPeople: roster.map(({ id, name }) => ({ id, name })), todos: todos.map(todo => todoReference(todo, state, current.user, current.clock)), privateHistories, ...(todos.length || evidence.length ? { storyProgress: storyProgress(target.messages, [...evidence, ...todos.map(todo => todo.sourceBatch)], target.messages.length, wrapperSettingsProvider()) } : {}), ...(social.length ? { social } : {}), ...(calendarReference ? { calendar: calendarReference } : {}), ...(workdayInfo?.prompt ? { workdayHoliday: workdayInfo } : {}), ...(mapPrompt ? { mapPrompt } : {}), emojis: emojiChoices(), stickers: stickerChoices(), group: { name: group.name, userIsMember: group.userIsMember, members: roster }, previousMessages, history: history.map(message => contextMessage(message, state.conversations[id] || [])), worldbook: await safeReadWorldInfo(target, { scanText: [...current.story.map(item => item.text), ...members.map(person => person.name), ...history.map(messageText), ...social.map(post => post.text)].join('\n') }) };
     },
 
   };

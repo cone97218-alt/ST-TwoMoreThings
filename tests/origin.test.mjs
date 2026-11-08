@@ -21,6 +21,7 @@ import {
   performGachaDraw,
   unlockAchievement,
   defaultOriginModuleTags,
+  clearOriginLogs,
 } from '../src/origin-engine.js';
 import {
   buildOriginInjection,
@@ -277,6 +278,20 @@ test('origin-chat: buildSystemChatPrompt constructs proper instructions with hos
   assert.ok(prompt.system.includes('定风珠×1'));
   assert.equal(prompt.messages.length, 1);
   assert.equal(prompt.messages[0].content, '系统，这定风珠要怎么用？');
+
+  // 测试用户在功能提示词库或提示词管道中自定义 origin_chat 模板与宏替换
+  const customChatState = normalizeOriginState({
+    sysName: '神医系统',
+    points: 666,
+  });
+  const customPrompt = buildSystemChatPrompt({
+    originState: customChatState,
+    userProfile: { name: '扁鹊' },
+    customChatPrompt: '【系统端已接入】宿主：{{hostName}}，系统：{{sysName}}，口吻：{{persona}}，积分：{{points}}点\n【私聊指令】请始终称呼宿主为神医。',
+  });
+  assert.ok(customPrompt.system.includes('【系统端已接入】宿主：扁鹊，系统：神医系统'));
+  assert.ok(customPrompt.system.includes('积分：666点'));
+  assert.ok(customPrompt.system.includes('【私聊指令】请始终称呼宿主为神医。'));
 });
 
 test('origin-ui: renderOrigin outputs mobile tabs, hero status card, and task items', () => {
@@ -582,6 +597,86 @@ test('origin-route-b: in-app AI conception for quests and stat evaluation', asyn
   assert.ok(Array.isArray(evalLog.entries) && evalLog.entries.length > 0, '评估成长应包含提示词预设装配条目');
 });
 
+test('origin-route-b: contextReader integration injects worldbook and storyMemory and filters empty slot titles', async () => {
+  const mockTarget = {
+    user: '宿主',
+    messages: [{ role: 'user', text: '在青云宗修炼' }],
+    metadata: {
+      pocketPhone: {
+        origin: normalizeOriginState({ enabled: true, points: 100 }),
+      },
+    },
+    saveMetadata: async () => {},
+  };
+  const store = createPhoneStore({ target: mockTarget });
+
+  const mockContextReader = {
+    readForContact: async (id) => ({
+      contact: { id, name: '系统' },
+      story: [{ speaker: '主角', text: '正在闭关突破金丹期' }],
+      worldbook: '【世界书条目：青云宗分为九峰，灵气充沛】',
+      storyMemory: '长线摘要：主角刚进入内门，接下宗门大比挑战。',
+    }),
+  };
+
+  let capturedSystem = '';
+  let capturedEntries = [];
+  const mockModelClient = {
+    complete: async (req) => {
+      capturedSystem = req.system || '';
+      capturedEntries = req.entries || [];
+      return JSON.stringify({
+        summary: '宿主闭关突破，灵力提升。',
+        statChanges: [{ name: '灵力', delta: 10 }],
+        pointsGain: 100,
+      });
+    },
+  };
+
+  const originService = createOriginService({
+    target: mockTarget,
+    store,
+    host: {},
+    modelClient: mockModelClient,
+    contextReader: mockContextReader,
+  });
+
+  await originService.evaluateStats();
+
+  // 验证世界书与长线记忆插槽成功注入到模型请求中
+  assert.ok(capturedSystem.includes('青云宗分为九峰'), 'evaluateStats 应成功注入世界书内容');
+  assert.ok(capturedSystem.includes('主角刚进入内门'), 'evaluateStats 应成功注入长线摘要内容');
+
+  // 进一步验证：当 storyMemory 为空时，模板中的标题外壳不应残留
+  const emptyMemoryContextReader = {
+    readForContact: async (id) => ({
+      contact: { id, name: '系统' },
+      story: [{ speaker: '主角', text: '正在闭关' }],
+      worldbook: '',
+      storyMemory: '',
+    }),
+  };
+
+  let emptySystem = '';
+  const emptyOriginService = createOriginService({
+    target: mockTarget,
+    store,
+    host: {},
+    modelClient: {
+      complete: async (req) => {
+        emptySystem = req.system || '';
+        return JSON.stringify({ summary: '测试', statChanges: [], pointsGain: 0 });
+      },
+    },
+    contextReader: emptyMemoryContextReader,
+  });
+
+  await emptyOriginService.evaluateStats();
+  // 验证不应残留只有标题的空壳
+  assert.ok(!emptySystem.includes('剧情长线摘要（来自柏宝书）'), '长线摘要为空时，标题外壳不应残留输出');
+  assert.ok(!emptySystem.includes('世界书条目（根据最近剧情激活）'), '世界书为空时，标题外壳不应残留输出');
+});
+
 test('origin-route-c: custom regex story harvesting without <origin> tags', async () => {
   const storyAiReply = `夜色深沉，主角屏气凝神，一剑刺穿了妖兽的心脏。\n【叮！完成任务：初次试炼】\n【叮！触发支线任务：夜袭黑风寨。奖励：积分+500】\n【系统提示：宿主首杀精英妖兽，力量+2，获得积分+100】\n【叮！获得道具：凝神丹x2】\n【系统提示：达成成就：初露锋芒】\n四周恢复了死寂。`;
   const mockTarget = {
@@ -836,7 +931,7 @@ test('origin-modular-injection: selective section toggles and custom prompt temp
   });
 
   const templatedPrompt = buildOriginInjection(templatedState, { currentTurn: 1 });
-  assert.ok(templatedPrompt.includes('【修仙系统】宿主神识: 神识+50，当前积分: 888点'));
+  assert.ok(templatedPrompt.includes('【修仙系统】宿主神识: 神识 50，当前积分: 888点'));
   assert.ok(templatedPrompt.includes('[当前要务]'));
   assert.ok(templatedPrompt.includes('斩妖除魔'));
   assert.ok(templatedPrompt.includes('【核心法则】系统为至高存在，请宿主谨遵指引。'));
@@ -1212,4 +1307,79 @@ test('origin-ui & guidance: simplified 属性->技能->特权 order, direction g
   // 9. 验证 deleteStat 方法
   await originService.deleteStat('灵力');
   assert.equal(store.read().origin.stats.find(s => s.name === '灵力'), undefined, 'deleteStat 应成功移除属性');
+});
+
+test('origin-logs & clean-stats-injection: attribute values without plus sign, attribute reasons, and system log UI', async () => {
+  // 1. 验证属性注入不带多余的加号（例如智力 3 而非 智力+3）
+  const state = normalizeOriginState({
+    enabled: true,
+    stats: [
+      { name: '智力', val: 3 },
+      { name: '力量', val: 12 },
+    ],
+  });
+
+  const prompt = buildOriginInjection(state, { currentTurn: 1 });
+  assert.ok(prompt.includes('属性：智力 3 力量 12'), '属性注入应显示实际数值（智力 3 力量 12），不得强制加号');
+  assert.ok(!prompt.includes('智力+3'), '正数属性不得带 + 号');
+
+  // 2. 验证属性变动带理由的解析与记录
+  const actionLine = '属性|智力|+3|在藏经阁研读高深心法';
+  const block = parseOriginBlock(`<origin>\n${actionLine}\n</origin>`);
+  assert.equal(block.actions.length, 1);
+  assert.equal(block.actions[0].type, 'stat');
+  assert.equal(block.actions[0].name, '智力');
+  assert.equal(block.actions[0].delta, 3);
+  assert.equal(block.actions[0].reason, '在藏经阁研读高深心法');
+
+  // 应用 block 到 state
+  applyOriginBlock(state, block, { currentTurn: 2 });
+  assert.equal(state.stats.find(s => s.name === '智力').val, 6);
+  assert.ok(state.log.length > 0);
+  assert.ok(state.log[0].text.includes('在藏经阁研读高深心法'), '日志应记录属性变动的理由');
+
+  // 3. 验证 UI 日志 Tab 渲染
+  const uiLogHtml = renderOrigin({ origin: state }, { ui: { originTab: 'log' } });
+  assert.ok(uiLogHtml.includes('origin-nav-tab'), '包含导航分页');
+  assert.ok(uiLogHtml.includes('日志'), '导航栏包含日志分页标签');
+  assert.ok(uiLogHtml.includes('origin-log-view'), '渲染日志视图容器');
+  assert.ok(uiLogHtml.includes('在藏经阁研读高深心法'), '日志列表中显示变动理由');
+  assert.ok(uiLogHtml.includes('属性变动'), '日志包含对应类别徽章');
+  assert.ok(uiLogHtml.includes('data-action="origin-clear-logs"'), '包含清空日志按钮');
+
+  // 4. 验证 clearOriginLogs
+  clearOriginLogs(state);
+  assert.equal(state.log.length, 0);
+
+  const emptyLogHtml = renderOrigin({ origin: state }, { ui: { originTab: 'log' } });
+  assert.ok(emptyLogHtml.includes('暂无系统履历日志'), '清空后显示空状态提示');
+
+  // 5. 验证动态任务派发规则 {{taskRule}}
+  const coolingState = normalizeOriginState({
+    enabled: true,
+    freq: 3,
+    lastTaskTurn: 10,
+    tasks: [],
+    sections: {
+      rules: { enabled: true, template: '【规则】\n提示：{{taskRule}}' },
+    },
+  });
+  const coolPrompt = buildOriginInjection(coolingState, { currentTurn: 11 }); // 11 - 10 = 1 < 3
+  assert.ok(coolPrompt.includes('提示：本回合不要发布新任务。'), '{{taskRule}} 自身为纯文字，不包含写死的前缀序号');
+  assert.ok(!coolPrompt.includes('提示：2. 本回合不要发布新任务。'), '{{taskRule}} 不得附带数字序号');
+
+  const readyState = normalizeOriginState({
+    enabled: true,
+    freq: 3,
+    lastTaskTurn: 10,
+    tasks: [],
+    direction: '探索遗迹',
+    sections: {
+      rules: { enabled: true, template: '【规则】\n- {{taskRule}}' },
+    },
+  });
+  const readyPrompt = buildOriginInjection(readyState, { currentTurn: 13 }); // 13 - 10 = 3 >= 3
+  assert.ok(readyPrompt.includes('- 当前无任务：请在本回合发起 1 个贴合当前情境的新任务'), '冷却完毕且无任务时允许发起新任务且为纯文字');
+  assert.ok(!readyPrompt.includes('- 2. 当前无任务'), '不带序号');
+  assert.ok(readyPrompt.includes('宿主期望的任务方向：探索遗迹'), '包含期望方向');
 });

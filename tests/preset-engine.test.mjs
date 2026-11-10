@@ -831,3 +831,39 @@ test('preset engine: isOnlySlotTitle strips empty titles across various formats 
 
 
 
+
+
+test('preset engine: compiles clue_stickers correctly without displaying [object Object]', async () => {
+  const { stickerChoices } = await import('../src/stickers.js');
+  const preset = {
+    id: 'sticker_test',
+    entries: [
+      { id: 's1', name: '贴纸线索', scope: '短信', role: 'system', enabled: true, content: '{{clue_stickers}}' },
+    ],
+  };
+
+  const choices = stickerChoices();
+  const contextData = {
+    stickers: choices,
+    emojis: ['微笑', '大笑', { label: '合十' }],
+  };
+
+  const compiled = compilePromptPreset(preset, contextData, 'chat');
+  assert.equal(compiled.length, 1);
+  const text = compiled[0].content;
+  assert.ok(!text.includes('[object Object]'), 'Sticker prompt must not contain [object Object]');
+  assert.ok(text.includes('sepia.hello (打招呼)'));
+  assert.ok(text.includes('sepia.happy (开心)'));
+  assert.ok(text.includes('blob.1f600 (开心)'));
+  assert.ok(text.includes('常用表情: 微笑 大笑 合十'));
+
+  const legacyPreset = {
+    id: 'legacy_sticker_test',
+    entries: [
+      { id: 'ls1', name: '旧贴纸线索', scope: '短信', role: 'system', enabled: true, content: '【贴纸候选】\n{{sticker_context}}' },
+    ],
+  };
+  const legacyCompiled = compilePromptPreset(legacyPreset, contextData, 'chat');
+  assert.ok(legacyCompiled[0].content.includes('sepia.hello (打招呼)'));
+  assert.ok(!legacyCompiled[0].content.includes('[object Object]'));
+});

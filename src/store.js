@@ -11,11 +11,11 @@ import { DEFAULT_PROMPT_PRESETS, normalizePromptPresets } from './preset-engine.
 import { defaultOriginState, normalizeOriginState, SYSTEM_CONTACT_ID } from './origin-engine.js';
 import { createSystemContact } from './origin-chat.js';
 
-const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, map: { basemap: 'auto', currentLocation: '', items: [], deletedIds: [], sheetAssets: {}, trail: [] }, origin: defaultOriginState(), injectEnabled: false, injectCalendarEnabled: false, injectMapEnabled: false, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, summaryAlwaysSummarize: false, manualSummary: null });
+const emptyState = () => ({ schemaVersion: 1, contacts: [], groups: [], conversations: {}, forum: { posts: [] }, map: { basemap: 'auto', currentLocation: '', items: [], deletedIds: [], sheetAssets: {}, trail: [] }, origin: defaultOriginState(), injectEnabled: false, injectCalendarEnabled: false, injectMapEnabled: false, injectFoodieEnabled: false, foodie: { template: '[食物线索：{{food}}]', count: 2, locked: false, session: null, current: null, lastTrace: null, customDatabases: {}, modifiedBuiltins: {} }, lockScreenEnabled: true, contactSocialEnabled: true, groupSocialEnabled: true, prompts: {}, summaryMode: 'auto', summaryMaxCharacters: 100, summaryAutoTruncate: true, summaryAlwaysSummarize: false, manualSummary: null });
 const CHARACTER_PREFERENCE_KEYS = [
   'injectEnabled',
   'injectCalendarEnabled',
-  'injectMapEnabled',
+  'injectMapEnabled', 'injectFoodieEnabled', 'foodie',
   'contactSocialEnabled',
   'groupSocialEnabled',
   'summaryMode',
@@ -1298,6 +1298,8 @@ export function createPhoneStore({
       return this.setCalendarWeatherConfig({ ...current, injectPrompt: Boolean(enabled) });
     },
     setInjectMapEnabled(enabled) { return update(state => ({ ...state, injectMapEnabled: Boolean(enabled) })); },
+    setInjectFoodieEnabled(enabled) { return update(state => ({ ...state, injectFoodieEnabled: Boolean(enabled) })); },
+    setFoodieState(patch) { return update(state => ({ ...state, foodie: { ...(state.foodie || {}), ...(typeof patch === 'function' ? patch(state.foodie || {}) : patch) } })); },
     setInjectOriginEnabled(enabled) { return update(state => ({ ...state, injectOriginEnabled: Boolean(enabled) })); },
     setMapBasemap(basemap) {
       const value = String(basemap || 'auto').trim() || 'auto';

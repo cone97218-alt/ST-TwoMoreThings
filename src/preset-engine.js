@@ -848,8 +848,35 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
   const emojisList = contextData.emojis || cleanedPhoneContext?.emojis;
   let stickerText = '';
   const stickerParts = [];
-  if (Array.isArray(stickersList) && stickersList.length) stickerParts.push(`可用专属贴纸: ${stickersList.join('、')}`);
-  if (Array.isArray(emojisList) && emojisList.length) stickerParts.push(`常用表情: ${emojisList.slice(0, 20).join(' ')}`);
+  if (Array.isArray(stickersList) && stickersList.length) {
+    const formattedStickers = stickersList.map(s => {
+      if (!s) return '';
+      if (typeof s === 'string') return s;
+      if (typeof s === 'object') {
+        const id = s.id || s.stickerId || s.code || '';
+        const meaning = s.meaning || s.label || s.name || s.text || s.desc || '';
+        if (id && meaning) return `${id} (${meaning})`;
+        return id || meaning || '';
+      }
+      return String(s);
+    }).filter(Boolean);
+    if (formattedStickers.length) {
+      stickerParts.push(`可用专属贴纸: ${formattedStickers.join('、')}`);
+    }
+  }
+  if (Array.isArray(emojisList) && emojisList.length) {
+    const formattedEmojis = emojisList.map(e => {
+      if (!e) return '';
+      if (typeof e === 'string') return e;
+      if (typeof e === 'object') {
+        return e.label || e.name || e.emoji || e.code || '';
+      }
+      return String(e);
+    }).filter(Boolean);
+    if (formattedEmojis.length) {
+      stickerParts.push(`常用表情: ${formattedEmojis.slice(0, 20).join(' ')}`);
+    }
+  }
   if (stickerParts.length) stickerText = `[表情与贴纸候选池：\n${stickerParts.join('\n')}\n]`;
 
   const oldMaidPrompt = getPrompt('old_maid', state) || OLD_MAID_PROMPT;
@@ -1006,8 +1033,8 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       content = content.replace(/\{\{clue_social\}\}/g, '').trim();
       if (isOnlySlotTitle(content)) continue;
     }
-    if (content.includes('{{clue_stickers}}') && !stickerText) {
-      content = content.replace(/\{\{clue_stickers\}\}/g, '').trim();
+    if ((content.includes('{{clue_stickers}}') || content.includes('{{sticker_context}}')) && !stickerText) {
+      content = content.replace(/\{\{clue_stickers\}\}/g, '').replace(/\{\{sticker_context\}\}/g, '').trim();
       if (isOnlySlotTitle(content)) continue;
     }
 
@@ -1157,6 +1184,7 @@ export function compilePromptPreset(preset, contextData = {}, taskScope = 'chat'
       .replace(/\{\{clue_todos\}\}/g, todosText)
       .replace(/\{\{clue_social\}\}/g, socialText)
       .replace(/\{\{clue_stickers\}\}/g, stickerText)
+      .replace(/\{\{sticker_context\}\}/g, stickerText)
       .replace(/\{\{clue_map\}\}/g, finalMapPrompt)
       .replace(/\{\{clue_calendar\}\}/g, finalCalendarPrompt)
       .replace(/\{\{clue_workday\}\}/g, finalWorkdayPrompt)

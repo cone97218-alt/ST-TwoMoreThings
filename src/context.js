@@ -16,6 +16,7 @@ import { createMemorySources } from './memory-sources.js';
 import { getActivePreset, compilePromptPreset, collapseMessages, sanitizePhoneContext } from './preset-engine.js';
 import { buildMapProjection, formatMapContextPrompt, readBaiBaiBookMapSnapshot } from './map-engine.js';
 import { buildOriginInjection } from './origin-injection.js';
+import { evaluateFoodieMatch } from './foodie-engine.js';
 import { SYSTEM_CONTACT_ID } from './origin-engine.js';
 
 function safeReadWorldInfo(target, options) {
@@ -482,25 +483,29 @@ export function createBackflowService({
       const workdayConfig = state.calendar?.workdayConfig;
       const injectWorkday = Boolean(workdayConfig?.enabled && workdayConfig?.injectStory);
       const injectOrigin = Boolean(state.origin?.enabled && (state.injectOriginEnabled ?? true));
-      if (!isEnabled() || (!injectSms && !injectCal && !injectWorkday && !injectMap && !injectOrigin)) return '';
+      const injectFoodie = Boolean(state.injectFoodieEnabled);
+      if (!isEnabled() || (!injectSms && !injectCal && !injectWorkday && !injectMap && !injectOrigin && !injectFoodie)) return '';
       // 重生成事件发生时旧回答可能尚未移除；参考取自该回答之前的短信卡口。
       const last = target.messages.at(-1);
       const replacing = ['regenerate', 'swipe'].includes(type) && last && !last.is_user && !last.is_system && !['user', 'system'].includes(last.role);
       const beforeIndex = target.messages.length - Number(Boolean(replacing));
       const batch = readTimeline(target.messages, beforeIndex);
 
-      // 地图与位置线索（若开启地图带入正文）
+      // 地图与位置线索（若开启地图或寻味美食）
       let mapLines = '';
-      if (injectMap) {
+      let mapProj = null;
+      if (injectMap || injectFoodie) {
         try {
-          const mapProj = buildMapProjection({
+          mapProj = buildMapProjection({
             state,
             baibaiSnapshot: readBaiBaiBookMapSnapshot(),
             messages: target.messages.slice(0, beforeIndex),
           });
-          const text = formatMapContextPrompt(mapProj);
-          if (text) {
-            mapLines = `[地图与位置线索：\n${text}\n]`;
+          if (injectMap && mapProj) {
+            const text = formatMapContextPrompt(mapProj);
+            if (text) {
+              mapLines = `[地图与位置线索：\n${text}\n]`;
+            }
           }
         } catch {}
       }
@@ -527,13 +532,13 @@ export function createBackflowService({
         } catch {}
       }
 
-      // 日历线索（若开启日历带入正文）
+      // 日历线索（解耦上下文感知与正文注入）
       let calendarContext = null;
       let calendarLines = '';
-      if (injectCal && calendar?.context) {
+      if (calendar?.context) {
         try {
           calendarContext = calendar.context(batch.label, { viewerIds: ['@user'] });
-          if (calendarContext?.events?.length) {
+          if (injectCal && calendarContext?.events?.length) {
             const seenLines = new Set();
             const list = calendarContext.events
               .map(e => formatCalendarEventPromptLine(e))
@@ -589,13 +594,42 @@ export function createBackflowService({
         } catch {}
       }
 
-      if (!conversations.length && !todos.length && !calendarLines && !workdayLines && !weatherLines && !mapLines && !originLines) return '';
+      // 寻味美食线索（若开启寻味带入正文）
+      let foodieLines = '';
+      if (injectFoodie) {
+        try {
+          const lastFloor = latestAiFloor(target.messages, beforeIndex)?.message;
+          const storyText = lastFloor ? sanitizeStoryBody(lastFloor.mes, wrapperSettingsProvider()) : '';
+          const matchResult = evaluateFoodieMatch({
+            state,
+            storyText,
+            mapProjection: mapProj,
+            calendarContext,
+            turnIndex: beforeIndex
+          });
+          if (matchResult && matchResult.triggered && matchResult.prompt) {
+            foodieLines = matchResult.prompt;
+          }
+          if (matchResult) {
+            const nextFoodieState = {
+              ...(state.foodie || {}),
+              current: matchResult,
+              session: matchResult.session || (matchResult.status === 'locked' ? state.foodie?.session : null),
+              lastTrace: matchResult.trace
+            };
+            store.save({ foodie: nextFoodieState }).catch(() => {});
+          }
+        } catch {}
+      }
+
+      if (!conversations.length && !todos.length && !calendarLines && !workdayLines && !weatherLines && !mapLines && !originLines && !foodieLines) return '';
       const parts = [];
       if (originLines) parts.push(originLines);
       if (workdayLines) parts.push(workdayLines);
       if (weatherLines) parts.push(weatherLines);
       if (calendarLines) parts.push(calendarLines);
       if (mapLines) parts.push(mapLines);
+      if (foodieLines) parts.push(foodieLines);
       if (conversations.length) {
         parts.push(conversations.map(conversation => {
           const lines = conversation.messages.map(message => {

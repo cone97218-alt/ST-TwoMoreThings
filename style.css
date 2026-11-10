@@ -4988,3 +4988,1448 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   line-height: 1.5;
   word-break: break-word;
 }
+
+/* ==================== 寻味 Foodie App 原生视觉体系 ==================== */
+.foodie-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.foodie-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 主看板卡片（彻底对标系统 Hero Card） */
+.foodie-board-card {
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-rule);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.foodie-board-card.locked {
+  border-color: var(--pp-bronze);
+}
+
+.foodie-board-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.foodie-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--pp-surface-soft);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--pp-ink);
+}
+
+.foodie-tag-pill .pill-icon svg {
+  width: 13px;
+  height: 13px;
+  color: var(--pp-bronze);
+}
+
+.foodie-status-pill {
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+}
+
+.foodie-status-pill.active,
+.foodie-status-pill.stable {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+}
+
+.foodie-status-pill.locked {
+  background: color-mix(in srgb, var(--pp-bronze) 14%, transparent);
+  color: var(--pp-bronze);
+}
+
+.foodie-board-center {
+  padding: 4px 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.foodie-main-dish-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--pp-ink);
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+}
+
+.foodie-sub-dish-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.foodie-sub-pill {
+  display: inline-flex;
+  align-items: center;
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-rule);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--pp-ink);
+}
+
+.foodie-board-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0 12px;
+  gap: 6px;
+  text-align: center;
+}
+
+.empty-icon-wrap svg {
+  width: 28px;
+  height: 28px;
+  color: var(--pp-muted);
+  opacity: 0.5;
+}
+
+.empty-text-lead {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+
+.empty-text-sub {
+  font-size: 11px;
+  color: var(--pp-muted);
+}
+
+.foodie-board-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--pp-divider-soft);
+  padding-top: 9px;
+}
+
+.foodie-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--pp-muted);
+}
+
+.foodie-meta-badge .meta-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 匹配溯源折叠卡片（完整向下延展，原生平滑滚动） */
+.foodie-trace-card {
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-rule);
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.foodie-trace-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.trace-btn-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.trace-icon-svg {
+  color: var(--pp-muted);
+  display: flex;
+  align-items: center;
+}
+
+.trace-icon-svg svg {
+  width: 15px;
+  height: 15px;
+}
+
+.trace-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+
+.trace-btn-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trace-state-tag {
+  font-size: 10.5px;
+  color: var(--pp-muted);
+  background: var(--pp-surface-soft);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.trace-state-tag.active,
+.trace-state-tag.stable {
+  color: var(--pp-active);
+  background: var(--pp-pale);
+}
+
+.trace-caret {
+  display: flex;
+  align-items: center;
+  color: var(--pp-muted);
+  transition: transform 0.2s ease;
+}
+
+.trace-caret svg {
+  width: 13px;
+  height: 13px;
+}
+
+.trace-caret.is-open {
+  transform: rotate(180deg);
+}
+
+.foodie-timeline-box {
+  padding: 8px 14px 14px;
+  border-top: 1px solid var(--pp-divider-soft);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--pp-surface-soft);
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+
+.foodie-timeline-box::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  bottom: 20px;
+  left: 17px;
+  width: 1px;
+  background: var(--pp-rule);
+}
+
+.timeline-node {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 5px 0 5px 14px;
+}
+
+.node-dot {
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pp-active);
+  border: 1.5px solid var(--pp-surface);
+}
+
+.node-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.node-title {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--pp-muted);
+}
+
+.node-desc {
+  font-size: 12px;
+  color: var(--pp-ink);
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+/* ==================== 设置面板与二级下拉联动 ==================== */
+.foodie-panel-card {
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-rule);
+  border-radius: 14px;
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  box-sizing: border-box;
+}
+
+.panel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-row.vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.panel-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+
+.foodie-select-number {
+  width: 50px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--pp-rule);
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+  text-align: center;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.foodie-input-clean {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--pp-rule);
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+  font-size: 12px;
+  outline: none;
+}
+
+/* 一级分类横向胶囊 Tab */
+.foodie-group-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.foodie-group-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.foodie-group-tab {
+  white-space: nowrap;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--pp-muted);
+  background: var(--pp-surface-soft);
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.foodie-group-tab:hover {
+  color: var(--pp-ink);
+}
+
+.foodie-group-tab.is-active {
+  background: var(--pp-surface);
+  color: var(--pp-ink);
+  font-weight: 600;
+  border-color: var(--pp-rule);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+/* 过滤搜索栏与已开筛选器 */
+.foodie-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.foodie-filter-bar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-rule);
+  border-radius: 7px;
+  padding: 3px 8px;
+  box-sizing: border-box;
+}
+
+.foodie-filter-bar .filter-icon svg {
+  width: 13px;
+  height: 13px;
+  color: var(--pp-muted);
+}
+
+.foodie-filter-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--pp-ink);
+  outline: none;
+  padding: 2px 0;
+}
+
+.foodie-filter-clear {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--pp-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.foodie-filter-clear svg {
+  width: 12px;
+  height: 12px;
+}
+
+.foodie-toggle-pill {
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--pp-rule);
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.foodie-toggle-pill.is-active {
+  background: var(--pp-surface);
+  color: var(--pp-active);
+  border-color: var(--pp-active);
+  font-weight: 600;
+}
+
+/* 数据库二级下拉选择框 */
+.db-selector-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.foodie-clean-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--pp-rule);
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+}
+
+.foodie-clean-select optgroup {
+  font-weight: 600;
+  color: var(--pp-muted);
+  background: var(--pp-surface);
+}
+
+.foodie-clean-select option {
+  font-weight: normal;
+  color: var(--pp-ink);
+  padding: 3px 6px;
+}
+
+.selected-db-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 9px;
+  border-top: 1px solid var(--pp-divider-soft);
+}
+
+.db-origin-chip {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+}
+
+.db-origin-chip.custom {
+  background: color-mix(in srgb, var(--pp-bronze) 14%, transparent);
+  color: var(--pp-bronze);
+}
+
+.db-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.db-actions-right .switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 36px;
+  margin-right: 3px;
+}
+
+.db-actions-right .switch > span {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  border: 1px solid var(--pp-rule);
+  background: var(--pp-surface-soft);
+  position: relative;
+  display: block;
+  transition: all 0.2s ease;
+}
+
+.db-actions-right .switch > span::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--pp-muted);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.db-actions-right .switch input:checked + span {
+  background: var(--pp-pale);
+  border-color: var(--pp-active);
+}
+
+.db-actions-right .switch input:checked + span::before {
+  left: 18px;
+  background: var(--pp-active);
+}
+
+.db-actions-right .icon-button.micro-btn {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--pp-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.db-actions-right .icon-button.micro-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.5;
+}
+
+.db-actions-right .icon-button.micro-btn:hover {
+  color: var(--pp-ink);
+  background: var(--pp-surface-soft);
+}
+
+.db-actions-right .icon-button.micro-btn.danger-icon-btn:hover {
+  color: var(--pp-error);
+  background: var(--pp-error-surface);
+}
+
+/* 菜品角色细分指示条 */
+.db-role-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 4px 0 2px;
+}
+
+.role-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+  border: 1px solid var(--pp-divider-soft);
+}
+
+.role-stat-chip b {
+  color: var(--pp-ink);
+  font-weight: 600;
+}
+
+.selected-db-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 4px;
+}
+
+.db-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.db-form-field .field-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--pp-muted);
+}
+
+.foodie-textarea-clean {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--pp-rule);
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+/* ==================== 清单速控模式与自建库预设构建器 ==================== */
+/* 状态快速三态筛选药丸 */
+.foodie-status-filter-pills {
+  display: flex;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+
+.filter-pill-btn {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.filter-pill-btn:hover {
+  color: var(--pp-ink);
+}
+
+.filter-pill-btn.is-active {
+  background: var(--pp-surface);
+  color: var(--pp-active);
+  font-weight: 600;
+  border-color: var(--pp-active);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* 垂直速控列表：卡片式流式呈现 */
+.db-quick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.db-list-row {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+  transition: all 0.15s ease;
+}
+
+.db-list-row:hover {
+  background: var(--pp-surface);
+  border-color: var(--pp-rule);
+}
+
+.db-list-row.is-enabled {
+  border-left: 3px solid var(--pp-active);
+}
+
+.db-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.db-row-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.db-row-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pp-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.db-row-badges-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.db-count-chip {
+  font-size: 10.5px;
+  color: var(--pp-muted);
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.db-meta-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--pp-surface);
+  color: var(--pp-muted);
+  border: 1px solid var(--pp-divider-soft);
+}
+
+.accordion-drawer-card {
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.accordion-drawer-card.is-open {
+  background: var(--pp-surface);
+  border-color: var(--pp-rule);
+}
+
+.drawer-toggle-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.drawer-head-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.drawer-head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer-summary-pill {
+  font-size: 10.5px;
+  color: var(--pp-muted);
+  background: var(--pp-surface);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--pp-divider-soft);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accordion-drawer-card.is-open .drawer-summary-pill {
+  color: var(--pp-active);
+  background: var(--pp-pale);
+  border-color: transparent;
+}
+
+.drawer-caret {
+  color: var(--pp-muted);
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s ease;
+}
+
+.drawer-caret svg {
+  width: 13px;
+  height: 13px;
+}
+
+.drawer-caret.is-open {
+  transform: rotate(180deg);
+}
+
+.drawer-body-content {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--pp-divider-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--pp-surface);
+}
+
+/* ==================== 分角色菜品精美 Tab 管理器 ==================== */
+.role-dishes-card {
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 10px;
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.role-selector-tabs {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.role-selector-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.role-tab-btn {
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--pp-surface);
+  color: var(--pp-muted);
+  border: 1px solid var(--pp-divider-soft);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.role-tab-btn:hover {
+  color: var(--pp-ink);
+}
+
+.role-tab-btn.is-active {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  font-weight: 600;
+  border-color: var(--pp-active);
+}
+
+
+.role-panes-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.db-row-meta-line.keywords-meta-line {
+  margin-top: 1px;
+}
+
+.db-meta-chip.kw-chip {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  font-weight: 500;
+}
+
+.db-prompt-preview-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.preview-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pp-active);
+  background: var(--pp-pale);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.preview-code {
+  color: var(--pp-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.role-dish-chips-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  align-items: center;
+}
+
+.role-dish-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+  border: 1px solid var(--pp-divider-soft);
+}
+
+.dish-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--pp-muted);
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  background: none;
+  transition: all 0.1s ease;
+}
+
+.dish-remove-btn:hover {
+  background: var(--pp-error-surface);
+  color: var(--pp-error);
+}
+
+.role-dishes-empty {
+  font-size: 11px;
+  color: var(--pp-muted);
+  padding: 4px 0;
+}
+
+.role-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.role-add-row .foodie-input-clean {
+  flex: 1;
+}
+
+.add-dish-btn {
+  white-space: nowrap;
+  font-weight: 600;
+  padding: 6px 12px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-rule);
+  color: var(--pp-ink);
+  border-radius: 7px;
+}
+
+.add-dish-btn:hover {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  border-color: var(--pp-active);
+}
+
+/* 常用快捷标签气泡 */
+.quick-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.quick-chip-btn {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px dashed var(--pp-rule);
+  background: var(--pp-surface);
+  color: var(--pp-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.quick-chip-btn:hover {
+  border-color: var(--pp-active);
+  color: var(--pp-active);
+}
+
+.guided-db-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.guided-step-card {
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.step-badge-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-num {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--pp-active);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.step-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+
+
+.section-badge-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-title-icon,
+.drawer-head-left .section-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pp-muted);
+}
+
+.section-title-icon svg,
+.drawer-head-left .section-title-icon svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5px;
+}
+
+.chip-svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+
+.chip-svg svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.5px;
+}
+
+.dish-remove-btn svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 1.5px;
+}
+
+.add-dish-btn svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.5px;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+
+.guided-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+
+/* 菜品展示区折叠开关栏与滚动条优化 */
+.dishes-display-ctrl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+  margin-top: 2px;
+}
+
+.dishes-display-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pp-muted);
+}
+
+.role-count-badge {
+  color: var(--pp-active);
+  font-weight: 600;
+}
+
+.role-dishes-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--pp-muted);
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.role-dishes-collapse-btn:hover {
+  color: var(--pp-ink);
+  border-color: var(--pp-rule);
+}
+
+.role-dishes-collapse-btn .caret-icon {
+  display: inline-flex;
+  transition: transform 0.2s ease;
+}
+
+.role-dishes-collapse-btn .caret-icon.is-open {
+  transform: rotate(180deg);
+}
+
+.role-dish-chips-box {
+  max-height: 200px;
+  overflow-y: auto;
+  align-items: flex-start;
+  align-content: flex-start;
+}
+
+.role-dish-chips-box::-webkit-scrollbar {
+  width: 4px;
+}
+
+.role-dish-chips-box::-webkit-scrollbar-thumb {
+  background: var(--pp-rule);
+  border-radius: 4px;
+}
+
+
+/* 匹配溯源全链路可视化样式 */
+.node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.trace-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.trace-pill.success {
+  background: var(--pp-pale);
+  color: var(--pp-active);
+}
+
+.trace-pill.muted {
+  background: var(--pp-surface);
+  color: var(--pp-muted);
+  border: 1px solid var(--pp-divider-soft);
+}
+
+.trace-pill.amber {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.trace-hint-text {
+  font-size: 11px;
+  color: var(--pp-muted);
+}
+
+.trace-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.trace-chip-kw {
+  font-size: 10.5px;
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.trace-env-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.trace-env-item {
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 6px;
+  padding: 4px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.env-label {
+  font-size: 9.5px;
+  color: var(--pp-muted);
+  font-weight: 500;
+}
+
+.env-val {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pp-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-decision-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.trace-db-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--pp-ink);
+}
+
+.trace-stage-badge, .trace-db-badge {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--pp-surface-soft);
+  color: var(--pp-muted);
+  border: 1px solid var(--pp-divider-soft);
+  font-weight: 500;
+}
+
+.trace-reason-text {
+  font-size: 11.5px;
+  color: var(--pp-ink);
+  line-height: 1.4;
+}
+
+.trace-scoring-box {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trace-scoring-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pp-muted);
+}
+
+.trace-score-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--pp-divider-soft);
+}
+
+.trace-score-row:last-child {
+  border-bottom: none;
+}
+
+.score-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.score-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+
+.score-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pp-active);
+}
+
+.score-reasons {
+  font-size: 10px;
+  color: var(--pp-muted);
+}
+
+.trace-combo-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.trace-combo-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 6px;
+}
+
+.combo-role-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--pp-active);
+  background: var(--pp-pale);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.combo-food-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+
+.trace-code-block {
+  font-family: inherit;
+  font-size: 11px;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--pp-active);
+  word-break: break-all;
+  font-weight: 500;
+  margin-top: 3px;
+}
+
+.trace-meta-sub {
+  font-size: 9.5px;
+  color: var(--pp-muted);
+  margin-top: 3px;
+}
+
+.trace-subtle-hint {
+  font-size: 11px;
+  color: var(--pp-muted);
+}
+
+.node-dot.is-active {
+  background: var(--pp-active);
+  box-shadow: 0 0 0 2px var(--pp-pale);
+}

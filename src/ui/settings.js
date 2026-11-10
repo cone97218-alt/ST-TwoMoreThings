@@ -596,6 +596,13 @@ export function renderSettings(state, { ui, busy, apiSettings, imageProviders, e
       <span></span>
     </span>
   </label>
+  <label class="compact-switch-row">
+    <span>寻味线索带入</span>
+    <span class="switch">
+      <input id="inject-foodie-enabled" type="checkbox" role="switch" aria-label="寻味线索带入" ${state.injectFoodieEnabled ? 'checked' : ''}>
+      <span></span>
+    </span>
+  </label>
   <small class="field-label">临近 7 天内的节日、纪念日与工作日/时段作息可作为背景线索带入正文或提示词。</small>
   <label class="compact-switch-row" for="summary-mode">
     <span>短信总结方式</span>

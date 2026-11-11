@@ -1,5 +1,17 @@
 import { escape, icon, pageHeading } from './shared.js';
-import { DEFAULT_FOODIE_TEMPLATE, DEFAULT_FOODIE_COUNT, getEffectiveDatabases, categorizeFoodRole } from '../foodie-engine.js';
+import { DEFAULT_FOODIE_TEMPLATE, DEFAULT_FOODIE_COUNT, getEffectiveDatabases, categorizeFoodRole, parseDishCondition } from '../foodie-engine.js';
+
+function getTraceWeatherIcon(text) {
+  const t = String(text || '').toLowerCase();
+  if (/雨/.test(t)) return icon('weather-rain');
+  if (/雪|霜|冰/.test(t)) return icon('weather-snow');
+  if (/雷/.test(t)) return icon('weather-thunder');
+  if (/雾|霾/.test(t)) return icon('weather-fog');
+  if (/风|台风/.test(t)) return icon('weather-wind');
+  if (/阴|多云/.test(t)) return icon('weather-cloudy');
+  if (/晴|热|暑/.test(t)) return icon('weather-sunny');
+  return icon('weather-partly-cloudy');
+}
 
 export function renderFoodie(state, { ui = {} } = {}) {
   const showSettings = Boolean(ui.foodieShowSettings);
@@ -125,19 +137,31 @@ export function renderFoodie(state, { ui = {} } = {}) {
                   <span class="node-title">时空与天候感知</span>
                   <div class="trace-env-grid">
                     <div class="trace-env-item">
-                      <span class="env-label">📍 地理位置</span>
+                      <div class="env-label">
+                        <span class="env-icon" aria-hidden="true">${icon('location')}</span>
+                        <span>地理位置</span>
+                      </div>
                       <span class="env-val">${escape(trace.locationText || trace.locationTrace || '未定位')}</span>
                     </div>
                     <div class="trace-env-item">
-                      <span class="env-label">⏰ 生效时段</span>
+                      <div class="env-label">
+                        <span class="env-icon" aria-hidden="true">${icon('clock')}</span>
+                        <span>生效时段</span>
+                      </div>
                       <span class="env-val">${escape(trace.timeSlotLabel || trace.timeTrace || '日常时段')}${trace.timeSource ? ` (${escape(trace.timeSource)})` : ''}</span>
                     </div>
                     <div class="trace-env-item">
-                      <span class="env-label">🎋 时令与节日</span>
+                      <div class="env-label">
+                        <span class="env-icon" aria-hidden="true">${icon('calendar')}</span>
+                        <span>时令与节日</span>
+                      </div>
                       <span class="env-val">${escape([trace.festival, trace.jieqi, trace.season].filter(Boolean).join(' · ') || '日常')}</span>
                     </div>
                     <div class="trace-env-item">
-                      <span class="env-label">⛅ 天气天候</span>
+                      <div class="env-label">
+                        <span class="env-icon" aria-hidden="true">${getTraceWeatherIcon(trace.weatherText)}</span>
+                        <span>天气天候</span>
+                      </div>
                       <span class="env-val">${escape(trace.weatherText || '常温')}</span>
                     </div>
                   </div>
@@ -351,6 +375,55 @@ function renderFoodieSettingsView(state, ui) {
     }
   }
 
+  // 1. 地图地点候选：直接从系统地图（places/regions/cities）提取真实地点，拒绝硬编码无关城市
+  const availableMapPlaces = [];
+  if (state.map?.places?.length) {
+    for (const p of state.map.places) {
+      if (p.name && !availableMapPlaces.includes(p.name)) availableMapPlaces.push(p.name);
+    }
+  }
+  if (state.map?.regions?.length) {
+    for (const r of state.map.regions) {
+      if (r.name && !availableMapPlaces.includes(r.name)) availableMapPlaces.push(r.name);
+    }
+  }
+  if (state.map?.cities?.length) {
+    for (const c of state.map.cities) {
+      if (c.name && !availableMapPlaces.includes(c.name)) availableMapPlaces.push(c.name);
+    }
+  }
+
+  // 2. 时段候选：纯原生时间区间 HH:MM-HH:MM（支持跨午夜如 21:00-02:00，联动日历自定义时段），拒绝人工加工别名
+  const availableTimeSlots = [
+    '07:00-09:30',
+    '11:30-13:30',
+    '14:00-16:30',
+    '17:30-20:30',
+    '21:00-02:00'
+  ];
+  if (state.calendar?.workdayConfig?.timeSlots?.length) {
+    for (const s of state.calendar.workdayConfig.timeSlots) {
+      if (s.startTime && s.endTime) {
+        const slotRange = `${s.startTime}-${s.endTime}`;
+        if (!availableTimeSlots.includes(slotRange)) availableTimeSlots.push(slotRange);
+      }
+    }
+  }
+
+  // 3. 天气候选：直接从系统气象引擎标准天气类型提取
+  const availableWeather = [
+    '晴朗', '晴间多云', '多云', '阴天', '小雨', '中雨', '大雨', '雷阵雨', '小雪', '大雪', '大风', '大雾', '晴热', '晴冷'
+  ];
+
+  // 4. 时令与节日候选：直接从日历项（角色自定义节日 + 真实日历节日）与四季节气提取
+  const customCalFestivals = (state.calendar?.items || [])
+    .filter(it => it && (it.type === 'festival' || it.name))
+    .map(it => it.name)
+    .filter(Boolean);
+  const defaultFestivals = ['元旦', '除夕', '春节', '元宵', '端午', '中秋', '国庆节', '情人节', '圣诞节'];
+  const seasonsAndTerms = ['春季', '夏季', '秋季', '冬季', '立春', '夏至', '立秋', '冬至'];
+  const availableFestivalsAndSeasons = [...new Set([...customCalFestivals, ...seasonsAndTerms, ...defaultFestivals])];
+
   // 标题栏
   let heading = '';
   if (viewMode === 'list') {
@@ -369,11 +442,12 @@ function renderFoodieSettingsView(state, ui) {
     heading = `<header class="page-heading">
       <div class="page-title-row">
         <div class="page-heading-left" style="display:flex;align-items:center;gap:6px;">
-          <button type="button" class="icon-button back-button" data-action="foodie-back-to-list" aria-label="返回清单">${icon('arrow')}</button>
+          <button type="button" class="icon-button back-button" data-action="foodie-back-to-list" aria-label="返回清单" title="返回清单">${icon('arrow')}</button>
           <h1 style="font-size:16px;">${escape(selectedDb?.label || '预设编辑')}</h1>
         </div>
         <div class="heading-actions">
           <button type="button" class="icon-button" data-action="foodie-save-db" data-db-id="${escape(selectedDb?.id || '')}" aria-label="保存修改" title="保存修改">${icon('save')}</button>
+          <button type="button" class="icon-button" data-action="foodie-close-settings" aria-label="退出设置" title="退出设置">${icon('close')}</button>
         </div>
       </div>
     </header>`;
@@ -383,23 +457,23 @@ function renderFoodieSettingsView(state, ui) {
     <div class="foodie-view foodie-settings-view">
       ${heading}
       <div class="foodie-body">
-        <!-- 基础参数配置卡片 -->
-        <div class="foodie-panel-card">
-          <div class="panel-row">
-            <span class="panel-label">单餐抽取数量</span>
-            <input type="number" id="foodie-count-input" class="foodie-select-number" min="1" max="5" value="${count}">
-          </div>
-          <div class="panel-row vertical">
-            <span class="panel-label">进食契机词（剧情提及任一词时激发就餐感知）</span>
-            <input type="text" id="foodie-custom-intents-input" class="foodie-input-clean" value="${escape(foodieState.customIntentWords || '吃, 喝, 饿, 尝, 吃饭, 做饭, 点餐, 宵夜, 饮茶, 饱, 嘴馋')}" placeholder="逗号分隔，如：吃, 喝, 饿, 吃饭, 做饭, 点餐">
-          </div>
-          <div class="panel-row vertical">
-            <span class="panel-label">正文注入模板</span>
-            <input type="text" id="foodie-template-input" class="foodie-input-clean" value="${escape(template)}" placeholder="[食物线索：{{food}}]">
-          </div>
-        </div>
-
         ${viewMode === 'list' ? `
+          <!-- 基础参数配置卡片（全局） -->
+          <div class="foodie-panel-card">
+            <div class="panel-row">
+              <span class="panel-label">单餐抽取数量</span>
+              <input type="number" id="foodie-count-input" class="foodie-select-number" min="1" max="5" value="${count}">
+            </div>
+            <div class="panel-row vertical">
+              <span class="panel-label">进食契机词（剧情提及任一词时激发就餐感知）</span>
+              <input type="text" id="foodie-custom-intents-input" class="foodie-input-clean" value="${escape(foodieState.customIntentWords || '吃, 喝, 饿, 尝, 吃饭, 做饭, 点餐, 宵夜, 饮茶, 饱, 嘴馋')}" placeholder="逗号分隔，如：吃, 喝, 饿, 吃饭, 做饭, 点餐">
+            </div>
+            <div class="panel-row vertical">
+              <span class="panel-label">正文注入模板</span>
+              <input type="text" id="foodie-template-input" class="foodie-input-clean" value="${escape(template)}" placeholder="[食物线索：{{food}}]">
+            </div>
+          </div>
+
           <!-- 清单速控模式卡片 -->
           <div class="foodie-panel-card">
             <!-- 一级分类横向胶囊 Tab -->
@@ -447,9 +521,9 @@ function renderFoodieSettingsView(state, ui) {
                   <div class="db-list-row ${d.enabled ? 'is-enabled' : ''}">
                     <!-- 第一排：库名称 (左) + 快捷开关与进入箭头 (右) -->
                     <div class="db-row-header">
-                      <div class="db-row-title-wrap" data-action="foodie-open-edit-db" data-db-id="${escape(d.id)}">
+                      <button type="button" class="db-row-title-wrap" data-action="foodie-open-edit-db" data-db-id="${escape(d.id)}">
                         <span class="db-row-name">${escape(d.label || d.id)}</span>
-                      </div>
+                      </button>
                       <div class="db-row-actions">
                         <label class="switch" title="开启/关闭">
                           <input type="checkbox" role="switch" data-action="foodie-toggle-db-enable" data-db-id="${escape(d.id)}" ${d.enabled ? 'checked' : ''}>
@@ -460,19 +534,24 @@ function renderFoodieSettingsView(state, ui) {
                     </div>
 
                     <!-- 第二排：来源、道数、触发词、关联地点与时令标签 -->
-                    <div class="db-row-badges-line" data-action="foodie-open-edit-db" data-db-id="${escape(d.id)}">
+                    <button type="button" class="db-row-badges-line" data-action="foodie-open-edit-db" data-db-id="${escape(d.id)}">
                       <span class="db-origin-chip ${isCustom ? 'custom' : 'builtin'}">${isCustom ? '自建' : '内置'}</span>
                       <span class="db-count-chip">${d.items?.length || 0}道菜品</span>
                       ${d.keywords?.length ? `
                         <span class="db-meta-chip kw-chip"><span class="chip-svg">${icon('edit')}</span>${escape(d.keywords.slice(0, 3).join('、'))}</span>
                       ` : ''}
                       ${boundMeta.map(m => `<span class="db-meta-chip">${m}</span>`).join('')}
-                    </div>
+                    </button>
                   </div>
                 `;
               }).join('') : `
                 <div class="foodie-empty-search">
-                  ${filterMode === 'enabled' ? '暂无开启的美食库，请在上方选择【全部】进行开启' : '未找到匹配的美食库'}
+                  ${filterMode === 'enabled' ? '暂无开启的美食库，请在上方选择【全部】进行开启' : (activeGroupId === 'custom' ? '暂无自建预设库，点击右上角加号或下方按钮创建' : '未找到匹配的美食库')}
+                  ${activeGroupId === 'custom' ? `
+                    <div style="margin-top:10px;">
+                      <button type="button" class="quick-chip-btn" data-action="foodie-new-db" style="padding:6px 14px;font-size:12px;">${icon('plus')} 新建预设库</button>
+                    </div>
+                  ` : ''}
                 </div>
               `}
             </div>
@@ -529,119 +608,14 @@ function renderFoodieSettingsView(state, ui) {
                 </div>
               </div>
 
-              <!-- 地点绑定（手风琴抽屉，默认折叠） -->
-              <div class="accordion-drawer-card ${ui.foodieDrawersOpen.location ? 'is-open' : ''}">
-                <button type="button" class="drawer-toggle-head" data-action="foodie-toggle-drawer" data-foodie-drawer="location">
-                  <div class="drawer-head-left">
-                    <span class="section-title-icon">${icon('location')}</span>
-                    <span class="step-name">地点绑定</span>
-                  </div>
-                  <div class="drawer-head-right">
-                    <span class="drawer-summary-pill">${selectedDb?.mapLocations?.length ? `已选 ${selectedDb.mapLocations.length} 处` : '全域通用'}</span>
-                    <span class="drawer-caret ${ui.foodieDrawersOpen.location ? 'is-open' : ''}">${icon('arrow-down')}</span>
-                  </div>
-                </button>
-                <div class="drawer-body-content" style="display: ${ui.foodieDrawersOpen.location ? 'flex' : 'none'};">
-                  <label class="db-form-field">
-                    <span class="field-label">关联地点（地图或剧情处于此区域时自动触发）</span>
-                    <input type="text" class="foodie-input-clean" id="edit-db-map" value="${escape((selectedDb?.mapLocations || []).join(', '))}" placeholder="逗号分隔，如：苏州, 顺德, 广州, 成都, 日本">
-                  </label>
-                  <div class="quick-tags-row">
-                    ${['苏州', '顺德', '广州', '成都', '重庆', '北京', '西安', '日本', '法国', '意大利'].map(city => `
-                      <button type="button" class="quick-chip-btn" data-action="foodie-append-tag" data-target="#edit-db-map" data-val="${city}">+${city}</button>
-                    `).join('')}
-                  </div>
+              <!-- 菜品清单（核心编辑区，直铺展示，随手打标签即可分组） -->
+              <div class="guided-step-card">
+                <div class="section-badge-title">
+                  <span class="section-title-icon">${icon('foodie')}</span>
+                  <span class="step-name">菜品清单与时令/时段分组</span>
+                  <span class="drawer-summary-pill" id="foodie-total-dishes-badge" style="margin-left:auto;">${selectedDb?.items?.length || 0} 道菜品</span>
                 </div>
-              </div>
-
-              <!-- 时段绑定（手风琴抽屉，默认折叠） -->
-              <div class="accordion-drawer-card ${ui.foodieDrawersOpen.time ? 'is-open' : ''}">
-                <button type="button" class="drawer-toggle-head" data-action="foodie-toggle-drawer" data-foodie-drawer="time">
-                  <div class="drawer-head-left">
-                    <span class="section-title-icon">${icon('clock')}</span>
-                    <span class="step-name">时段绑定</span>
-                  </div>
-                  <div class="drawer-head-right">
-                    <span class="drawer-summary-pill">${selectedDb?.calendarSlots?.length ? `已选 ${selectedDb.calendarSlots.length} 段` : '全天通用'}</span>
-                    <span class="drawer-caret ${ui.foodieDrawersOpen.time ? 'is-open' : ''}">${icon('arrow-down')}</span>
-                  </div>
-                </button>
-                <div class="drawer-body-content" style="display: ${ui.foodieDrawersOpen.time ? 'flex' : 'none'};">
-                  <label class="db-form-field">
-                    <span class="field-label">生效时段（手机时间处于此时段时优先匹配）</span>
-                    <input type="text" class="foodie-input-clean" id="edit-db-cal-slots" value="${escape((selectedDb?.calendarSlots || []).join(', '))}" placeholder="如：早餐, 午餐, 下午茶, 晚餐, 夜宵">
-                  </label>
-                  <div class="quick-tags-row">
-                    ${['早餐', '午餐', '下午茶', '晚餐', '夜宵'].map(slot => `
-                      <button type="button" class="quick-chip-btn" data-action="foodie-append-tag" data-target="#edit-db-cal-slots" data-val="${slot}">+${slot}</button>
-                    `).join('')}
-                  </div>
-                </div>
-              </div>
-
-              <!-- 天气绑定（手风琴抽屉，默认折叠） -->
-              <div class="accordion-drawer-card ${ui.foodieDrawersOpen.weather ? 'is-open' : ''}">
-                <button type="button" class="drawer-toggle-head" data-action="foodie-toggle-drawer" data-foodie-drawer="weather">
-                  <div class="drawer-head-left">
-                    <span class="section-title-icon">${icon('weather-sunny')}</span>
-                    <span class="step-name">天气绑定</span>
-                  </div>
-                  <div class="drawer-head-right">
-                    <span class="drawer-summary-pill">${selectedDb?.weatherConditions?.length ? `已选 ${selectedDb.weatherConditions.length} 项` : '天候不限'}</span>
-                    <span class="drawer-caret ${ui.foodieDrawersOpen.weather ? 'is-open' : ''}">${icon('arrow-down')}</span>
-                  </div>
-                </button>
-                <div class="drawer-body-content" style="display: ${ui.foodieDrawersOpen.weather ? 'flex' : 'none'};">
-                  <label class="db-form-field">
-                    <span class="field-label">关联天气（正文或日历天气处于该天候时激发）</span>
-                    <input type="text" class="foodie-input-clean" id="edit-db-weather" value="${escape((selectedDb?.weatherConditions || []).join(', '))}" placeholder="如：雨天, 雪天, 酷暑, 寒冷, 晴朗">
-                  </label>
-                  <div class="quick-tags-row">
-                    ${['雨天', '雪天', '酷暑', '寒冷', '晴朗'].map(w => `
-                      <button type="button" class="quick-chip-btn" data-action="foodie-append-tag" data-target="#edit-db-weather" data-val="${w}">+${w}</button>
-                    `).join('')}
-                  </div>
-                </div>
-              </div>
-
-              <!-- 时令与节日绑定（手风琴抽屉，默认折叠） -->
-              <div class="accordion-drawer-card ${ui.foodieDrawersOpen.season ? 'is-open' : ''}">
-                <button type="button" class="drawer-toggle-head" data-action="foodie-toggle-drawer" data-foodie-drawer="season">
-                  <div class="drawer-head-left">
-                    <span class="section-title-icon">${icon('calendar')}</span>
-                    <span class="step-name">时令与节日</span>
-                  </div>
-                  <div class="drawer-head-right">
-                    <span class="drawer-summary-pill">${(selectedDb?.calendarSeasons?.length || selectedDb?.calendarFestivals?.length) ? `已选 ${[...(selectedDb?.calendarSeasons || []), ...(selectedDb?.calendarFestivals || [])].length} 项` : '四季通用'}</span>
-                    <span class="drawer-caret ${ui.foodieDrawersOpen.season ? 'is-open' : ''}">${icon('arrow-down')}</span>
-                  </div>
-                </button>
-                <div class="drawer-body-content" style="display: ${ui.foodieDrawersOpen.season ? 'flex' : 'none'};">
-                  <label class="db-form-field">
-                    <span class="field-label">四季、二十四节气与传统/法定节日</span>
-                    <input type="text" class="foodie-input-clean" id="edit-db-cal-festivals" value="${escape([...(selectedDb?.calendarSeasons || []), ...(selectedDb?.calendarFestivals || [])].join(', '))}" placeholder="如：春季, 夏季, 秋季, 冬季, 除夕, 春节, 端午, 中秋, 冬至, 元旦, 情人节">
-                  </label>
-                  <div class="quick-tags-row">
-                    ${['春季', '夏季', '秋季', '冬季', '除夕', '春节', '元宵', '端午', '中秋', '重阳', '立春', '清明', '立冬', '冬至', '元旦', '国庆', '情人节'].map(term => `
-                      <button type="button" class="quick-chip-btn" data-action="foodie-append-tag" data-target="#edit-db-cal-festivals" data-val="${term}">+${term}</button>
-                    `).join('')}
-                  </div>
-                </div>
-              </div>
-
-              <!-- 菜品清单（手风琴折叠抽屉，支持随时折叠与多分类管理） -->
-              <div class="accordion-drawer-card ${ui.foodieDrawersOpen.dishes ? 'is-open' : ''}">
-                <button type="button" class="drawer-toggle-head" data-action="foodie-toggle-drawer" data-foodie-drawer="dishes">
-                  <div class="drawer-head-left">
-                    <span class="section-title-icon">${icon('foodie')}</span>
-                    <span class="step-name">菜品清单</span>
-                  </div>
-                  <div class="drawer-head-right">
-                    <span class="drawer-summary-pill" id="foodie-total-dishes-badge">${selectedDb?.items?.length || 0} 道菜品</span>
-                    <span class="drawer-caret ${ui.foodieDrawersOpen.dishes ? 'is-open' : ''}">${icon('arrow-down')}</span>
-                  </div>
-                </button>
-                <div class="drawer-body-content" style="display: ${ui.foodieDrawersOpen.dishes ? 'flex' : 'none'};">
+                <div class="guided-step-body">
                   <!-- 角色单选切换栏 -->
                   <div class="role-selector-tabs">
                     ${[
@@ -658,9 +632,22 @@ function renderFoodieSettingsView(state, ui) {
                     `).join('')}
                   </div>
 
+                  <!-- 快捷时令/节气/时段/地点分组前缀按钮栏（点击自动添加 [前缀]，轻松分类无需多分库） -->
+                  <div class="quick-dish-condition-bar">
+                    <span class="quick-cond-title">快捷分组:</span>
+                    ${[
+                      '立春', '清明', '端午', '中秋', '冬至',
+                      '07:00-09:30', '11:30-13:30', '21:00-02:00',
+                      '春季', '夏季', '冬季',
+                      ...availableMapPlaces.slice(0, 6)
+                    ].map(cond => `
+                      <button type="button" class="quick-cond-chip" data-action="foodie-insert-dish-prefix" data-prefix="[${cond}]">+${cond}</button>
+                    `).join('')}
+                  </div>
+
                   <!-- 快速添加菜品栏（放在分类标签正下方，选完分类直接加，根本无需滑动到底部） -->
                   <div class="role-add-row">
-                    <input type="text" id="foodie-new-dish-input" class="foodie-input-clean" placeholder="添加${roleLabels[activeRole] || '菜品'}，回车或逗号批量添加..." data-role="${activeRole}" data-db-id="${escape(selectedDb?.id || '')}">
+                    <input type="text" id="foodie-new-dish-input" class="foodie-input-clean" placeholder="如：[清明] 青团, 螺蛳 或直接输入常食菜品，回车添加..." data-role="${activeRole}" data-db-id="${escape(selectedDb?.id || '')}">
                     <button type="button" class="quick-chip-btn add-dish-btn" data-action="foodie-add-role-dish" data-db-id="${escape(selectedDb?.id || '')}" data-role="${activeRole}">${icon('plus')} 添加</button>
                   </div>
 
@@ -680,12 +667,16 @@ function renderFoodieSettingsView(state, ui) {
                   <div class="role-panes-wrapper" style="display: ${ui.foodieDishesBoxOpen === false ? 'none' : 'block'};">
                     ${['hot', 'staple', 'soup', 'drink', 'cold', 'dessert'].map(role => `
                       <div class="role-dish-chips-box ${activeRole === role ? 'is-active' : ''}" data-role-pane="${role}" style="display: ${activeRole === role ? 'flex' : 'none'};">
-                        ${roleBuckets[role]?.length ? roleBuckets[role].map((dish, idx) => `
-                          <span class="role-dish-tag" data-dish-name="${escape(dish)}">
-                            <span>${escape(dish)}</span>
-                            <button type="button" class="dish-remove-btn" data-action="foodie-remove-role-dish" data-db-id="${escape(selectedDb?.id || '')}" data-role="${role}" data-dish="${escape(dish)}" title="删除">${icon('close')}</button>
-                          </span>
-                        `).join('') : '<div class="role-dishes-empty">暂无菜品</div>'}
+                        ${roleBuckets[role]?.length ? roleBuckets[role].map((dish, idx) => {
+                          const parsed = parseDishCondition(dish);
+                          return `
+                            <span class="role-dish-tag ${parsed.condition ? 'has-condition' : ''}" data-dish-name="${escape(dish)}">
+                              ${parsed.condition ? `<span class="dish-cond-badge">${escape(parsed.condition)}</span>` : ''}
+                              <span class="dish-name-text">${escape(parsed.name)}</span>
+                              <button type="button" class="dish-remove-btn" data-action="foodie-remove-role-dish" data-db-id="${escape(selectedDb?.id || '')}" data-role="${role}" data-dish="${escape(dish)}" title="删除">${icon('close')}</button>
+                            </span>
+                          `;
+                        }).join('') : '<div class="role-dishes-empty">暂无菜品</div>'}
                       </div>
                     `).join('')}
                   </div>
@@ -707,7 +698,17 @@ function renderFoodieSettingsView(state, ui) {
                   </div>
                 </div>
               </div>
-            </div>          </div>
+
+              <!-- 底部操作栏：返回清单与保存预设 -->
+              <div class="guided-db-footer">
+                <button type="button" class="foodie-footer-btn secondary" data-action="foodie-back-to-list">返回清单</button>
+                <button type="button" class="foodie-footer-btn primary" data-action="foodie-save-db" data-db-id="${escape(selectedDb?.id || '')}">
+                  <span class="btn-icon-svg">${icon('save')}</span>
+                  <span>保存预设</span>
+                </button>
+              </div>
+            </div>
+          </div>
         `}
       </div>
     </div>

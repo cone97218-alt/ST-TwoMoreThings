@@ -5961,6 +5961,59 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   border: 1px solid var(--pp-divider-soft);
 }
 
+.role-dish-tag.has-condition {
+  border-color: var(--pp-mineral);
+}
+
+.dish-cond-badge {
+  display: inline-block;
+  background: var(--pp-pale);
+  color: var(--pp-active);
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--pp-mineral);
+  line-height: 1.2;
+}
+
+:host([data-theme="night"]) .dish-cond-badge {
+  background: var(--pp-surface);
+  border-color: var(--pp-rule);
+  color: var(--pp-ink);
+}
+
+.quick-dish-condition-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.quick-cond-title {
+  font-size: 10.5px;
+  color: var(--pp-muted);
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.quick-cond-chip {
+  background: var(--pp-surface-soft);
+  border: 1px solid var(--pp-divider-soft);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  color: var(--pp-ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quick-cond-chip:hover {
+  border-color: var(--pp-active);
+  color: var(--pp-active);
+}
+
 .dish-remove-btn {
   display: inline-flex;
   align-items: center;
@@ -6207,6 +6260,75 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   border-radius: 4px;
 }
 
+.guided-db-footer {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pp-divider-soft);
+}
+
+.foodie-footer-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.foodie-footer-btn.secondary {
+  background: var(--pp-surface-soft);
+  color: var(--pp-ink);
+  border: 1px solid var(--pp-divider-soft);
+}
+
+.foodie-footer-btn.secondary:hover {
+  background: var(--pp-surface);
+  border-color: var(--pp-rule);
+}
+
+.foodie-footer-btn.primary {
+  background: var(--pp-active, #397584);
+  color: #ffffff;
+  border: 1px solid transparent;
+}
+
+.foodie-footer-btn.primary:hover {
+  opacity: 0.92;
+}
+
+.foodie-footer-btn .btn-icon-svg svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.quick-chip-hint {
+  font-size: 11px;
+  color: var(--pp-muted);
+  font-style: italic;
+  padding: 2px 4px;
+}
+
+button.db-row-title-wrap,
+button.db-row-badges-line {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
 
 /* 匹配溯源全链路可视化样式 */
 .node-header {
@@ -6264,32 +6386,65 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 5px;
 }
 
 .trace-env-item {
   background: var(--pp-surface);
   border: 1px solid var(--pp-divider-soft);
-  border-radius: 6px;
-  padding: 4px 7px;
+  border-radius: 7px;
+  padding: 5px 8px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .env-label {
-  font-size: 9.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
   color: var(--pp-muted);
   font-weight: 500;
+  line-height: 1.2;
+}
+
+.env-label .env-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--pp-active, #397584);
+  flex-shrink: 0;
+}
+
+.env-label .env-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .env-val {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--pp-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.foodie-empty-search {
+  padding: 30px 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--pp-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .trace-decision-head {

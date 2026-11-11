@@ -40,7 +40,7 @@ import { renderOrigin } from './ui/origin.js';
 
 import { renderFoodie } from './ui/foodie.js';
 
-import { evaluateFoodieMatch, getEffectiveDatabases } from './foodie-engine.js';
+import { evaluateFoodieMatch, getEffectiveDatabases, parseDishCondition, splitDishesInput } from './foodie-engine.js';
 
 import { SYSTEM_CONTACT_ID, DEFAULT_ORIGIN_TEMPLATES, resetOriginData } from './origin-engine.js';
 
@@ -2185,6 +2185,44 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
   }
 
+  function syncFoodieFormDraft(containerRoot) {
+    if (!containerRoot) return;
+    try {
+      const container = containerRoot.querySelector?.('.foodie-view');
+      if (!container) return;
+      const dbId = ui.foodieSelectedDbId;
+      if (!dbId || !dbId.startsWith('custom:')) return;
+      const labelInput = container.querySelector('#edit-db-label');
+      if (!labelInput) return;
+      const label = labelInput.value?.trim();
+      const keywords = (container.querySelector('#edit-db-keywords')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const mapLocs = (container.querySelector('#edit-db-map')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const calSlots = (container.querySelector('#edit-db-cal-slots')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const weatherConditions = (container.querySelector('#edit-db-weather')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const calFestivals = (container.querySelector('#edit-db-cal-festivals')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const calendarSeasons = calFestivals.filter(f => /春季|夏季|秋季|冬季/.test(f));
+
+      const state = store.read();
+      const customs = { ...(state.foodie?.customDatabases || {}) };
+      if (customs[dbId]) {
+        customs[dbId] = {
+          ...customs[dbId],
+          ...(label ? { label } : {}),
+          keywords,
+          tags: keywords,
+          mapLocations: mapLocs,
+          calendarSlots: calSlots,
+          weatherConditions,
+          calendarSeasons,
+          calendarFestivals,
+        };
+        void store.setFoodieState({ customDatabases: customs });
+      }
+    } catch (err) {
+      console.warn('[foodie] sync draft failed:', err);
+    }
+  }
+
   async function click(event) {
 
     if (ui.conflict) {
@@ -3562,11 +3600,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
 
       case 'foodie-close-settings':
-
+        syncFoodieFormDraft(root);
         ui.foodieShowSettings = false;
-
+        ui.foodieSettingsTab = 'list';
         render();
-
         break;
 
       case 'toggle-foodie-trace':
@@ -3711,6 +3748,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
       }
       case 'foodie-back-to-list': {
+        syncFoodieFormDraft(root);
         ui.foodieSettingsTab = 'list';
         render();
         break;
@@ -3724,43 +3762,77 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         }
         break;
       }
+      case 'foodie-new-db': {
+        const state = store.read();
+        const customs = { ...(state.foodie?.customDatabases || {}) };
+        const newId = `custom:${Date.now()}`;
+        const newDb = {
+          id: newId,
+          label: '自建美食预设',
+          builtin: false,
+          enabled: true,
+          keywords: [],
+          tags: [],
+          mapLocations: [],
+          calendarSlots: [],
+          weatherConditions: [],
+          calendarSeasons: [],
+          calendarFestivals: [],
+          categories: [
+            { name: '主菜', role: 'hot', items: [] },
+            { name: '主食', role: 'staple', items: [] },
+            { name: '羹汤', role: 'soup', items: [] },
+            { name: '饮品', role: 'drink', items: [] },
+            { name: '凉菜', role: 'cold', items: [] },
+            { name: '点心', role: 'dessert', items: [] }
+          ],
+          items: []
+        };
+        customs[newId] = newDb;
+        ui.foodieSelectedDbId = newId;
+        ui.foodieSettingsTab = 'edit';
+        ui.foodieActiveRoleTab = 'hot';
+        ui.foodieActiveGroup = 'all';
+        ui.foodieSearchQuery = '';
+        ui.foodieDrawersOpen = {
+          location: false,
+          time: false,
+          weather: false,
+          season: false,
+          batchImport: false,
+          dishes: true
+        };
+        void store.setFoodieState({ customDatabases: customs }).then(() => {
+          ui.feedback = { text: '已新建美食库' };
+          render();
+        });
+        break;
+      }
+      case 'foodie-clear-search': {
+        ui.foodieSearchQuery = '';
+        render();
+        break;
+      }
+      case 'foodie-append-tag': {
+        const targetSel = button.dataset.target;
+        const val = button.dataset.val;
+        const container = button.closest('.foodie-view') || root;
+        const targetInput = container?.querySelector(targetSel);
+        if (targetInput && val) {
+          const current = targetInput.value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+          if (!current.includes(val)) {
+            current.push(val);
+            targetInput.value = current.join(', ');
+            targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+        break;
+      }
       case 'foodie-set-filter-mode': {
         ui.foodieFilterMode = button.dataset.mode || 'all';
         render();
         break;
       }
-      
-function syncFoodieFormDraft(containerRoot) {
-  if (!containerRoot) return;
-  const container = containerRoot.querySelector('.foodie-view');
-  if (!container) return;
-  const dbId = ui.foodieSelectedDbId;
-  if (!dbId || !dbId.startsWith('custom:')) return;
-  const label = container.querySelector('#edit-db-label')?.value?.trim();
-  const keywords = (container.querySelector('#edit-db-keywords')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-  const mapLocs = (container.querySelector('#edit-db-map')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-  const calSlots = (container.querySelector('#edit-db-cal-slots')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-  const weatherConditions = (container.querySelector('#edit-db-weather')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-  const calFestivals = (container.querySelector('#edit-db-cal-festivals')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-  const calendarSeasons = calFestivals.filter(f => /春季|夏季|秋季|冬季/.test(f));
-
-  const state = store.read();
-  const customs = { ...(state.foodie?.customDatabases || {}) };
-  if (customs[dbId]) {
-    customs[dbId] = {
-      ...customs[dbId],
-      ...(label ? { label } : {}),
-      keywords,
-      tags: keywords,
-      mapLocations: mapLocs,
-      calendarSlots: calSlots,
-      weatherConditions,
-      calendarSeasons,
-      calendarFestivals,
-    };
-    void store.setFoodieState({ customDatabases: customs });
-  }
-}
 
       case 'foodie-toggle-drawer': {
         const d = button.dataset.foodieDrawer || button.dataset.drawer;
@@ -3829,6 +3901,22 @@ function syncFoodieFormDraft(containerRoot) {
         }
         break;
       }
+      case 'foodie-insert-dish-prefix': {
+        const prefix = button.dataset.prefix;
+        const container = button.closest('.drawer-body-content, .guided-step-card, .foodie-view') || root;
+        const inputEl = container?.querySelector('#foodie-new-dish-input');
+        if (inputEl && prefix) {
+          const cur = inputEl.value.trim();
+          if (cur.startsWith(prefix)) {
+            // already prefixed
+          } else {
+            const stripped = cur.replace(/^[\[【][^\]】]+[\]】]\s*/, '');
+            inputEl.value = `${prefix} ${stripped}`.trim() + (stripped ? '' : ' ');
+          }
+          inputEl.focus({ preventScroll: true });
+        }
+        break;
+      }
       case 'foodie-add-role-dish': {
         const role = button.dataset.role || ui.foodieActiveRoleTab || 'hot';
         const container = button.closest('.accordion-drawer-card, .role-dishes-card, .foodie-view') || root;
@@ -3836,7 +3924,7 @@ function syncFoodieFormDraft(containerRoot) {
         const rawVal = inputEl?.value?.trim();
         if (!rawVal) break;
 
-        const newDishes = rawVal.split(/[,，\n]/).map(s => s.trim()).filter(Boolean);
+        const newDishes = splitDishesInput(rawVal);
         if (!newDishes.length) break;
 
         const dbId = button.dataset.dbId || ui.foodieSelectedDbId || '';
@@ -3847,10 +3935,11 @@ function syncFoodieFormDraft(containerRoot) {
           const emptyNotice = activePane.querySelector('.role-dishes-empty');
           if (emptyNotice) emptyNotice.remove();
           for (const dish of newDishes) {
+            const parsed = parseDishCondition(dish);
             const tag = document.createElement('span');
-            tag.className = 'role-dish-tag';
+            tag.className = `role-dish-tag ${parsed.condition ? 'has-condition' : ''}`;
             tag.dataset.dishName = dish;
-            tag.innerHTML = `<span>${escape(dish)}</span><button type="button" class="dish-remove-btn" data-action="foodie-remove-role-dish" data-db-id="${escape(dbId)}" data-role="${role}" data-dish="${escape(dish)}" title="删除">${icon('close')}</button>`;
+            tag.innerHTML = `${parsed.condition ? `<span class="dish-cond-badge">${escape(parsed.condition)}</span>` : ''}<span class="dish-name-text">${escape(parsed.name)}</span><button type="button" class="dish-remove-btn" data-action="foodie-remove-role-dish" data-db-id="${escape(dbId)}" data-role="${role}" data-dish="${escape(dish)}" title="删除">${icon('close')}</button>`;
             activePane.appendChild(tag);
           }
           const currentCount = activePane.querySelectorAll('.role-dish-tag').length;
@@ -4013,26 +4102,45 @@ function syncFoodieFormDraft(containerRoot) {
 
         const label = container.querySelector('#edit-db-label')?.value?.trim() || dbId;
         const keywords = (container.querySelector('#edit-db-keywords')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-        const mapLocs = (container.querySelector('#edit-db-map')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+
+        const state = store.read();
+        const isCustom = dbId.startsWith('custom:');
+        const existingDb = isCustom
+          ? state.foodie?.customDatabases?.[dbId]
+          : (state.foodie?.modifiedBuiltins?.[dbId] || getEffectiveDatabases(state).find(d => d.id === dbId));
+
+        const mapInput = container.querySelector('#edit-db-map');
+        const mapLocs = mapInput ? (mapInput.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean) : (existingDb?.mapLocations || []);
 
         const parseList = (selector) => {
-          const text = container.querySelector(selector)?.value || '';
+          const el = container.querySelector(selector);
+          if (!el) return null;
+          const text = el.value || '';
           return text.split(/[\n,，]/).map(s => s.trim()).filter(Boolean);
         };
 
-        const hot = parseList('#edit-db-hot');
-        const staple = parseList('#edit-db-staple');
-        const soup = parseList('#edit-db-soup');
-        const drink = parseList('#edit-db-drink');
-        const cold = parseList('#edit-db-cold');
-        const dessert = parseList('#edit-db-dessert');
+        const getRoleDishes = (role, selector) => {
+          const domBox = container.querySelector(`.role-dish-chips-box[data-role-pane="${role}"]`);
+          if (domBox) {
+            const tags = domBox.querySelectorAll('.role-dish-tag');
+            return Array.from(tags).map(t => t.dataset.dishName || t.textContent.trim()).filter(Boolean);
+          }
+          return parseList(selector) || [];
+        };
+
+        const hot = getRoleDishes('hot', '#edit-db-hot');
+        const staple = getRoleDishes('staple', '#edit-db-staple');
+        const soup = getRoleDishes('soup', '#edit-db-soup');
+        const drink = getRoleDishes('drink', '#edit-db-drink');
+        const cold = getRoleDishes('cold', '#edit-db-cold');
+        const dessert = getRoleDishes('dessert', '#edit-db-dessert');
 
         // 如果用户在输入框有尚未敲回车或点击添加的文字，保存时自动合并到当前选中的分类中
         const pendingInput = container.querySelector('#foodie-new-dish-input');
         const pendingVal = pendingInput?.value?.trim();
         const activeRole = ui.foodieActiveRoleTab || 'hot';
         if (pendingVal) {
-          const pendingDishes = pendingVal.split(/[,，\n]/).map(s => s.trim()).filter(Boolean);
+          const pendingDishes = splitDishesInput(pendingVal);
           const targetListMap = { hot, staple, soup, drink, cold, dessert };
           const roleTargetList = targetListMap[activeRole];
           if (roleTargetList) {
@@ -4053,13 +4161,13 @@ function syncFoodieFormDraft(containerRoot) {
 
         let items = [...hot, ...staple, ...soup, ...drink, ...cold, ...dessert];
 
-        const calSlots = parseList('#edit-db-cal-slots');
-        const weatherConditions = parseList('#edit-db-weather');
-        const calFestivals = parseList('#edit-db-cal-festivals');
-        const calendarSeasons = calFestivals.filter(f => /春季|夏季|秋季|冬季/.test(f));
-
-        const state = store.read();
-        const isCustom = dbId.startsWith('custom:');
+        const calSlotsInput = container.querySelector('#edit-db-cal-slots');
+        const calSlots = calSlotsInput ? (parseList('#edit-db-cal-slots') || []) : (existingDb?.calendarSlots || []);
+        const weatherInput = container.querySelector('#edit-db-weather');
+        const weatherConditions = weatherInput ? (parseList('#edit-db-weather') || []) : (existingDb?.weatherConditions || []);
+        const festivalsInput = container.querySelector('#edit-db-cal-festivals');
+        const calFestivals = festivalsInput ? (parseList('#edit-db-cal-festivals') || []) : (existingDb?.calendarFestivals || []);
+        const calendarSeasons = festivalsInput ? calFestivals.filter(f => /春季|夏季|秋季|冬季/.test(f)) : (existingDb?.calendarSeasons || []);
 
         // 同步保存可能修改的全局进食契机词
         const customIntentsInput = root.querySelector('#foodie-custom-intents-input');
@@ -4082,7 +4190,8 @@ function syncFoodieFormDraft(containerRoot) {
             items
           };
           void store.setFoodieState({ customDatabases: customs, customIntentWords }).then(() => {
-            ui.feedback = { text: '预设修改已保存' };
+            ui.foodieSettingsTab = 'list';
+            ui.feedback = { text: `已保存自建库【${label}】` };
             render();
           });
         } else {
@@ -4102,7 +4211,8 @@ function syncFoodieFormDraft(containerRoot) {
             items
           };
           void store.setFoodieState({ modifiedBuiltins: modified, customIntentWords }).then(() => {
-            ui.feedback = { text: '内置美食库已保存修改' };
+            ui.foodieSettingsTab = 'list';
+            ui.feedback = { text: `已保存内置库【${label}】修改` };
             render();
           });
         }
@@ -4133,27 +4243,18 @@ function syncFoodieFormDraft(containerRoot) {
       }
 
       case 'foodie-delete-db': {
-
         const dbId = button.dataset.dbId;
-
         const state = store.read();
-
         const customs = { ...(state.foodie?.customDatabases || {}) };
-
         delete customs[dbId];
-
         void store.setFoodieState({ customDatabases: customs }).then(() => {
-
           ui.foodieEditDbId = null;
-
+          ui.foodieSettingsTab = 'list';
+          ui.foodieSelectedDbId = null;
           ui.feedback = { text: '已删除自建库' };
-
           render();
-
         });
-
         break;
-
       }
 
       case 'origin-close-settings':
@@ -8217,6 +8318,14 @@ function syncFoodieFormDraft(containerRoot) {
       const val = event.target.value;
 
       void store.setFoodieState({ template: val });
+
+    }
+
+    if (event.target.id === 'foodie-custom-intents-input') {
+
+      const val = event.target.value.trim();
+
+      void store.setFoodieState({ customIntentWords: val });
 
     }
 

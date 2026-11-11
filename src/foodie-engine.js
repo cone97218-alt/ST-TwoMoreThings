@@ -82,14 +82,37 @@ export function senseMapLocation(mapProjection, core) {
   };
 }
 
-// 时段多别名智能匹配判定
+// 解析时间段字符串（如 "11:30-13:30" 或 "21:00~02:00"）
+export function parseTimeRange(rangeStr) {
+  if (!rangeStr || typeof rangeStr !== 'string') return null;
+  const match = rangeStr.trim().match(/^(\d{1,2})[:：](\d{2})\s*[-~至到—–]+\s*(\d{1,2})[:：](\d{2})$/);
+  if (!match) return null;
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  return { start, end };
+}
+
+// 时段多别名及真实时间区间智能匹配判定
 export function isTimeSlotMatched(slot, calSense) {
   if (!slot || !calSense) return false;
   const s = String(slot).trim();
   if (!s) return false;
+
+  // 1. 时间段范围匹配（某个时间段到某个时间段，支持跨午夜，如 11:30-13:30, 21:00-02:00）
+  const range = parseTimeRange(s);
+  if (range && calSense.currentMinutes != null) {
+    const cur = calSense.currentMinutes;
+    if (range.start <= range.end) {
+      if (cur >= range.start && cur <= range.end) return true;
+    } else {
+      if (cur >= range.start || cur <= range.end) return true;
+    }
+  }
+
+  // 2. 传统时段标签与别名匹配（兼容保留）
   const label = calSense.timeSlotLabel || '';
   const aliasList = calSense.timeSlots || [];
-  if (label.includes(s) || s.includes(label)) return true;
+  if (label && (label.includes(s) || s.includes(label))) return true;
   if (aliasList.some(a => a.includes(s) || s.includes(a))) return true;
   if (calSense.timeSlot && (calSense.timeSlot === s || s.toLowerCase().includes(calSense.timeSlot.toLowerCase()))) return true;
   return false;
@@ -101,11 +124,30 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
     timeSlot: '',
     timeSlotLabel: '',
     timeSlots: [],
+    currentMinutes: null,
     festival: null,
     festivals: [],
     jieqi: null,
     season: '春季'
   };
+
+  // 提取当前实际时间分钟数（优先从正文明确时间点提取，次之日历 context，再次系统当前时钟）
+  let currentMinutes = null;
+  const storyTimeMatch = storyText && typeof storyText === 'string'
+    ? storyText.match(/(?:(?:早上|上午|中午|下午|傍晚|晚上|深夜|凌晨)\s*)?(\d{1,2})[:：](\d{2})/i)
+    : null;
+  if (storyTimeMatch) {
+    let h = Number(storyTimeMatch[1]);
+    const m = Number(storyTimeMatch[2]);
+    if (/下午|傍晚|晚上/.test(storyTimeMatch[0]) && h < 12) h += 12;
+    currentMinutes = h * 60 + m;
+  } else if (calendarContext?.time && typeof calendarContext.time === 'string') {
+    const m = calendarContext.time.match(/^(\d{1,2})[:：](\d{2})/);
+    if (m) currentMinutes = Number(m[1]) * 60 + Number(m[2]);
+  } else if (now instanceof Date && !isNaN(now.getTime())) {
+    currentMinutes = now.getHours() * 60 + now.getMinutes();
+  }
+  result.currentMinutes = currentMinutes;
 
   // 1. 优先从剧情正文提取就餐时段契机（若正文明确提到了清晨/深夜/中午等）
   let detectedSlot = null;
@@ -119,7 +161,7 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
     }
   }
 
-  const hours = now.getHours();
+  const hours = currentMinutes != null ? Math.floor(currentMinutes / 60) : now.getHours();
   const effectiveSlot = detectedSlot || (
     (hours >= 5 && hours < 10) ? 'morning' :
     (hours >= 11 && hours <= 13) ? 'noon' :
@@ -128,22 +170,22 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
   );
 
   result.timeSlot = effectiveSlot;
-  if (effectiveSlot === 'morning') {
+  if (currentMinutes != null) {
+    const hh = String(Math.floor(currentMinutes / 60) % 24).padStart(2, '0');
+    const mm = String(currentMinutes % 60).padStart(2, '0');
+    result.timeSlotLabel = `${hh}:${mm}`;
+  } else if (effectiveSlot === 'morning') {
     result.timeSlotLabel = '晨间早餐';
-    result.timeSlots = ['早餐', '早点', '晨间', '早饭', '早市'];
   } else if (effectiveSlot === 'noon') {
     result.timeSlotLabel = '午间午餐';
-    result.timeSlots = ['午餐', '正餐', '中餐', '午饭', '午间', '中饭'];
   } else if (effectiveSlot === 'afternoon') {
     result.timeSlotLabel = '午后茶歇';
-    result.timeSlots = ['下午茶', '茶歇', '点心', '咖啡', '午后'];
   } else if (effectiveSlot === 'evening') {
     result.timeSlotLabel = '傍晚晚餐';
-    result.timeSlots = ['晚餐', '正餐', '晚饭', '傍晚', '晚间'];
   } else {
     result.timeSlotLabel = '深夜宵夜';
-    result.timeSlots = ['夜宵', '宵夜', '深夜', '凌晨', '半夜'];
   }
+  result.timeSlots = ['早餐', '早点', '午餐', '正餐', '下午茶', '晚餐', '夜宵', '宵夜'];
 
   // 季节感知：正文描写优先，月份次之
   if (/春/.test(storyText) && !/青春|春卷/.test(storyText)) result.season = '春季';
@@ -183,7 +225,19 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
     }
   }
 
-  // 联动日历当天的特别节日列表
+  // 联动日历当天的特别节日与直接指定的节气/季节
+  if (calendarContext?.season) {
+    result.season = calendarContext.season;
+  }
+  if (calendarContext?.jieqi) {
+    result.jieqi = calendarContext.jieqi;
+    if (!result.festivals.includes(calendarContext.jieqi)) result.festivals.push(calendarContext.jieqi);
+  }
+  if (calendarContext?.festival) {
+    result.festival = calendarContext.festival;
+    if (!result.festivals.includes(calendarContext.festival)) result.festivals.push(calendarContext.festival);
+  }
+
   if (Array.isArray(calendarContext?.festivals)) {
     for (const f of calendarContext.festivals) {
       const name = typeof f === 'string' ? f : (f?.name || f?.title || '');
@@ -314,8 +368,119 @@ export function categorizeFoodRole(name = '') {
   return 'hot';
 }
 
-// 核心配餐算法：依照原世界书角色分类（主菜、主食面点、羹汤、饮品点心）进行合理套餐组合
-export function assembleMealCombo(db, n = 2) {
+// 解析菜品附带的时空/节气/时段条件标签，如：[清明] 青团、青团#清明、[早餐] 豆浆
+export function parseDishCondition(dishStr) {
+  if (typeof dishStr !== 'string') return { name: String(dishStr || ''), condition: null };
+  const trimmed = dishStr.trim();
+  const bracket = trimmed.match(/^[\[【]([^\]】]+)[\]】]\s*(.+)$/);
+  if (bracket) return { condition: bracket[1].trim(), name: bracket[2].trim() };
+  const hash = trimmed.match(/^(.+?)[#＃@＠]([^\s#＃@＠]+)$/);
+  if (hash) return { name: hash[1].trim(), condition: hash[2].trim() };
+  return { name: trimmed, condition: null };
+}
+
+// 批量输入拆解：支持前缀通用格式，如 `[清明] 青团, 螺蛳` 拆分为 `[清明] 青团` 与 `[清明] 螺蛳`
+export function splitDishesInput(inputStr) {
+  if (!inputStr) return [];
+  const trimmed = String(inputStr).trim();
+  const bracketGlobal = trimmed.match(/^[\[【]([^\]】]+)[\]】]\s*([\s\S]+)$/);
+  if (bracketGlobal) {
+    const cond = bracketGlobal[1].trim();
+    const rest = bracketGlobal[2].split(/[,，\n]/).map(s => s.trim()).filter(Boolean);
+    return rest.map(item => {
+      const p = parseDishCondition(item);
+      return p.condition ? `[${p.condition}] ${p.name}` : `[${cond}] ${p.name}`;
+    });
+  }
+  return trimmed.split(/[,，\n]/).map(s => s.trim()).filter(Boolean);
+}
+
+// 提取美食库内所有菜品的时令、节气、餐期条件标签
+export function extractDishConditions(db) {
+  if (!db) return [];
+  const set = new Set();
+  const items = db.items || [];
+  for (const item of items) {
+    const p = parseDishCondition(item);
+    if (p.condition) set.add(p.condition);
+  }
+  if (db.categories?.length) {
+    for (const cat of db.categories) {
+      for (const item of (cat.items || [])) {
+        const p = parseDishCondition(item);
+        if (p.condition) set.add(p.condition);
+      }
+    }
+  }
+  return [...set];
+}
+
+// 判断条件标签是否命中当前时空与语境（节气、节日、时段、季节、天气、地点、剧情）
+export function isConditionMatched(cond, { calSense, weatherSense, mapSense, storyText = '' } = {}) {
+  if (!cond) return false;
+  const c = String(cond).trim();
+  if (!c) return false;
+
+  // 1. 节气命中（如：立春、清明、秋分、冬至...）
+  if (calSense?.jieqi && (calSense.jieqi.includes(c) || c.includes(calSense.jieqi))) {
+    return true;
+  }
+
+  // 2. 节日与节令命中（如：除夕、春节、端午、中秋、七夕...）
+  if (calSense?.festivals?.length) {
+    if (calSense.festivals.some(f => f && (f.includes(c) || c.includes(f)))) {
+      return true;
+    }
+  }
+  if (calSense?.festival && (calSense.festival.includes(c) || c.includes(calSense.festival))) {
+    return true;
+  }
+
+  // 3. 季节命中（如：春季/春、夏季/夏、秋季/秋、冬季/冬）
+  if (calSense?.season) {
+    const s = calSense.season;
+    if (s.includes(c) || c.includes(s) || (c.length === 1 && s.startsWith(c))) {
+      return true;
+    }
+  }
+
+  // 4. 餐期与时段命中（如：早餐、07:00-09:30、午餐、下午茶、晚餐、宵夜）
+  if (calSense) {
+    if (isTimeSlotMatched(c, calSense)) return true;
+    if (calSense.timeSlotLabel && (calSense.timeSlotLabel.includes(c) || c.includes(calSense.timeSlotLabel))) {
+      return true;
+    }
+    const mins = calSense.currentMinutes;
+    if (typeof mins === 'number') {
+      if (/早/.test(c) && (mins >= 360 && mins < 600)) return true;
+      if (/午/.test(c) && !/下/.test(c) && (mins >= 660 && mins < 840)) return true;
+      if (/下/.test(c) && (mins >= 840 && mins < 1020)) return true;
+      if (/晚/.test(c) && (mins >= 1020 && mins < 1260)) return true;
+      if (/宵|夜/.test(c) && (mins >= 1260 || mins < 300)) return true;
+    }
+  }
+
+  // 5. 天气天候命中（如：雨、雪、晴、冷、热）
+  if (weatherSense) {
+    if (weatherSense.conditions?.some(w => w && (w.includes(c) || c.includes(w)))) return true;
+    if (weatherSense.text && (weatherSense.text.includes(c) || c.includes(weatherSense.text))) return true;
+  }
+
+  // 6. 地点命中（如：海神阁、学院、餐厅）
+  if (mapSense?.locationText && (mapSense.locationText.includes(c) || c.includes(mapSense.locationText))) {
+    return true;
+  }
+
+  // 7. 正文文本提及
+  if (storyText && storyText.includes(c)) {
+    return true;
+  }
+
+  return false;
+}
+
+// 核心配餐算法：依照原世界书角色分类（主菜、主食面点、羹汤、饮品点心）进行合理套餐组合，支持库内时令/节气/餐期智能下钻
+export function assembleMealCombo(db, n = 2, context = {}) {
   if (!db || !db.items || !db.items.length) return [];
   const targetCount = Math.min(Math.max(1, n), db.items.length);
   const categories = db.categories || [];
@@ -340,24 +505,51 @@ export function assembleMealCombo(db, n = 2) {
       }
     }
   } else {
-    // 启发式自动角色分配
+    // 启发式自动角色分配（依据纯净菜名推导）
     for (const item of db.items) {
-      const role = categorizeFoodRole(item);
+      const parsed = parseDishCondition(item);
+      const role = categorizeFoodRole(parsed.name);
       buckets[role].push(item);
     }
   }
 
   const picked = [];
-  const seen = new Set();
+  const seenNames = new Set();
 
   function pickOneFrom(arr) {
     if (!arr || !arr.length) return null;
-    const candidates = arr.filter(i => !seen.has(i));
-    if (!candidates.length) return null;
-    const item = candidates[Math.floor(Math.random() * candidates.length)];
-    seen.add(item);
-    picked.push(item);
-    return item;
+    const available = arr.filter(rawItem => {
+      const parsed = parseDishCondition(rawItem);
+      return !seenNames.has(parsed.name);
+    });
+    if (!available.length) return null;
+
+    // 智能三级优先级划分：
+    // 优先级 1（matched）：带条件标签且命中当前时空与语境（节气、时段、节日、季节、剧情）
+    // 优先级 2（universal）：无条件标签的常备通用菜品（日常兜底）
+    // 优先级 3（unmatched）：带其他条件标签的菜品（仅在候选不足时使用）
+    const matched = [];
+    const universal = [];
+    const unmatched = [];
+
+    for (const rawItem of available) {
+      const parsed = parseDishCondition(rawItem);
+      if (parsed.condition) {
+        if (isConditionMatched(parsed.condition, context)) {
+          matched.push(parsed);
+        } else {
+          unmatched.push(parsed);
+        }
+      } else {
+        universal.push(parsed);
+      }
+    }
+
+    const candidatePool = matched.length ? matched : (universal.length ? universal : unmatched);
+    const chosen = candidatePool[Math.floor(Math.random() * candidatePool.length)];
+    seenNames.add(chosen.name);
+    picked.push(chosen.name);
+    return chosen.name;
   }
 
   // 配餐策略：
@@ -384,13 +576,14 @@ export function assembleMealCombo(db, n = 2) {
     }
   }
 
-  // 4. 若还不够，从所有剩余项目中随机补足
+  // 4. 若还不够，从所有剩余项目中补足
   const allShuffled = [...db.items].sort(() => 0.5 - Math.random());
   for (const item of allShuffled) {
     if (picked.length >= targetCount) break;
-    if (!seen.has(item)) {
-      seen.add(item);
-      picked.push(item);
+    const parsed = parseDishCondition(item);
+    if (!seenNames.has(parsed.name)) {
+      seenNames.add(parsed.name);
+      picked.push(parsed.name);
     }
   }
 
@@ -544,9 +737,14 @@ export function evaluateFoodieMatch({
   const weatherSense = senseWeather(calendarContext, storyText);
   const storySense = senseStoryText(storyText, core);
 
-  // 自动联通已开启的美食库关键词、时段词与节日词（只要剧情提及，立即激活进食契机）
+  // 自动联通已开启的美食库关键词、时段词、节日词及菜品分组标签（只要剧情提及，立即激活进食契机）
   for (const db of enabledDbs) {
-    const customTriggers = [...(db.keywords || []), ...(db.calendarSlots || []), ...(db.calendarFestivals || [])];
+    const customTriggers = [
+      ...(db.keywords || []),
+      ...(db.calendarSlots || []),
+      ...(db.calendarFestivals || []),
+      ...extractDishConditions(db)
+    ];
     for (const kw of customTriggers) {
       if (kw && storyText.includes(kw)) {
         storySense.hasMealIntent = true;
@@ -555,8 +753,9 @@ export function evaluateFoodieMatch({
     }
   }
 
-  // 自动联通用户自定义全局进食契机词
-  const customIntents = String(foodieState.customIntentWords || '').split(/[,，\n]/).map(s => s.trim()).filter(Boolean);
+  // 自动联通用户全局进食契机词（默认包含常用动作与就餐感知词汇）
+  const defaultIntentWords = '吃, 喝, 饿, 尝, 吃饭, 做饭, 点餐, 点菜, 用餐, 就餐, 宵夜, 夜宵, 饮茶, 饱, 嘴馋';
+  const customIntents = String(foodieState.customIntentWords || defaultIntentWords).split(/[,，\n]/).map(s => s.trim()).filter(Boolean);
   for (const w of customIntents) {
     if (w && storyText.includes(w)) {
       storySense.hasMealIntent = true;
@@ -685,6 +884,16 @@ export function evaluateFoodieMatch({
           reasons.push(`触发词(${hitKw})`);
         }
 
+        // 6. 库内菜品自带的时令、节气、餐期条件标签（下钻命中）
+        const dishConds = extractDishConditions(db);
+        for (const dc of dishConds) {
+          if (isConditionMatched(dc, { calSense, weatherSense, mapSense, storyText })) {
+            score += 5;
+            reasons.push(`子项时令/餐期(${dc})`);
+            break;
+          }
+        }
+
         customCandidates.push({
           label: db.label,
           score,
@@ -789,8 +998,13 @@ export function evaluateFoodieMatch({
     matchStage = '通用日常风味兜底'; matchReason = '通用日常家常风味';
   }
 
-  // 5. 采用原版智能配套算法组装套餐（主菜 + 主食/汤羹 + 饮品）
-  const pickedFoods = assembleMealCombo(selectedDb, targetCount);
+  // 5. 采用原版智能配套算法组装套餐（主菜 + 主食/汤羹 + 饮品），融入时令/节气/餐期智能下钻
+  const pickedFoods = assembleMealCombo(selectedDb, targetCount, {
+    calSense,
+    weatherSense,
+    mapSense,
+    storyText
+  });
   const prompt = formatFoodiePrompt(template, pickedFoods);
 
   const newSession = {

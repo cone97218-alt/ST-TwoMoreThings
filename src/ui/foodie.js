@@ -1,5 +1,5 @@
 import { escape, icon, pageHeading } from './shared.js';
-import { DEFAULT_FOODIE_TEMPLATE, DEFAULT_FOODIE_COUNT, getEffectiveDatabases, categorizeFoodRole, parseDishCondition } from '../foodie-engine.js';
+import { DEFAULT_FOODIE_TEMPLATE, DEFAULT_FOODIE_COUNT, getEffectiveDatabases, categorizeFoodRole, parseDishCondition, normalizeCategoryRole, hasStructuredCategories } from '../foodie-engine.js';
 
 function getTraceWeatherIcon(text) {
   const t = String(text || '').toLowerCase();
@@ -102,7 +102,7 @@ export function renderFoodie(state, { ui = {} } = {}) {
               <span class="trace-title">匹配溯源</span>
             </div>
             <div class="trace-btn-right">
-              <span class="trace-state-tag ${status}">${status === 'active' || status === 'stable' ? '已触发' : '静默'}</span>
+              <span class="trace-state-tag ${status}">${status === 'active' || status === 'stable' ? '已触发' : (status === 'locked' ? '已锁定' : '静默')}</span>
               <span class="trace-caret ${ui.foodieTraceOpen ? 'is-open' : ''}" aria-hidden="true">${icon('arrow-down')}</span>
             </div>
           </button>
@@ -297,10 +297,10 @@ function filterGroupDatabases(databases, groupId = 'all', query = '', filterMode
 // 统计某个库内菜品角色的分布数量（主菜、主食、羹汤、饮品等）
 function getDbRoleStats(db) {
   const stats = { hot: 0, staple: 0, soup: 0, cold: 0, drink: 0, dessert: 0 };
-  const categories = db.categories || [];
-  if (categories.length > 1) {
-    for (const cat of categories) {
-      const role = cat.role || 'hot';
+  if (hasStructuredCategories(db)) {
+    for (const cat of (db.categories || [])) {
+      const role = normalizeCategoryRole(cat.role);
+      if (role === 'excluded') continue;
       const count = (cat.items || []).length;
       if (stats[role] !== undefined) {
         stats[role] += count;
@@ -329,10 +329,13 @@ function renderFoodieSettingsView(state, ui) {
   const filterMode = ui.foodieFilterMode || 'all'; // 'all' | 'enabled' | 'disabled'
   const viewMode = ui.foodieSettingsTab || 'list'; // 'list' | 'edit'
 
-  const enabledCount = databases.filter(d => d.enabled).length;
-  const disabledCount = databases.length - enabledCount;
+  const groupScopedDbs = filterGroupDatabases(databases, activeGroupId, searchQuery, 'all');
+  const enabledCount = groupScopedDbs.filter(d => d.enabled).length;
+  const disabledCount = groupScopedDbs.length - enabledCount;
 
-  const filteredDbs = filterGroupDatabases(databases, activeGroupId, searchQuery, filterMode);
+  const filteredDbs = filterMode === 'all'
+    ? groupScopedDbs
+    : filterGroupDatabases(databases, activeGroupId, searchQuery, filterMode);
 
   // 当前选中的数据库（用于编辑视图）
   let selectedId = ui.foodieSelectedDbId || '';
@@ -362,15 +365,18 @@ function renderFoodieSettingsView(state, ui) {
   const roleLabels = { hot: '主菜', staple: '主食', soup: '羹汤', drink: '饮品', cold: '凉菜', dessert: '点心' };
   const roleBuckets = { hot: [], staple: [], soup: [], drink: [], cold: [], dessert: [] };
   if (selectedDb) {
-    if (selectedDb.categories && selectedDb.categories.length > 1) {
-      for (const cat of selectedDb.categories) {
-        const r = cat.role || 'hot';
+    if (hasStructuredCategories(selectedDb)) {
+      for (const cat of (selectedDb.categories || [])) {
+        const r = normalizeCategoryRole(cat.role);
+        if (r === 'excluded') continue;
         if (roleBuckets[r]) roleBuckets[r].push(...(cat.items || []));
+        else roleBuckets.hot.push(...(cat.items || []));
       }
     } else {
       for (const item of (selectedDb.items || [])) {
         const r = categorizeFoodRole(item);
         if (roleBuckets[r]) roleBuckets[r].push(item);
+        else roleBuckets.hot.push(item);
       }
     }
   }
@@ -497,7 +503,7 @@ function renderFoodieSettingsView(state, ui) {
             <!-- 状态快速筛选药丸 -->
             <div class="foodie-status-filter-pills">
               <button type="button" class="filter-pill-btn ${filterMode === 'all' ? 'is-active' : ''}" data-action="foodie-set-filter-mode" data-mode="all">
-                全部 (${databases.length})
+                全部 (${groupScopedDbs.length})
               </button>
               <button type="button" class="filter-pill-btn ${filterMode === 'enabled' ? 'is-active' : ''}" data-action="foodie-set-filter-mode" data-mode="enabled">
                 已开启 (${enabledCount})
@@ -529,7 +535,7 @@ function renderFoodieSettingsView(state, ui) {
                           <input type="checkbox" role="switch" data-action="foodie-toggle-db-enable" data-db-id="${escape(d.id)}" ${d.enabled ? 'checked' : ''}>
                           <span></span>
                         </label>
-                        <button type="button" class="icon-button micro-btn" data-action="foodie-open-edit-db" data-db-id="${escape(d.id)}" aria-label="查看详情" title="查看详情">${icon('arrow')}</button>
+                        <button type="button" class="icon-button micro-btn" data-action="foodie-open-edit-db" data-db-id="${escape(d.id)}" aria-label="查看详情" title="查看详情">${icon('chevron-right')}</button>
                       </div>
                     </div>
 

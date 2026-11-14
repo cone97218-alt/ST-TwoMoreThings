@@ -598,13 +598,35 @@ export function createBackflowService({
       let foodieLines = '';
       if (injectFoodie) {
         try {
-          const lastFloor = latestAiFloor(target.messages, beforeIndex)?.message;
-          const storyText = lastFloor ? sanitizeStoryBody(lastFloor.mes, wrapperSettingsProvider()) : '';
+          const wrappers = wrapperSettingsProvider();
+          const recentFloors = [];
+          for (let i = Math.max(0, beforeIndex - 3); i < beforeIndex; i++) {
+            const msg = target.messages[i];
+            if (!msg || msg.is_system || msg.role === 'system') continue;
+            const raw = String(msg.mes ?? msg.content ?? '');
+            if (!raw.trim()) continue;
+            const clean = sanitizeStoryBody(raw, wrappers);
+            if (clean) recentFloors.push(clean);
+          }
+          const storyText = recentFloors.join('\n');
+          const rawCalCtx = calendarContext || null;
+          const extraWeather = (!rawCalCtx?.weather && calendar?.weatherInfo)
+            ? calendar.weatherInfo(target.messages.slice(0, beforeIndex))
+            : null;
+          const weatherObj = rawCalCtx?.weather || rawCalCtx?.weatherInfo || extraWeather || null;
+          const foodieCalendarContext = {
+            ...(rawCalCtx || {}),
+            ...(batch?.clock?.date && !rawCalCtx?.today ? { today: batch.clock.date } : {}),
+            ...(batch?.clock?.time && !rawCalCtx?.time ? { time: batch.clock.time } : {}),
+            ...(weatherObj ? { weather: weatherObj } : {}),
+            ...(weatherObj?.solarTerm && !rawCalCtx?.jieqi ? { jieqi: weatherObj.solarTerm } : {}),
+            events: rawCalCtx?.events || [],
+          };
           const matchResult = evaluateFoodieMatch({
             state,
             storyText,
             mapProjection: mapProj,
-            calendarContext,
+            calendarContext: foodieCalendarContext,
             turnIndex: beforeIndex
           });
           if (matchResult && matchResult.triggered && matchResult.prompt) {
@@ -614,10 +636,12 @@ export function createBackflowService({
             const nextFoodieState = {
               ...(state.foodie || {}),
               current: matchResult,
-              session: matchResult.session || (matchResult.status === 'locked' ? state.foodie?.session : null),
+              session: matchResult.session !== undefined
+                ? matchResult.session
+                : (matchResult.status === 'locked' ? state.foodie?.session : null),
               lastTrace: matchResult.trace
             };
-            store.save({ foodie: nextFoodieState }).catch(() => {});
+            store.setFoodieState(nextFoodieState).catch(() => {});
           }
         } catch {}
       }
@@ -698,7 +722,11 @@ export function createBackflowService({
         return '';
       }
       const current = store.read();
-      if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled && !current.injectMapEnabled && !Boolean(current.calendar?.workdayConfig?.enabled && current.calendar?.workdayConfig?.injectStory))) return '';
+      const hasCurrentOrigin = Boolean(current.origin?.enabled && (current.injectOriginEnabled ?? true) && originLines);
+      const hasCurrentWorkday = Boolean(current.calendar?.workdayConfig?.enabled && current.calendar?.workdayConfig?.injectStory && workdayLines);
+      const hasCurrentWeather = Boolean(weatherLines);
+      const hasCurrentFoodie = Boolean(current.injectFoodieEnabled && foodieLines);
+      if (!isEnabled() || (!current.injectEnabled && !current.injectCalendarEnabled && !current.injectMapEnabled && !hasCurrentWorkday && !hasCurrentOrigin && !hasCurrentWeather && !hasCurrentFoodie)) return '';
       for (const conversation of conversations) {
         const saved = new Map((current.conversations[conversation.id] || []).map(message => [message.id, message]));
         if (conversation.messages.some(message => !saved.has(message.id))) throw new Error('参考中的短信已被删除，本次正文未带入手机消息。');
@@ -708,9 +736,12 @@ export function createBackflowService({
         if (JSON.stringify(readTodos(current).find(item => item.id === todo.id)) !== JSON.stringify(todo)) throw new Error('参考中的待办已修改或删除，请重新生成正文。');
       }
       const summaryParts = [];
+      if (hasCurrentOrigin) summaryParts.push(originLines);
       if (workdayLines) summaryParts.push(workdayLines);
+      if (weatherLines) summaryParts.push(weatherLines);
       if (calendarLines) summaryParts.push(calendarLines);
       if (mapLines) summaryParts.push(mapLines);
+      if (hasCurrentFoodie) summaryParts.push(foodieLines);
       if (summary) summaryParts.push(summary);
       return summaryParts.join('\n\n');
     },

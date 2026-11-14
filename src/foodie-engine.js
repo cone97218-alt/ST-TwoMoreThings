@@ -4,26 +4,62 @@ import { FOODIE_CATALOG } from './foodie-catalog.js';
 export const DEFAULT_FOODIE_TEMPLATE = '[食物线索：{{food}}]';
 export const DEFAULT_FOODIE_COUNT = 2;
 
+function hasAnyItems(db) {
+  if (Array.isArray(db?.items) && db.items.length > 0) return true;
+  if (Array.isArray(db?.categories) && db.categories.some(c => Array.isArray(c?.items) && c.items.length > 0)) return true;
+  return false;
+}
+
+export function normalizeCategoryRole(role) {
+  const r = String(role || '').trim();
+  if (r === 'excluded') return 'excluded';
+  if (r === 'alcohol' || r === 'drink') return 'drink';
+  if (r === 'fruit' || r === 'dessert') return 'dessert';
+  if (['staple', 'soup', 'cold', 'hot'].includes(r)) return r;
+  return 'hot';
+}
+
+export function hasStructuredCategories(db) {
+  const cats = Array.isArray(db?.categories)
+    ? db.categories.filter(c => Array.isArray(c?.items) && c.items.length > 0)
+    : [];
+  if (cats.length === 0) return false;
+  if (cats.length > 1) return true;
+  const role = normalizeCategoryRole(cats[0].role);
+  if (role !== 'hot') return true;
+  return !db.builtin || !String(db.id || '').startsWith('scene:');
+}
+
+function getDbItemList(db) {
+  if (Array.isArray(db?.items) && db.items.length > 0) return db.items;
+  if (Array.isArray(db?.categories)) {
+    return db.categories.flatMap(c => (Array.isArray(c?.items) ? c.items : []));
+  }
+  return [];
+}
+
 // 获取当前生效的所有数据库（内置库 + 用户修改库 + 用户新建库）
 // 规则：所有美食库默认全部关闭 (enabled: false)，需由用户在设置中手动开启
 export function getEffectiveDatabases(state = {}) {
   const customDbs = state.foodie?.customDatabases || {};
   const modifiedBuiltins = state.foodie?.modifiedBuiltins || {};
 
-  const databases = FOODIE_CATALOG.databases.map(db => {
-    const mod = modifiedBuiltins[db.id];
-    if (mod) {
+  const databases = FOODIE_CATALOG.databases
+    .map(db => {
+      const mod = modifiedBuiltins[db.id];
+      if (mod) {
+        return {
+          ...db,
+          ...mod,
+          enabled: Boolean(mod.enabled)
+        };
+      }
       return {
         ...db,
-        ...mod,
-        enabled: Boolean(mod.enabled)
+        enabled: false
       };
-    }
-    return {
-      ...db,
-      enabled: false
-    };
-  });
+    })
+    .filter(db => hasAnyItems(db));
 
   // 加入用户自建库（自建库若未明确指定 enabled，默认也是关闭）
   for (const [id, customDb] of Object.entries(customDbs)) {
@@ -125,31 +161,14 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
     timeSlotLabel: '',
     timeSlots: [],
     currentMinutes: null,
+    timeSource: '时钟',
     festival: null,
     festivals: [],
     jieqi: null,
     season: '春季'
   };
 
-  // 提取当前实际时间分钟数（优先从正文明确时间点提取，次之日历 context，再次系统当前时钟）
-  let currentMinutes = null;
-  const storyTimeMatch = storyText && typeof storyText === 'string'
-    ? storyText.match(/(?:(?:早上|上午|中午|下午|傍晚|晚上|深夜|凌晨)\s*)?(\d{1,2})[:：](\d{2})/i)
-    : null;
-  if (storyTimeMatch) {
-    let h = Number(storyTimeMatch[1]);
-    const m = Number(storyTimeMatch[2]);
-    if (/下午|傍晚|晚上/.test(storyTimeMatch[0]) && h < 12) h += 12;
-    currentMinutes = h * 60 + m;
-  } else if (calendarContext?.time && typeof calendarContext.time === 'string') {
-    const m = calendarContext.time.match(/^(\d{1,2})[:：](\d{2})/);
-    if (m) currentMinutes = Number(m[1]) * 60 + Number(m[2]);
-  } else if (now instanceof Date && !isNaN(now.getTime())) {
-    currentMinutes = now.getHours() * 60 + now.getMinutes();
-  }
-  result.currentMinutes = currentMinutes;
-
-  // 1. 优先从剧情正文提取就餐时段契机（若正文明确提到了清晨/深夜/中午等）
+  // 1. 先从剧情正文提取就餐时段关键词（若正文明确提到了清晨/深夜/中午等）
   let detectedSlot = null;
   const slots = core?.slots || {};
   if (storyText && typeof storyText === 'string') {
@@ -161,6 +180,57 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
     }
   }
 
+  // 2. 提取当前实际时间分钟数（正文明确 HH:MM 优先 -> 日历时间 -> 正文时段推导 -> 系统时钟）
+  let currentMinutes = null;
+  let hasExplicitMinutes = false;
+  if (storyText && typeof storyText === 'string') {
+    const storyTimeMatches = [...storyText.matchAll(/(?:(?:早上|上午|中午|下午|傍晚|晚上|深夜|凌晨)\s*)?(\d{1,2})[:：](\d{2})/gi)];
+    for (let i = storyTimeMatches.length - 1; i >= 0; i--) {
+      const mMatch = storyTimeMatches[i];
+      let h = Number(mMatch[1]);
+      const m = Number(mMatch[2]);
+      if (h > 23 || m > 59) continue;
+      if (/下午|傍晚|晚上/.test(mMatch[0]) && h < 12) h += 12;
+      else if (/深夜/.test(mMatch[0]) && h >= 7 && h < 12) h += 12;
+      else if (/凌晨/.test(mMatch[0]) && h === 12) h = 0;
+      currentMinutes = h * 60 + m;
+      hasExplicitMinutes = true;
+      result.timeSource = '正文时间';
+      break;
+    }
+  }
+  if (currentMinutes == null && calendarContext?.time && typeof calendarContext.time === 'string') {
+    const m = calendarContext.time.match(/^(\d{1,2})[:：](\d{2})/);
+    if (m) {
+      const h = Number(m[1]);
+      const mins = Number(m[2]);
+      if (h <= 23 && mins <= 59) {
+        currentMinutes = h * 60 + mins;
+        hasExplicitMinutes = true;
+        result.timeSource = '日历时间';
+      }
+    }
+  }
+  const slotRepresentativeMinutes = {
+    morning: 8 * 60,
+    breakfast: 8 * 60,
+    noon: 12 * 60,
+    lunch: 12 * 60,
+    afternoon: 15 * 60,
+    afternoonTea: 15 * 60,
+    evening: 18 * 60 + 30,
+    dinner: 18 * 60 + 30,
+    lateNight: 22 * 60 + 30
+  };
+  if (currentMinutes == null && detectedSlot && slotRepresentativeMinutes[detectedSlot] != null) {
+    currentMinutes = slotRepresentativeMinutes[detectedSlot];
+    result.timeSource = '正文时段';
+  } else if (currentMinutes == null && now instanceof Date && !isNaN(now.getTime())) {
+    currentMinutes = now.getHours() * 60 + now.getMinutes();
+    result.timeSource = '系统时间';
+  }
+  result.currentMinutes = currentMinutes;
+
   const hours = currentMinutes != null ? Math.floor(currentMinutes / 60) : now.getHours();
   const effectiveSlot = detectedSlot || (
     (hours >= 5 && hours < 10) ? 'morning' :
@@ -170,39 +240,55 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
   );
 
   result.timeSlot = effectiveSlot;
-  if (currentMinutes != null) {
+  if (hasExplicitMinutes && currentMinutes != null) {
     const hh = String(Math.floor(currentMinutes / 60) % 24).padStart(2, '0');
     const mm = String(currentMinutes % 60).padStart(2, '0');
     result.timeSlotLabel = `${hh}:${mm}`;
-  } else if (effectiveSlot === 'morning') {
+  } else if (effectiveSlot === 'morning' || effectiveSlot === 'breakfast') {
     result.timeSlotLabel = '晨间早餐';
-  } else if (effectiveSlot === 'noon') {
+  } else if (effectiveSlot === 'noon' || effectiveSlot === 'lunch') {
     result.timeSlotLabel = '午间午餐';
-  } else if (effectiveSlot === 'afternoon') {
+  } else if (effectiveSlot === 'afternoon' || effectiveSlot === 'afternoonTea') {
     result.timeSlotLabel = '午后茶歇';
-  } else if (effectiveSlot === 'evening') {
+  } else if (effectiveSlot === 'evening' || effectiveSlot === 'dinner') {
     result.timeSlotLabel = '傍晚晚餐';
+  } else if (currentMinutes != null && !detectedSlot) {
+    const hh = String(Math.floor(currentMinutes / 60) % 24).padStart(2, '0');
+    const mm = String(currentMinutes % 60).padStart(2, '0');
+    result.timeSlotLabel = `${hh}:${mm}`;
   } else {
     result.timeSlotLabel = '深夜宵夜';
   }
   result.timeSlots = ['早餐', '早点', '午餐', '正餐', '下午茶', '晚餐', '夜宵', '宵夜'];
 
-  // 季节感知：正文描写优先，月份次之
+  // 季节感知：正文描写优先，日历日期月份次之，系统月份兜底
+  const calTodayMonthMatch = String(calendarContext?.today || calendarContext?.date || '').match(/(\d{1,2})\s*月/);
+  const resolvedMonth = Number.isInteger(calendarContext?.month)
+    ? calendarContext.month
+    : calTodayMonthMatch
+      ? Number(calTodayMonthMatch[1])
+      : (now.getMonth() + 1);
   if (/春/.test(storyText) && !/青春|春卷/.test(storyText)) result.season = '春季';
   else if (/夏/.test(storyText)) result.season = '夏季';
   else if (/秋/.test(storyText)) result.season = '秋季';
   else if (/冬/.test(storyText)) result.season = '冬季';
   else {
-    const month = now.getMonth() + 1;
-    if (month >= 3 && month <= 5) result.season = '春季';
-    else if (month >= 6 && month <= 8) result.season = '夏季';
-    else if (month >= 9 && month <= 11) result.season = '秋季';
+    if (resolvedMonth >= 3 && resolvedMonth <= 5) result.season = '春季';
+    else if (resolvedMonth >= 6 && resolvedMonth <= 8) result.season = '夏季';
+    else if (resolvedMonth >= 9 && resolvedMonth <= 11) result.season = '秋季';
     else result.season = '冬季';
   }
 
-  const jieqiList = core.jieqiList || [];
+  const jieqiList = core?.jieqiList || [];
+  const fests = core?.fests || [];
   const events = calendarContext?.events || [];
   for (const ev of events) {
+    if (!ev) continue;
+    // 跳过待办事项，仅识别当天生效或进行中的节日/事件（忽略几天后的未来预告）
+    if (ev.type === 'todo') continue;
+    const when = typeof ev.when === 'string' ? ev.when.trim() : '';
+    if (when && when !== '今天' && !when.startsWith('进行中')) continue;
+
     const title = ev.title || ev.summary || ev.name || '';
     for (const jq of jieqiList) {
       if (title.includes(jq)) {
@@ -211,7 +297,6 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
         break;
       }
     }
-    const fests = core.fests || [];
     for (const fest of fests) {
       if (title.includes(fest.n)) {
         result.festival = fest.n;
@@ -219,9 +304,25 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
         break;
       }
     }
-    // 无论是现实节日还是架空/自定义日历日程（如学园祭、海灯节、冬幕节等），标题均纳入事件节日池
+    // 无论是现实节日还是架空/自定义日历日程（如学园祭、海灯节、冬幕节等），当天事件纳入节日池
     if (title && !result.festivals.includes(title)) {
       result.festivals.push(title);
+    }
+  }
+
+  // 补充正文提及的节气与节日感知
+  if (storyText && typeof storyText === 'string') {
+    for (const jq of jieqiList) {
+      if (jq && storyText.includes(jq)) {
+        if (!result.jieqi) result.jieqi = jq;
+        if (!result.festivals.includes(jq)) result.festivals.push(jq);
+      }
+    }
+    for (const fest of fests) {
+      const hitFest = fest.n && (storyText.includes(fest.n) || (Array.isArray(fest.kw) && fest.kw.some(kw => kw && storyText.includes(kw))));
+      if (hitFest && !result.festivals.includes(fest.n)) {
+        result.festivals.push(fest.n);
+      }
     }
   }
 
@@ -229,9 +330,10 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
   if (calendarContext?.season) {
     result.season = calendarContext.season;
   }
-  if (calendarContext?.jieqi) {
-    result.jieqi = calendarContext.jieqi;
-    if (!result.festivals.includes(calendarContext.jieqi)) result.festivals.push(calendarContext.jieqi);
+  const calJieqi = calendarContext?.jieqi || calendarContext?.solarTerm || calendarContext?.weather?.solarTerm || calendarContext?.weatherInfo?.solarTerm;
+  if (calJieqi) {
+    result.jieqi = calJieqi;
+    if (!result.festivals.includes(calJieqi)) result.festivals.push(calJieqi);
   }
   if (calendarContext?.festival) {
     result.festival = calendarContext.festival;
@@ -298,27 +400,46 @@ export function senseWeather(calendarContext, storyText = '') {
   };
 }
 
+const AMBIGUOUS_SINGLE_CHAR_ACTIONS = new Set(['冲', '泡', '端', '煎', '焖']);
+
 export function senseStoryText(text = '', core) {
   if (!text || typeof text !== 'string') {
     return {
       hasMealIntent: false,
       hitKeywords: [],
       matchedBiz: [],
-      matchedStates: []
+      matchedStates: [],
+      matchedSituations: []
     };
   }
 
   const hitKeywords = [];
   const matchedBiz = [];
   const matchedStates = [];
+  const matchedSituations = [];
 
   const demandWords = core.demandWords || {};
   const actions = demandWords.actions || ['吃', '喝', '尝', '煮', '炒', '炖', '煲', '点菜', '饿', '餐', '饭'];
   const foodCues = demandWords.foodCues || ['用膳', '进食', '上菜', '开席', '下馆子', '外卖'];
 
   let hasMealIntent = false;
-  for (const word of [...actions, ...foodCues, '饿', '好饿', '肚子饿', '夜宵', '吃夜宵', '宵夜', '火锅', '烧烤', '大排档', '甜点', '奶茶']) {
+  for (const word of actions) {
+    if (!word) continue;
+    if (AMBIGUOUS_SINGLE_CHAR_ACTIONS.has(word)) {
+      const culinaryPair = new RegExp(`${word}(?:了?一?[杯碗盘锅盆]?)(?:茶|咖啡|奶茶|牛奶|麦片|汤|面|饭|菜|蛋|饼|饺|鱼|肉|虾|水)`);
+      if (culinaryPair.test(text)) {
+        hasMealIntent = true;
+        if (!hitKeywords.includes(word)) hitKeywords.push(word);
+      }
+      continue;
+    }
     if (text.includes(word)) {
+      hasMealIntent = true;
+      if (!hitKeywords.includes(word)) hitKeywords.push(word);
+    }
+  }
+  for (const word of [...foodCues, '饿', '好饿', '肚子饿', '夜宵', '吃夜宵', '宵夜', '火锅', '烧烤', '大排档', '甜点', '奶茶']) {
+    if (word && text.includes(word)) {
       hasMealIntent = true;
       if (!hitKeywords.includes(word)) hitKeywords.push(word);
     }
@@ -328,7 +449,7 @@ export function senseStoryText(text = '', core) {
   for (const b of bizList) {
     if (Array.isArray(b.kw)) {
       for (const kw of b.kw) {
-        if (text.includes(kw)) {
+        if (kw && text.includes(kw)) {
           hasMealIntent = true;
           if (!matchedBiz.includes(b.label)) matchedBiz.push(b.label);
           if (!hitKeywords.includes(kw)) hitKeywords.push(kw);
@@ -341,8 +462,20 @@ export function senseStoryText(text = '', core) {
   for (const s of statesList) {
     if (Array.isArray(s.kw)) {
       for (const kw of s.kw) {
-        if (text.includes(kw)) {
+        if (kw && text.includes(kw)) {
           if (!matchedStates.includes(s.k)) matchedStates.push(s.k);
+          if (!hitKeywords.includes(kw)) hitKeywords.push(kw);
+        }
+      }
+    }
+  }
+
+  const situationsList = Array.isArray(core.situations) ? core.situations : [];
+  for (const s of situationsList) {
+    if (Array.isArray(s?.kw)) {
+      for (const kw of s.kw) {
+        if (kw && text.includes(kw)) {
+          if (!matchedSituations.includes(s.k)) matchedSituations.push(s.k);
           if (!hitKeywords.includes(kw)) hitKeywords.push(kw);
         }
       }
@@ -353,13 +486,18 @@ export function senseStoryText(text = '', core) {
     hasMealIntent,
     hitKeywords: hitKeywords.slice(0, 8),
     matchedBiz,
-    matchedStates
+    matchedStates,
+    matchedSituations
   };
 }
 
 // 菜品名称角色语义启发式识别（羹汤、主食、饮品、凉菜、甜点、主菜）
 export function categorizeFoodRole(name = '') {
-  const str = String(name || '');
+  const raw = String(name || '').trim();
+  if (!raw) return 'hot';
+  const bracket = raw.match(/^[\[【]([^\]】]+)[\]】]\s*(.+)$/);
+  const hash = !bracket ? raw.match(/^(.+?)[#＃@＠]([^\s#＃@＠]+)$/) : null;
+  const str = bracket ? bracket[2].trim() : (hash ? hash[1].trim() : raw);
   if (/汤|羹|煲|炖品|汆|盅/.test(str)) return 'soup';
   if (/面|粉|饭|粥|饼|包|饺|馒头|年糕|抄手|馄饨|麦|米线|拉面|乌冬|意面/.test(str)) return 'staple';
   if (/茶|饮|酒|拿铁|咖啡|浆|汁|露|奶|可乐|汽水|精酿|啤酒|特调|鸡尾酒/.test(str)) return 'drink';
@@ -481,9 +619,8 @@ export function isConditionMatched(cond, { calSense, weatherSense, mapSense, sto
 
 // 核心配餐算法：依照原世界书角色分类（主菜、主食面点、羹汤、饮品点心）进行合理套餐组合，支持库内时令/节气/餐期智能下钻
 export function assembleMealCombo(db, n = 2, context = {}) {
-  if (!db || !db.items || !db.items.length) return [];
-  const targetCount = Math.min(Math.max(1, n), db.items.length);
-  const categories = db.categories || [];
+  const allDbItems = getDbItemList(db);
+  if (!db || !allDbItems.length) return [];
 
   // 按角色归类
   const buckets = {
@@ -491,36 +628,61 @@ export function assembleMealCombo(db, n = 2, context = {}) {
     staple: [],  // 主食面饭
     soup: [],    // 羹汤炖品
     cold: [],    // 凉菜冷盘
-    drink: [],   // 饮品
-    dessert: []  // 点心甜品
+    drink: [],   // 饮品（含酒水 alcohol）
+    dessert: []  // 点心甜品（含水果 fruit）
   };
 
-  if (categories.length > 1) {
-    for (const cat of categories) {
-      const role = cat.role || 'hot';
-      if (buckets[role]) {
-        buckets[role].push(...(cat.items || []));
-      } else {
-        buckets.hot.push(...(cat.items || []));
+  let validItems = [];
+  if (hasStructuredCategories(db)) {
+    const rawCats = (db.categories || []).filter(c => Array.isArray(c?.items) && c.items.length > 0);
+    const activeNames = Array.isArray(context?.activeCategoryNames) ? context.activeCategoryNames.filter(Boolean) : [];
+    let scopedCats = rawCats;
+    if (activeNames.length > 0) {
+      const matchedCats = rawCats.filter(c => {
+        const cname = String(c.name || '');
+        return activeNames.some(a => cname.includes(a) || a.includes(cname));
+      });
+      if (matchedCats.some(c => normalizeCategoryRole(c.role) !== 'excluded')) {
+        scopedCats = matchedCats;
       }
     }
+    for (const cat of scopedCats) {
+      const role = normalizeCategoryRole(cat.role);
+      if (role === 'excluded') continue;
+      const catItems = (cat.items || []).filter(Boolean);
+      buckets[role].push(...catItems);
+      validItems.push(...catItems);
+    }
   } else {
+    validItems = [...allDbItems];
     // 启发式自动角色分配（依据纯净菜名推导）
-    for (const item of db.items) {
+    for (const item of validItems) {
       const parsed = parseDishCondition(item);
       const role = categorizeFoodRole(parsed.name);
       buckets[role].push(item);
     }
   }
 
+  if (!validItems.length) {
+    validItems = [...allDbItems];
+    for (const item of validItems) {
+      const parsed = parseDishCondition(item);
+      const role = categorizeFoodRole(parsed.name);
+      buckets[role].push(item);
+    }
+  }
+
+  const uniqueValidCount = new Set(validItems.map(i => parseDishCondition(i).name).filter(Boolean)).size || validItems.length;
+  const targetCount = Math.min(Math.max(1, n), uniqueValidCount);
+
   const picked = [];
   const seenNames = new Set();
 
-  function pickOneFrom(arr) {
+  function pickOneFrom(arr, allowUnmatched = false) {
     if (!arr || !arr.length) return null;
     const available = arr.filter(rawItem => {
       const parsed = parseDishCondition(rawItem);
-      return !seenNames.has(parsed.name);
+      return parsed.name && !seenNames.has(parsed.name);
     });
     if (!available.length) return null;
 
@@ -545,7 +707,10 @@ export function assembleMealCombo(db, n = 2, context = {}) {
       }
     }
 
-    const candidatePool = matched.length ? matched : (universal.length ? universal : unmatched);
+    const candidatePool = matched.length
+      ? matched
+      : (universal.length ? universal : (allowUnmatched ? unmatched : []));
+    if (!candidatePool.length) return null;
     const chosen = candidatePool[Math.floor(Math.random() * candidatePool.length)];
     seenNames.add(chosen.name);
     picked.push(chosen.name);
@@ -553,37 +718,52 @@ export function assembleMealCombo(db, n = 2, context = {}) {
   }
 
   // 配餐策略：
-  // 1. 先选 1 道核心主菜/热菜
-  pickOneFrom(buckets.hot.length ? buckets.hot : db.items);
+  // 1. 先选 1 道核心主菜/热菜（若主菜均不合时令或主菜为空，回退至所有合时令/通用菜品）
+  if (!pickOneFrom(buckets.hot, false)) {
+    pickOneFrom(validItems, false);
+  }
 
-  // 2. 若 n >= 2，选 1 道主食或汤羹
+  // 2. 若 n >= 2，优先在主食与汤羹中各尝试一次（避免主食空置时概率跳过汤羹）
   if (picked.length < targetCount) {
-    if (buckets.staple.length && Math.random() > 0.4) {
-      pickOneFrom(buckets.staple);
-    } else if (buckets.soup.length) {
-      pickOneFrom(buckets.soup);
+    const preferStaple = Math.random() > 0.4;
+    const first = preferStaple ? buckets.staple : buckets.soup;
+    const second = preferStaple ? buckets.soup : buckets.staple;
+    if (!pickOneFrom(first, false)) {
+      pickOneFrom(second, false);
     }
   }
 
-  // 3. 若 n >= 3，选 1 道饮品或点心/凉菜
+  // 3. 若 n >= 3，优先在饮品、凉菜、点心中依次挑选
   if (picked.length < targetCount) {
-    if (buckets.drink.length && Math.random() > 0.5) {
-      pickOneFrom(buckets.drink);
-    } else if (buckets.cold.length) {
-      pickOneFrom(buckets.cold);
-    } else if (buckets.dessert.length) {
-      pickOneFrom(buckets.dessert);
+    const subOrder = Math.random() > 0.5
+      ? [buckets.drink, buckets.cold, buckets.dessert]
+      : [buckets.cold, buckets.dessert, buckets.drink];
+    for (const bucket of subOrder) {
+      if (pickOneFrom(bucket, false)) break;
     }
   }
 
-  // 4. 若还不够，从所有剩余项目中补足
-  const allShuffled = [...db.items].sort(() => 0.5 - Math.random());
-  for (const item of allShuffled) {
-    if (picked.length >= targetCount) break;
-    const parsed = parseDishCondition(item);
-    if (!seenNames.has(parsed.name)) {
-      seenNames.add(parsed.name);
-      picked.push(parsed.name);
+  // 4. 若还不够，严格按 matched -> universal -> unmatched 三级优先级从剩余菜品补足
+  if (picked.length < targetCount) {
+    const remainingParsed = [];
+    const candidateSeen = new Set(seenNames);
+    for (const rawItem of validItems) {
+      const parsed = parseDishCondition(rawItem);
+      if (!parsed.name || candidateSeen.has(parsed.name)) continue;
+      candidateSeen.add(parsed.name);
+      remainingParsed.push(parsed);
+    }
+    const shuffleArr = arr => [...arr].sort(() => 0.5 - Math.random());
+    const matchedRest = shuffleArr(remainingParsed.filter(p => p.condition && isConditionMatched(p.condition, context)));
+    const universalRest = shuffleArr(remainingParsed.filter(p => !p.condition));
+    const unmatchedRest = shuffleArr(remainingParsed.filter(p => p.condition && !isConditionMatched(p.condition, context)));
+
+    for (const item of [...matchedRest, ...universalRest, ...unmatchedRest]) {
+      if (picked.length >= targetCount) break;
+      if (!seenNames.has(item.name)) {
+        seenNames.add(item.name);
+        picked.push(item.name);
+      }
     }
   }
 
@@ -613,16 +793,19 @@ export function buildTrace({
 
   const comboRoles = (pickedFoods || []).map(food => {
     let role = 'hot';
-    if (selectedDb?.categories?.length) {
-      const cat = selectedDb.categories.find(c => (c.items || []).includes(food));
-      if (cat?.role) role = cat.role;
+    if (hasStructuredCategories(selectedDb)) {
+      const cat = selectedDb.categories.find(c =>
+        (c.items || []).some(item => item === food || parseDishCondition(item).name === food)
+      );
+      role = cat?.role ? normalizeCategoryRole(cat.role) : categorizeFoodRole(food);
     } else {
       role = categorizeFoodRole(food);
     }
+    const safeRole = role === 'excluded' ? 'hot' : role;
     return {
       name: food,
-      role,
-      roleLabel: roleNameMap[role] || '主菜'
+      role: safeRole,
+      roleLabel: roleNameMap[safeRole] || '主菜'
     };
   });
 
@@ -670,6 +853,55 @@ export function buildTrace({
   };
 }
 
+const GENERIC_DB_KEYWORDS = new Set([
+  'CN', '中国', '日常', '基础菜库', '菜系', '国家', '大区', '情境', '专题',
+  '特殊餐饮', '业态', '场所', '点心', '甜品', '饮品', '茶酒', '零食', '小吃',
+  '主食', '汤羹', '风味', '街头', '宴席', '水产', '海鲜', '肉类', '素食',
+  '热菜', '凉菜', '菜品', '美食', '早餐', '午餐', '晚餐', '宵夜', '夜宵'
+]);
+
+function isSpecificTriggerKeyword(kw) {
+  const s = String(kw || '').trim();
+  if (!s || s.length < 2) return false;
+  if (GENERIC_DB_KEYWORDS.has(s)) return false;
+  if (/^[A-Za-z0-9_.:-]+$/.test(s)) return false;
+  return true;
+}
+
+function splitLabelTokens(str) {
+  return String(str || '').split(/[/／·・,，\s]+/).map(s => s.trim()).filter(s => s.length >= 2);
+}
+
+function matchesDbTagsOrLabel(db, candidates = []) {
+  if (!db || !candidates.length) return false;
+  const label = String(db.label || '');
+  const tags = Array.isArray(db.tags) ? db.tags : [];
+  for (const cand of candidates) {
+    const tokens = [String(cand || '').trim(), ...splitLabelTokens(cand)].filter(Boolean);
+    for (const token of tokens) {
+      if (label.includes(token)) return true;
+      if (tags.some(t => t && (t.includes(token) || token.includes(t)))) return true;
+    }
+  }
+  return false;
+}
+
+function findMatchingCategoryNames(db, candidates = []) {
+  if (!db || !Array.isArray(db.categories) || !candidates.length) return [];
+  const names = [];
+  for (const cat of db.categories) {
+    if (!cat?.name || !(cat.items || []).length) continue;
+    const cname = String(cat.name);
+    const hit = candidates.some(cand => {
+      if (!cand) return false;
+      if (cname.includes(cand) || cand.includes(cname)) return true;
+      return splitLabelTokens(cand).some(tok => cname.includes(tok) || tok.includes(cname));
+    });
+    if (hit && !names.includes(cname)) names.push(cname);
+  }
+  return names;
+}
+
 // 核心决策：结合三维感知，产生匹配结果与溯源链路
 export function evaluateFoodieMatch({
   state = {},
@@ -681,7 +913,7 @@ export function evaluateFoodieMatch({
 }) {
   const core = FOODIE_CATALOG.core;
   const databases = getEffectiveDatabases(state);
-  const enabledDbs = databases.filter(db => db.enabled === true && db.items?.length > 0);
+  const enabledDbs = databases.filter(db => db.enabled === true && getDbItemList(db).length > 0);
 
   const foodieState = state.foodie || {};
   const currentSession = foodieState.session || null;
@@ -689,8 +921,8 @@ export function evaluateFoodieMatch({
   const targetCount = Number(foodieState.count) || DEFAULT_FOODIE_COUNT;
   const template = foodieState.template || DEFAULT_FOODIE_TEMPLATE;
 
-  // 1. 若处于手动锁定状态，直接维持
-  if (isLocked && foodieState.current?.foods?.length) {
+  // 1. 若处于手动锁定状态且未强制刷新，直接维持
+  if (isLocked && !forceRefresh && foodieState.current?.foods?.length) {
     const prompt = formatFoodiePrompt(template, foodieState.current.foods);
     return {
       triggered: true,
@@ -737,16 +969,13 @@ export function evaluateFoodieMatch({
   const weatherSense = senseWeather(calendarContext, storyText);
   const storySense = senseStoryText(storyText, core);
 
-  // 自动联通已开启的美食库关键词、时段词、节日词及菜品分组标签（只要剧情提及，立即激活进食契机）
+  // 仅从用户自建库或用户修改过的内置库的明确自定义触发词激发契机（避免内置目录泛标签如“中国/日常/春季”误触发）
+  const modifiedBuiltins = foodieState.modifiedBuiltins || {};
   for (const db of enabledDbs) {
-    const customTriggers = [
-      ...(db.keywords || []),
-      ...(db.calendarSlots || []),
-      ...(db.calendarFestivals || []),
-      ...extractDishConditions(db)
-    ];
-    for (const kw of customTriggers) {
-      if (kw && storyText.includes(kw)) {
+    const allowDbKeywordTrigger = !db.builtin || Boolean(modifiedBuiltins[db.id]);
+    if (!allowDbKeywordTrigger) continue;
+    for (const kw of (db.keywords || [])) {
+      if (isSpecificTriggerKeyword(kw) && storyText && storyText.includes(kw)) {
         storySense.hasMealIntent = true;
         if (!storySense.hitKeywords.includes(kw)) storySense.hitKeywords.push(kw);
       }
@@ -828,6 +1057,7 @@ export function evaluateFoodieMatch({
   // 4. 交集加权匹配大类
   let selectedDb = null;
   let matchReason = '';
+  let activeCategoryNames = [];
 
   // 4.1 用户自建库优先（全面加权：地点、餐期时段、节气/季节、天气天候、正文触发词）
   const customCandidates = [];
@@ -878,7 +1108,7 @@ export function evaluateFoodieMatch({
         }
 
         // 5. 关键词
-        const hitKw = db.keywords?.find(kw => kw && storySense.hitKeywords.includes(kw));
+        const hitKw = db.keywords?.find(kw => kw && (storySense.hitKeywords.includes(kw) || (storyText && storyText.includes(kw))));
         if (hitKw) {
           score += 4;
           reasons.push(`触发词(${hitKw})`);
@@ -916,36 +1146,88 @@ export function evaluateFoodieMatch({
 
   // 4.2 正文业态/身体状态 ∩ 地图菜系交集
   if (!selectedDb && mapSense.matchedLocations.length && (storySense.matchedBiz.length || storySense.matchedStates.length)) {
-    const bizOrState = [...storySense.matchedBiz, ...storySense.matchedStates][0];
+    const bizOrStates = [...storySense.matchedBiz, ...storySense.matchedStates];
     const candidate = enabledDbs.find(db => {
       const locHit = db.mapLocations?.some(loc => mapSense.matchedLocations.includes(loc));
-      const tagHit = db.tags?.some(tag => tag.includes(bizOrState)) || db.label.includes(bizOrState);
+      const tagHit = matchesDbTagsOrLabel(db, bizOrStates);
       return locHit && tagHit;
     });
     if (candidate) {
       selectedDb = candidate;
-      matchStage = '地点与正文业态交集'; matchReason = `地点(${mapSense.matchedLocations[0]})与正文(${bizOrState})交集融合`;
+      matchStage = '地点与正文业态交集';
+      matchReason = `地点(${mapSense.matchedLocations[0]})与正文(${bizOrStates[0]})交集融合`;
     }
   }
 
-  // 4.3 地图菜系/片区优先（细分片区优先匹配！）
+  // 4.3 地图菜系/片区优先（真·地域片区 > 完整菜系 > 技法切片 > 国家大区）
   if (!selectedDb && mapSense.matchedLocations.length) {
-    // 优先匹配细分片区（cn-pian），更精准
-    const pianCandidate = enabledDbs.find(db => db.kind === 'cn-pian' && db.mapLocations?.some(loc => mapSense.matchedLocations.includes(loc)));
-    const candidate = pianCandidate || enabledDbs.find(db => db.mapLocations?.some(loc => mapSense.matchedLocations.includes(loc)));
+    const locMatchingDbs = enabledDbs.filter(db => db.mapLocations?.some(loc => mapSense.matchedLocations.includes(loc)));
+    const pianCandidate = locMatchingDbs.find(db => db.kind === 'cn-pian' && !String(db.id || '').startsWith('cn:cuisine:3-1:'));
+    const cuisineCandidate = locMatchingDbs.find(db => db.kind === 'cn-cuisine');
+    const sliceCandidate = locMatchingDbs.find(db => String(db.id || '').startsWith('cn:cuisine:3-1:'));
+    const candidate = pianCandidate || cuisineCandidate || sliceCandidate || locMatchingDbs[0];
     if (candidate) {
       selectedDb = candidate;
-      matchStage = '地域菜系片区优先'; matchReason = `地图定位【${mapSense.matchedLocations[0]}】锚定地域菜系`;
+      matchStage = '地域菜系片区优先';
+      matchReason = `地图定位【${mapSense.matchedLocations[0]}】锚定地域菜系`;
     }
   }
 
-  // 4.4 正文明确提及的业态/场景
+  // 4.4 正文明确提及的业态/场景/身体状态/生活情境
   if (!selectedDb && storySense.matchedBiz.length) {
     const biz = storySense.matchedBiz[0];
-    const candidate = enabledDbs.find(db => db.tags?.some(tag => tag.includes(biz)) || db.label.includes(biz));
+    const sceneCandidate = enabledDbs.find(db => db.kind === 'scene' && matchesDbTagsOrLabel(db, storySense.matchedBiz));
+    const venueDb = enabledDbs.find(db => db.id === 'cn:venue');
+    const venueMatchedCats = venueDb ? findMatchingCategoryNames(venueDb, storySense.matchedBiz) : [];
+    const generalCandidate = enabledDbs.find(db => matchesDbTagsOrLabel(db, storySense.matchedBiz));
+    const candidate = sceneCandidate || (venueMatchedCats.length ? venueDb : generalCandidate);
     if (candidate) {
       selectedDb = candidate;
-      matchStage = '正文场景业态命中'; matchReason = `正文提及场景【${biz}】`;
+      if (candidate.id === 'cn:venue' && venueMatchedCats.length) {
+        activeCategoryNames = venueMatchedCats;
+      }
+      matchStage = '正文场景业态命中';
+      matchReason = `正文提及场景【${biz}】`;
+    }
+  }
+
+  if (!selectedDb && storySense.matchedStates.length) {
+    const specialHealthDb = enabledDbs.find(db => db.id === 'special:9-2');
+    const matchedHealthCats = specialHealthDb ? findMatchingCategoryNames(specialHealthDb, storySense.matchedStates) : [];
+    if (specialHealthDb && matchedHealthCats.length) {
+      selectedDb = specialHealthDb;
+      activeCategoryNames = matchedHealthCats;
+      matchStage = '身体状态饮食匹配';
+      matchReason = `身体状态【${storySense.matchedStates[0]}】匹配专题餐饮`;
+    } else {
+      const stateSceneCandidate = enabledDbs.find(db => {
+        if (db.id === 'scene:hangover' && storySense.matchedStates.some(s => /宿醉/.test(s))) return true;
+        if (db.id === 'scene:sick' && storySense.matchedStates.some(s => /感冒|发烧|咳嗽|肠胃|术后|牙|病|痛经|孕|体虚/.test(s))) return true;
+        return matchesDbTagsOrLabel(db, storySense.matchedStates);
+      });
+      if (stateSceneCandidate) {
+        selectedDb = stateSceneCandidate;
+        matchStage = '身体状态场景匹配';
+        matchReason = `身体状态【${storySense.matchedStates[0]}】匹配场景库`;
+      }
+    }
+  }
+
+  if (!selectedDb && storySense.matchedSituations?.length) {
+    const specialSitDb = enabledDbs.find(db => db.id === 'special:9-3');
+    const matchedSitCats = specialSitDb ? findMatchingCategoryNames(specialSitDb, storySense.matchedSituations) : [];
+    if (specialSitDb && matchedSitCats.length) {
+      selectedDb = specialSitDb;
+      activeCategoryNames = matchedSitCats;
+      matchStage = '生活情境饮食匹配';
+      matchReason = `生活情境【${storySense.matchedSituations[0]}】匹配专题餐饮`;
+    } else {
+      const sitSceneCandidate = enabledDbs.find(db => matchesDbTagsOrLabel(db, storySense.matchedSituations));
+      if (sitSceneCandidate) {
+        selectedDb = sitSceneCandidate;
+        matchStage = '生活情境场景匹配';
+        matchReason = `生活情境【${storySense.matchedSituations[0]}】匹配场景库`;
+      }
     }
   }
 
@@ -958,10 +1240,12 @@ export function evaluateFoodieMatch({
       if (festFoods.length) {
         const picked = festFoods.slice(0, targetCount);
         const prompt = formatFoodiePrompt(template, picked);
+        const resolvedStatus = isLocked ? 'locked' : 'active';
+        const resolvedStatusText = isLocked ? '已锁定' : '应季节令生效中';
         return {
           triggered: true,
-          status: 'active',
-          statusText: '应季节令生效中',
+          status: resolvedStatus,
+          statusText: resolvedStatusText,
           foods: picked,
           prompt,
           session: {
@@ -971,8 +1255,8 @@ export function evaluateFoodieMatch({
             dbLabel: `节令·${festName}`
           },
           trace: buildTrace({
-            status: 'active',
-            statusText: '应季节令生效中',
+            status: resolvedStatus,
+            statusText: resolvedStatusText,
             intentTriggered: true,
             hitKeywords: storySense.hitKeywords,
             intentSource: '进食意图 ∩ 应季民俗',
@@ -1003,7 +1287,8 @@ export function evaluateFoodieMatch({
     calSense,
     weatherSense,
     mapSense,
-    storyText
+    storyText,
+    activeCategoryNames
   });
   const prompt = formatFoodiePrompt(template, pickedFoods);
 
@@ -1015,19 +1300,24 @@ export function evaluateFoodieMatch({
     dbLabel: selectedDb?.label
   };
 
+  const finalStatus = isLocked ? 'locked' : 'active';
+  const finalStatusText = isLocked ? '已锁定' : '生效中';
+
   return {
     triggered: true,
-    status: 'active',
-    statusText: '生效中',
+    status: finalStatus,
+    statusText: finalStatusText,
     foods: pickedFoods,
     prompt,
     session: newSession,
     trace: buildTrace({
-      status: 'active',
-      statusText: '生效中',
+      status: finalStatus,
+      statusText: finalStatusText,
       intentTriggered: true,
       hitKeywords: storySense.hitKeywords,
-      intentSource: storySense.hitKeywords.length ? `正文命中关键词 [${storySense.hitKeywords.slice(0, 3).join(', ')}]` : '就餐契机触发',
+      intentSource: forceRefresh && !storySense.hasMealIntent
+        ? '手动刷新推荐菜品'
+        : (storySense.hitKeywords.length ? `正文命中关键词 [${storySense.hitKeywords.slice(0, 3).join(', ')}]` : '就餐契机触发'),
       mapSense,
       calSense,
       weatherSense,

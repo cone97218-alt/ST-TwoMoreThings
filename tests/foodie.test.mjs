@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getEffectiveDatabases } from '../src/foodie-engine.js';
+import { getEffectiveDatabases, evaluateFoodieMatch } from '../src/foodie-engine.js';
 import { renderFoodie } from '../src/ui/foodie.js';
 
 test('foodie: getEffectiveDatabases properly incorporates custom databases', () => {
@@ -57,21 +57,20 @@ test('foodie: renderFoodie trace env grid renders clean SVG icons without emojis
   assert.match(html, /天气天候/, 'Should contain weather label');
 });
 
-test('foodie: parseTimeRange and isTimeSlotMatched support time ranges including overnight', () => {
-  import('../src/foodie-engine.js').then(({ parseTimeRange, isTimeSlotMatched }) => {
-    // 正常日间区间
-    const r1 = parseTimeRange('11:30-13:30');
-    assert.deepEqual(r1, { start: 690, end: 810 });
-    assert.equal(isTimeSlotMatched('11:30-13:30', { currentMinutes: 720 }), true); // 12:00 -> 命中
-    assert.equal(isTimeSlotMatched('11:30-13:30', { currentMinutes: 600 }), false); // 10:00 -> 未中
+test('foodie: parseTimeRange and isTimeSlotMatched support time ranges including overnight', async () => {
+  const { parseTimeRange, isTimeSlotMatched } = await import('../src/foodie-engine.js');
+  // 正常日间区间
+  const r1 = parseTimeRange('11:30-13:30');
+  assert.deepEqual(r1, { start: 690, end: 810 });
+  assert.equal(isTimeSlotMatched('11:30-13:30', { currentMinutes: 720 }), true); // 12:00 -> 命中
+  assert.equal(isTimeSlotMatched('11:30-13:30', { currentMinutes: 600 }), false); // 10:00 -> 未中
 
-    // 跨午夜夜宵区间 (21:00-02:00)
-    const r2 = parseTimeRange('21:00-02:00');
-    assert.deepEqual(r2, { start: 1260, end: 120 });
-    assert.equal(isTimeSlotMatched('21:00-02:00', { currentMinutes: 1320 }), true); // 22:00 -> 命中
-    assert.equal(isTimeSlotMatched('21:00-02:00', { currentMinutes: 60 }), true); // 01:00 -> 命中
-    assert.equal(isTimeSlotMatched('21:00-02:00', { currentMinutes: 720 }), false); // 12:00 -> 未中
-  });
+  // 跨午夜夜宵区间 (21:00-02:00)
+  const r2 = parseTimeRange('21:00-02:00');
+  assert.deepEqual(r2, { start: 1260, end: 120 });
+  assert.equal(isTimeSlotMatched('21:00-02:00', { currentMinutes: 1320 }), true); // 22:00 -> 命中
+  assert.equal(isTimeSlotMatched('21:00-02:00', { currentMinutes: 60 }), true); // 01:00 -> 命中
+  assert.equal(isTimeSlotMatched('21:00-02:00', { currentMinutes: 720 }), false); // 12:00 -> 未中
 });
 
 test('foodie: renderFoodie edit view renders map-derived places and time ranges without fake secondary words', () => {
@@ -216,4 +215,180 @@ test('foodie: sub-group condition parsing and intelligent drill-down extraction'
   assert.equal(matchResult.triggered, true);
   assert.equal(matchResult.session?.dbId, 'custom:solar');
   assert.ok(matchResult.foods.includes('青团') || matchResult.foods.includes('螺蛳'), `Foods should contain Qingming dishes: ${matchResult.foods.join(', ')}`);
+});
+
+test('foodie: ambiguous single-char actions and generic builtin tags do not false-trigger meal intent', () => {
+  const res1 = evaluateFoodieMatch({
+    storyText: '他冲出门外，端详着天空，煎熬地等着，顺便泡个澡。今天是春季日常，他在中国散步。',
+    state: { foodie: {} },
+    calendarContext: { season: '春季', jieqi: '', festivals: [] }
+  });
+  assert.equal(res1.triggered, false, 'Ambiguous actions and generic builtin metadata must not trigger meal intent');
+
+  // Empty builtin country:CN shell should be excluded from getEffectiveDatabases
+  const effective = getEffectiveDatabases({ foodie: {} });
+  assert.equal(effective.some(d => d.id === 'country:CN'), false, 'Empty country:CN shell should not appear in effective databases');
+});
+
+test('foodie: senseCalendar ignores todo and non-today events while sensing story festival, solarTerm and time slot', async () => {
+  const { senseCalendar } = await import('../src/foodie-engine.js');
+  const mockCore = {
+    slots: {
+      morning: ['清晨', '早上'],
+      lunch: ['中午'],
+      dinner: ['晚上', '晚饭'],
+      lateNight: ['深夜', '凌晨']
+    },
+    jieqiList: ['冬至', '清明', '谷雨'],
+    fests: [{ n: '中秋节', kw: ['中秋'] }]
+  };
+  const calSense = senseCalendar({
+    time: '12:15',
+    solarTerm: '谷雨',
+    season: '春季',
+    events: [
+      { type: 'todo', title: '中秋采购', when: '今天' },
+      { type: 'festival', title: '端午节', when: '5天后' },
+      { type: 'festival', title: '清明祭扫', when: '今天' }
+    ]
+  }, mockCore, new Date(2026, 3, 20, 9, 0), '两个人走在春风拂面的街道上');
+
+  assert.equal(calSense.jieqi, '谷雨');
+  assert.ok(calSense.festivals.includes('清明祭扫'), 'Today non-todo event should be sensed');
+  assert.ok(!calSense.festivals.includes('中秋采购'), 'Todo event should be ignored');
+  assert.ok(!calSense.festivals.includes('端午节'), 'Future event should be ignored');
+  assert.equal(calSense.timeSlot, 'noon', 'Explicit calendar clock 12:15 should determine noon timeSlot');
+  assert.equal(calSense.timeSource, '日历时间');
+
+  const storyOnlyCal = senseCalendar({ weather: {} }, mockCore, new Date(2026, 11, 21, 9, 0), '明天就是冬至，晚上大家准备聚一下');
+  assert.equal(storyOnlyCal.jieqi, '冬至');
+  assert.equal(storyOnlyCal.timeSlot, 'dinner');
+  assert.equal(storyOnlyCal.timeSource, '正文时段');
+});
+
+test('foodie: assembleMealCombo skips excluded, maps alcohol/fruit, supports single-category DB and strict priority', async () => {
+  const { assembleMealCombo, senseWeather } = await import('../src/foodie-engine.js');
+  const structuredDb = {
+    id: 'custom:struct',
+    label: '测试分类库',
+    categories: [
+      { name: '禁忌避坑', role: 'excluded', items: ['香菜', '折耳根'] },
+      { name: '酒水', role: 'alcohol', items: ['桂花酿'] },
+      { name: '果盘', role: 'fruit', items: ['冰镇西瓜'] },
+      { name: '主菜', role: 'hot', items: ['[雨天] 酸菜鱼'] },
+      { name: '点心', role: 'dessert', items: ['[下雪] 烤红薯'] }
+    ],
+    items: ['香菜', '折耳根', '桂花酿', '冰镇西瓜', '[雨天] 酸菜鱼', '[下雪] 烤红薯']
+  };
+
+  const rainySense = senseWeather({ weather: { condition: '小雨' } });
+  for (let i = 0; i < 10; i++) {
+    const picked = assembleMealCombo(structuredDb, 3, { weatherSense: rainySense });
+    assert.equal(picked.length, 3);
+    assert.ok(!picked.includes('香菜') && !picked.includes('折耳根'), 'Excluded items must never be selected');
+    assert.ok(!picked.includes('烤红薯'), 'Unmatched snowy condition should not be picked when matched/universal items exist');
+  }
+
+  // Alcohol/fruit role normalization check
+  const drinkDb = {
+    id: 'custom:drink-map',
+    label: '微醺配餐',
+    categories: [
+      { name: '禁忌', role: 'excluded', items: ['生蒜'] },
+      { name: '主菜', role: 'hot', items: ['红烧肉'] },
+      { name: '酒水', role: 'alcohol', items: ['桂花酿'] }
+    ],
+    items: ['生蒜', '红烧肉', '桂花酿']
+  };
+  const drinkPick = assembleMealCombo(drinkDb, 2, {});
+  assert.deepEqual(new Set(drinkPick), new Set(['红烧肉', '桂花酿']));
+
+  // Single-category dessert-only DB should pick from that category cleanly
+  const dessertOnlyDb = {
+    id: 'custom:dessert-only',
+    label: '纯甜品铺',
+    categories: [
+      { name: '甜点', role: 'dessert', items: ['杨枝甘露', '双皮奶', '芒果班戟'] }
+    ],
+    items: ['杨枝甘露', '双皮奶', '芒果班戟']
+  };
+  const dessertPick = assembleMealCombo(dessertOnlyDb, 2, {});
+  assert.equal(dessertPick.length, 2);
+  assert.ok(dessertPick.every(x => ['杨枝甘露', '双皮奶', '芒果班戟'].includes(x)));
+
+  // Role bucket check in UI edit view should also exclude 'excluded' and map alcohol/fruit
+  const uiHtml = renderFoodie({ foodie: { customDatabases: { 'custom:struct': structuredDb } } }, {
+    ui: { foodieShowSettings: true, foodieSettingsTab: 'edit', foodieSelectedDbId: 'custom:struct' }
+  });
+  assert.doesNotMatch(uiHtml, /折耳根/);
+  assert.match(uiHtml, /桂花酿/);
+  assert.match(uiHtml, /冰镇西瓜/);
+});
+
+test('foodie: evaluateFoodieMatch supports compound biz label matching and forceRefresh', () => {
+  const res = evaluateFoodieMatch({
+    storyText: '逛完街好饿，走进星巴克想坐下吃点东西',
+    state: {
+      foodie: {
+        modifiedBuiltins: {
+          'scene:cafe': { enabled: true },
+          'cn:daily': { enabled: true }
+        }
+      }
+    }
+  });
+  assert.equal(res.triggered, true);
+  assert.equal(res.session?.dbId, 'scene:cafe', `Expected scene:cafe via compound biz '咖啡厅/西式餐吧', got ${res.session?.dbId}`);
+
+  // forceRefresh should bypass cached session foods and re-evaluate
+  const lockedState = {
+    foodie: {
+      customDatabases: {
+        'custom:tea': {
+          id: 'custom:tea',
+          label: '茶室定制',
+          enabled: true,
+          builtin: false,
+          keywords: ['喝茶', '茶点'],
+          items: ['龙井茶', '定胜糕']
+        }
+      },
+      session: {
+        startTurn: 0,
+        lastTurn: 0,
+        dbId: res.session.dbId,
+        dbLabel: res.session.dbLabel,
+        foods: ['旧缓存食物'],
+        promptText: '[食物线索：旧缓存食物]',
+        timestamp: Date.now()
+      }
+    }
+  };
+  const refreshed = evaluateFoodieMatch({
+    storyText: '逛完街好饿，进来喝茶吃茶点',
+    state: lockedState,
+    turnIndex: 1,
+    forceRefresh: true
+  });
+  assert.equal(refreshed.triggered, true);
+  assert.equal(refreshed.session?.dbId, 'custom:tea');
+  assert.notEqual(refreshed.foods[0], '旧缓存食物', 'forceRefresh should bypass cached session foods');
+});
+
+test('foodie: renderFoodie shows locked trace label and chevron-right button on db card', () => {
+  const lockedHtml = renderFoodie({
+    foodie: {
+      locked: true,
+      current: { dbId: 'cn-pian:su', dbLabel: '苏菜', foods: ['松鼠鳜鱼'], trace: { locationText: '苏州' } },
+      lastTrace: { locationText: '苏州' }
+    }
+  }, {
+    ui: { foodieTraceOpen: false }
+  });
+  assert.match(lockedHtml, /class="trace-state-tag locked">已锁定</);
+
+  const listHtml = renderFoodie({ foodie: {} }, {
+    ui: { foodieShowSettings: true, foodieSettingsTab: 'list' }
+  });
+  assert.match(listHtml, /data-action="foodie-open-edit-db"[^>]*><svg/);
 });

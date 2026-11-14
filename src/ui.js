@@ -40,7 +40,9 @@ import { renderOrigin } from './ui/origin.js';
 
 import { renderFoodie } from './ui/foodie.js';
 
-import { evaluateFoodieMatch, getEffectiveDatabases, parseDishCondition, splitDishesInput } from './foodie-engine.js';
+import { DEFAULT_FOODIE_TEMPLATE, evaluateFoodieMatch, getEffectiveDatabases, parseDishCondition, splitDishesInput } from './foodie-engine.js';
+
+import { sanitizeStoryBody, getSharedBodyWrappers } from './shared-body-wrappers.js';
 
 import { SYSTEM_CONTACT_ID, DEFAULT_ORIGIN_TEMPLATES, resetOriginData } from './origin-engine.js';
 
@@ -586,6 +588,18 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
     };
 
+    const previousFoodieSearch = root.querySelector('#foodie-db-search-input');
+
+    const foodieSearchSelection = previousFoodieSearch && (root.activeElement === previousFoodieSearch) && {
+
+      text: previousFoodieSearch.value,
+
+      start: previousFoodieSearch.selectionStart,
+
+      end: previousFoodieSearch.selectionEnd,
+
+    };
+
     const scrollTop = inChat() ? root.querySelector('.message-feed')?.scrollTop : undefined;
 
     const settingsScroll = ui.savedSettingsScroll !== undefined ? ui.savedSettingsScroll : root.querySelector('.view-settings')?.scrollTop;
@@ -899,6 +913,20 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         searchInput.focus({ preventScroll: true });
 
         searchInput.setSelectionRange(mapSearchSelection.start, mapSearchSelection.end);
+
+      }
+
+    }
+
+    if (foodieSearchSelection) {
+
+      const searchInput = root.querySelector('#foodie-db-search-input');
+
+      if (searchInput && searchInput.value === foodieSearchSelection.text) {
+
+        searchInput.focus({ preventScroll: true });
+
+        searchInput.setSelectionRange(foodieSearchSelection.start, foodieSearchSelection.end);
 
       }
 
@@ -2185,38 +2213,156 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
   }
 
-  function syncFoodieFormDraft(containerRoot) {
-    if (!containerRoot) return;
+  const FOODIE_ROLE_META = [
+    { role: 'hot', name: '主菜' },
+    { role: 'staple', name: '主食' },
+    { role: 'soup', name: '羹汤' },
+    { role: 'drink', name: '饮品' },
+    { role: 'cold', name: '凉菜' },
+    { role: 'dessert', name: '点心' },
+  ];
+
+  function collectFoodieCategoriesFromDom(container, extraDishes = [], extraRole = 'hot') {
+    const categories = FOODIE_ROLE_META.map(meta => {
+      const domBox = container.querySelector(`.role-dish-chips-box[data-role-pane="${meta.role}"]`);
+      let items = [];
+      if (domBox) {
+        items = Array.from(domBox.querySelectorAll('.role-dish-tag'))
+          .map(t => t.dataset.dishName || t.querySelector('.dish-name-text')?.textContent?.trim() || '')
+          .filter(Boolean);
+      } else {
+        const el = container.querySelector(`#edit-db-${meta.role}`);
+        if (el) {
+          items = String(el.value || '').split(/[\n,，]/).map(s => s.trim()).filter(Boolean);
+        }
+      }
+      if (meta.role === extraRole && Array.isArray(extraDishes) && extraDishes.length) {
+        for (const d of extraDishes) {
+          if (d && !items.includes(d)) items.push(d);
+        }
+      }
+      return { name: meta.name, role: meta.role, items };
+    }).filter(c => c.items.length > 0);
+    return { categories, items: categories.flatMap(c => c.items) };
+  }
+
+  function updateFoodieEditStatsDom(container, categories, isCustomDb, templateStr) {
+    const counts = { hot: 0, staple: 0, soup: 0, drink: 0, cold: 0, dessert: 0 };
+    const lists = { hot: [], staple: [], soup: [], drink: [], cold: [], dessert: [] };
+    for (const cat of (categories || [])) {
+      const r = counts[cat.role] !== undefined ? cat.role : 'hot';
+      const arr = Array.isArray(cat.items) ? cat.items : [];
+      counts[r] += arr.length;
+      lists[r].push(...arr);
+    }
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+    const originChip = container.querySelector('.selected-db-toolbar .db-origin-chip');
+    if (originChip) {
+      originChip.textContent = `${isCustomDb ? '自建' : '内置'} · ${total} 道`;
+    }
+    const totalPill = container.querySelector('#foodie-total-dishes-badge, .drawer-summary-pill');
+    if (totalPill) {
+      totalPill.textContent = `${total} 道菜品`;
+    }
+    for (const meta of FOODIE_ROLE_META) {
+      const statB = container.querySelector(`.db-role-stats-row .role-stat-chip.${meta.role} b`);
+      if (statB) statB.textContent = String(counts[meta.role]);
+      const tabNum = container.querySelector(`.role-count-num[data-role-count="${meta.role}"]`);
+      if (tabNum) tabNum.textContent = `(${counts[meta.role]})`;
+    }
+    const countBadge = container.querySelector('.role-count-badge');
+    const activeRole = ui.foodieActiveRoleTab || 'hot';
+    if (countBadge) {
+      countBadge.textContent = `(${counts[activeRole] ?? 0})`;
+    }
+    const previewCode = container.querySelector('.db-prompt-preview-line .preview-code');
+    if (previewCode) {
+      const tmpl = templateStr || DEFAULT_FOODIE_TEMPLATE;
+      const sampleFoods = [
+        lists.hot[0] || '招牌主菜',
+        lists.staple[0] || lists.soup[0] || '精选主食'
+      ].join('、');
+      previewCode.textContent = tmpl.includes('{{food}}') ? tmpl.replace(/\{\{food\}\}/g, sampleFoods) : `[食物线索：${sampleFoods}]`;
+    }
+  }
+
+  async function syncFoodieFormDraft(containerRoot) {
+    if (!containerRoot || ui.foodieSettingsTab !== 'edit') return;
     try {
-      const container = containerRoot.querySelector?.('.foodie-view');
+      const container = containerRoot.querySelector?.('.foodie-view') || containerRoot;
       if (!container) return;
       const dbId = ui.foodieSelectedDbId;
-      if (!dbId || !dbId.startsWith('custom:')) return;
+      if (!dbId) return;
       const labelInput = container.querySelector('#edit-db-label');
-      if (!labelInput) return;
-      const label = labelInput.value?.trim();
-      const keywords = (container.querySelector('#edit-db-keywords')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-      const mapLocs = (container.querySelector('#edit-db-map')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-      const calSlots = (container.querySelector('#edit-db-cal-slots')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-      const weatherConditions = (container.querySelector('#edit-db-weather')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-      const calFestivals = (container.querySelector('#edit-db-cal-festivals')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-      const calendarSeasons = calFestivals.filter(f => /春季|夏季|秋季|冬季/.test(f));
+      const kwInput = container.querySelector('#edit-db-keywords');
+      if (!labelInput && !kwInput) return;
 
       const state = store.read();
+      const isCustom = dbId.startsWith('custom:');
       const customs = { ...(state.foodie?.customDatabases || {}) };
-      if (customs[dbId]) {
-        customs[dbId] = {
-          ...customs[dbId],
-          ...(label ? { label } : {}),
-          keywords,
-          tags: keywords,
-          mapLocations: mapLocs,
-          calendarSlots: calSlots,
-          weatherConditions,
-          calendarSeasons,
-          calendarFestivals,
-        };
-        void store.setFoodieState({ customDatabases: customs });
+      const modified = { ...(state.foodie?.modifiedBuiltins || {}) };
+      const effectiveDb = getEffectiveDatabases(state).find(d => d.id === dbId);
+      const baseDb = isCustom ? customs[dbId] : (modified[dbId] || effectiveDb);
+      if (!baseDb) return;
+
+      const label = labelInput ? (labelInput.value.trim() || baseDb.label) : baseDb.label;
+      const keywords = kwInput
+        ? kwInput.value.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+        : (baseDb.keywords || []);
+
+      if (!isCustom) {
+        const origKw = baseDb.keywords || baseDb.tags || [];
+        const labelUnchanged = label === (baseDb.label || '');
+        const kwUnchanged = JSON.stringify(keywords) === JSON.stringify(origKw);
+        if (labelUnchanged && kwUnchanged && !modified[dbId]) {
+          return;
+        }
+      }
+
+      const mapInput = container.querySelector('#edit-db-map');
+      const mapLocs = mapInput ? mapInput.value.split(/[,，]/).map(s => s.trim()).filter(Boolean) : (baseDb.mapLocations || []);
+
+      const calSlotsInput = container.querySelector('#edit-db-cal-slots');
+      const calSlots = calSlotsInput ? calSlotsInput.value.split(/[,，]/).map(s => s.trim()).filter(Boolean) : (baseDb.calendarSlots || []);
+
+      const weatherInput = container.querySelector('#edit-db-weather');
+      const weatherConditions = weatherInput ? weatherInput.value.split(/[,，]/).map(s => s.trim()).filter(Boolean) : (baseDb.weatherConditions || []);
+
+      const festivalsInput = container.querySelector('#edit-db-cal-festivals');
+      const calFestivals = festivalsInput ? festivalsInput.value.split(/[,，]/).map(s => s.trim()).filter(Boolean) : (baseDb.calendarFestivals || []);
+      const calendarSeasons = festivalsInput ? calFestivals.filter(f => /春季|夏季|秋季|冬季/.test(f)) : (baseDb.calendarSeasons || []);
+
+      let nextCategories = baseDb.categories;
+      let nextItems = baseDb.items;
+      if (container.querySelector('.role-dish-chips-box')) {
+        const collected = collectFoodieCategoriesFromDom(container);
+        // 内置库保留尚未单独改动分类的数据（仅当列表或结构明确修改过、或自建库时覆盖）
+        if (isCustom || modified[dbId]?.categories) {
+          nextCategories = collected.categories;
+          nextItems = collected.items;
+        }
+      }
+
+      const updatedFields = {
+        label,
+        keywords,
+        tags: keywords,
+        mapLocations: mapLocs,
+        calendarSlots: calSlots,
+        weatherConditions,
+        calendarSeasons,
+        calendarFestivals: calFestivals,
+        ...(nextCategories !== undefined ? { categories: nextCategories } : {}),
+        ...(nextItems !== undefined ? { items: nextItems } : {}),
+      };
+
+      if (isCustom) {
+        customs[dbId] = { ...customs[dbId], ...updatedFields };
+        await store.setFoodieState({ customDatabases: customs });
+      } else {
+        modified[dbId] = { ...(modified[dbId] || {}), id: dbId, ...updatedFields };
+        await store.setFoodieState({ modifiedBuiltins: modified });
       }
     } catch (err) {
       console.warn('[foodie] sync draft failed:', err);
@@ -3600,10 +3746,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
 
       case 'foodie-close-settings':
-        syncFoodieFormDraft(root);
+        await syncFoodieFormDraft(root);
         ui.foodieShowSettings = false;
         ui.foodieSettingsTab = 'list';
         render();
+        onContextChange();
         break;
 
       case 'toggle-foodie-trace':
@@ -3615,63 +3762,64 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
 
       case 'foodie-refresh': {
-
         const state = store.read();
-
-        const beforeIndex = messages.length;
-
-        const lastFloor = messages.at(-1);
-
-        const storyText = lastFloor ? lastFloor.mes || '' : '';
-
-        const calCtx = calendar?.context ? calendar.context(null, { viewerIds: ['@user'] }) : null;
-
-        const mapProj = buildMapProjection({ state, baibaiSnapshot: readBaiBaiBookMapSnapshot(), messages });
-
-        const res = evaluateFoodieMatch({
-
-          state,
-
-          storyText,
-
-          mapProjection: mapProj,
-
-          calendarContext: calCtx,
-
-          turnIndex: beforeIndex,
-
-          forceRefresh: true
-
-        });
-
-        if (res) {
-
-          const nextFoodie = {
-
-            ...(state.foodie || {}),
-
-            current: res,
-
-            session: res.session,
-
-            lastTrace: res.trace
-
-          };
-
-          void perform('foodie-refresh', async () => {
-
-            await store.setFoodieState(nextFoodie);
-
-            render();
-
-            onContextChange();
-
-          });
-
+        const chatMessages = readChatMessages() || [];
+        const beforeIndex = chatMessages.length;
+        const wrapperSettings = host?.readSettings ? getSharedBodyWrappers(host.readSettings()) : {};
+        const recentFloors = [];
+        for (let i = Math.max(0, beforeIndex - 3); i < beforeIndex; i++) {
+          const msg = chatMessages[i];
+          if (!msg || msg.is_system || msg.role === 'system') continue;
+          const raw = String(msg.mes ?? msg.content ?? '');
+          if (!raw.trim()) continue;
+          const clean = sanitizeStoryBody(raw, wrapperSettings);
+          if (clean) recentFloors.push(clean);
         }
-
+        const storyText = recentFloors.join('\n');
+        const timeline = readTimeline?.() || null;
+        const rawCalCtx = calendar?.context ? calendar.context(timeline?.label || null, { viewerIds: ['@user'] }) : null;
+        const extraWeather = (!rawCalCtx?.weather && calendar?.weatherInfo)
+          ? calendar.weatherInfo(chatMessages)
+          : null;
+        const weatherObj = rawCalCtx?.weather || rawCalCtx?.weatherInfo || extraWeather || null;
+        const calCtx = {
+          ...(rawCalCtx || {}),
+          ...(timeline?.clock?.date && !rawCalCtx?.today ? { today: timeline.clock.date } : {}),
+          ...(timeline?.clock?.time && !rawCalCtx?.time ? { time: timeline.clock.time } : {}),
+          ...(weatherObj ? { weather: weatherObj } : {}),
+          ...(weatherObj?.solarTerm && !rawCalCtx?.jieqi ? { jieqi: weatherObj.solarTerm } : {}),
+          events: rawCalCtx?.events || [],
+        };
+        const mapProj = buildMapProjection({
+          state,
+          context: host?.readCurrentTarget?.() || {},
+          baibaiSnapshot: readBaiBaiBookMapSnapshot(doc.defaultView || globalThis),
+          messages: chatMessages,
+        });
+        const res = evaluateFoodieMatch({
+          state,
+          storyText,
+          mapProjection: mapProj,
+          calendarContext: calCtx,
+          turnIndex: beforeIndex,
+          forceRefresh: true,
+        });
+        if (res) {
+          const nextFoodie = {
+            ...(state.foodie || {}),
+            current: res,
+            session: res.session !== undefined
+              ? res.session
+              : (res.status === 'locked' ? state.foodie?.session : null),
+            lastTrace: res.trace,
+          };
+          void perform('foodie-refresh', async () => {
+            await store.setFoodieState(nextFoodie);
+            render();
+            onContextChange();
+          });
+        }
         break;
-
       }
 
       case 'foodie-toggle-lock': {
@@ -3689,42 +3837,6 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           onContextChange();
 
         });
-
-        break;
-
-      }
-
-      case 'foodie-toggle-db-enable': {
-
-        const dbId = button.dataset.dbId;
-
-        const state = store.read();
-
-        const isBuiltin = !dbId.startsWith('custom:');
-
-        if (isBuiltin) {
-
-          const modified = { ...(state.foodie?.modifiedBuiltins || {}) };
-
-          const prev = modified[dbId] || {};
-
-          modified[dbId] = { ...prev, enabled: button.checked };
-
-          void store.setFoodieState({ modifiedBuiltins: modified }).then(() => render());
-
-        } else {
-
-          const customs = { ...(state.foodie?.customDatabases || {}) };
-
-          if (customs[dbId]) {
-
-            customs[dbId].enabled = button.checked;
-
-            void store.setFoodieState({ customDatabases: customs }).then(() => render());
-
-          }
-
-        }
 
         break;
 
@@ -3748,9 +3860,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         break;
       }
       case 'foodie-back-to-list': {
-        syncFoodieFormDraft(root);
+        await syncFoodieFormDraft(root);
         ui.foodieSettingsTab = 'list';
         render();
+        onContextChange();
         break;
       }
       case 'foodie-open-edit-db': {
@@ -3805,6 +3918,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         void store.setFoodieState({ customDatabases: customs }).then(() => {
           ui.feedback = { text: '已新建美食库' };
           render();
+          onContextChange();
         });
         break;
       }
@@ -3928,13 +4042,19 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         if (!newDishes.length) break;
 
         const dbId = button.dataset.dbId || ui.foodieSelectedDbId || '';
+        const activePane = container.querySelector(`.role-dish-chips-box[data-role-pane="${role}"]`);
+        const existingSet = new Set(
+          Array.from(activePane?.querySelectorAll('.role-dish-tag') || [])
+            .map(t => t.dataset.dishName || t.textContent.trim())
+            .filter(Boolean)
+        );
+        const dishesToAdd = newDishes.filter(d => d && !existingSet.has(d));
 
         // 1. 本地 DOM 增量插入（零滚动重置、秒级上屏）
-        const activePane = container.querySelector(`.role-dish-chips-box[data-role-pane="${role}"]`);
-        if (activePane) {
+        if (activePane && dishesToAdd.length) {
           const emptyNotice = activePane.querySelector('.role-dishes-empty');
           if (emptyNotice) emptyNotice.remove();
-          for (const dish of newDishes) {
+          for (const dish of dishesToAdd) {
             const parsed = parseDishCondition(dish);
             const tag = document.createElement('span');
             tag.className = `role-dish-tag ${parsed.condition ? 'has-condition' : ''}`;
@@ -3942,81 +4062,50 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             tag.innerHTML = `${parsed.condition ? `<span class="dish-cond-badge">${escape(parsed.condition)}</span>` : ''}<span class="dish-name-text">${escape(parsed.name)}</span><button type="button" class="dish-remove-btn" data-action="foodie-remove-role-dish" data-db-id="${escape(dbId)}" data-role="${role}" data-dish="${escape(dish)}" title="删除">${icon('close')}</button>`;
             activePane.appendChild(tag);
           }
-          const currentCount = activePane.querySelectorAll('.role-dish-tag').length;
-          const countEl = container.querySelector(`.role-count-num[data-role-count="${role}"]`);
-          if (countEl) countEl.textContent = `(${currentCount})`;
-          const countBadge = container.querySelector('.role-count-badge');
-          if (countBadge) countBadge.textContent = `(${currentCount})`;
         }
 
         // 2. 同步更新隐藏 textarea (供保存使用)
         const textarea = container.querySelector(`#edit-db-${role}`);
-        if (textarea) {
+        if (textarea && dishesToAdd.length) {
           const currentLines = textarea.value.split('\n').filter(Boolean);
-          for (const d of newDishes) {
+          for (const d of dishesToAdd) {
             if (!currentLines.includes(d)) currentLines.push(d);
           }
           textarea.value = currentLines.join('\n');
         }
 
-        // 3. 更新总菜品数药丸
-        const totalPill = container.querySelector('#foodie-total-dishes-badge, .drawer-summary-pill');
-        if (totalPill) {
-          let totalCount = 0;
-          container.querySelectorAll('.role-dish-chips-box').forEach(box => {
-            totalCount += box.querySelectorAll('.role-dish-tag').length;
-          });
-          totalPill.textContent = `${totalCount} 道菜品`;
-        }
-
         inputEl.value = '';
         inputEl.focus({ preventScroll: true });
 
-        // 4. 后台持久化到 store
+        if (!dishesToAdd.length) break;
+
+        // 3. 收集完整分类并刷新顶部/标签计数与预览
+        const state = store.read();
+        const isCustom = dbId.startsWith('custom:');
+        const { categories, items } = collectFoodieCategoriesFromDom(container);
+        updateFoodieEditStatsDom(container, categories, isCustom, state.foodie?.template);
+
+        // 4. 后台持久化到 store 并刷新聊天注入上下文
         if (dbId) {
-          const state = store.read();
-          const isCustom = dbId.startsWith('custom:');
           if (isCustom) {
             const customs = { ...(state.foodie?.customDatabases || {}) };
             const db = { ...(customs[dbId] || { id: dbId, label: '自建预设', builtin: false, enabled: true }) };
-            const categories = db.categories ? [...db.categories] : [];
-            let cat = categories.find(c => c.role === role);
-            if (!cat) {
-              cat = { name: role, role, items: [] };
-              categories.push(cat);
-            } else {
-              cat = { ...cat, items: [...(cat.items || [])] };
-              const idx = categories.findIndex(c => c.role === role);
-              categories[idx] = cat;
-            }
-            for (const dish of newDishes) {
-              if (!cat.items.includes(dish)) cat.items.push(dish);
-            }
             db.categories = categories;
-            db.items = categories.flatMap(c => c.items || []);
+            db.items = items;
             customs[dbId] = db;
-            void store.setFoodieState({ customDatabases: customs });
+            void store.setFoodieState({ customDatabases: customs }).then(() => {
+              onContextChange();
+            });
           } else {
             const modified = { ...(state.foodie?.modifiedBuiltins || {}) };
             const orig = getEffectiveDatabases(state).find(d => d.id === dbId) || {};
             const db = { ...(modified[dbId] || orig) };
-            const categories = db.categories ? [...db.categories] : [];
-            let cat = categories.find(c => c.role === role);
-            if (!cat) {
-              cat = { name: role, role, items: [] };
-              categories.push(cat);
-            } else {
-              cat = { ...cat, items: [...(cat.items || [])] };
-              const idx = categories.findIndex(c => c.role === role);
-              categories[idx] = cat;
-            }
-            for (const dish of newDishes) {
-              if (!cat.items.includes(dish)) cat.items.push(dish);
-            }
             db.categories = categories;
-            db.items = categories.flatMap(c => c.items || []);
+            db.items = items;
             modified[dbId] = db;
-            void store.setFoodieState({ modifiedBuiltins: modified });
+            void store.setFoodieState({ modifiedBuiltins: modified }).then(() => {
+              onContextChange();
+            });
           }
         }
         break;
@@ -4029,17 +4118,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         if (tagEl) tagEl.remove();
 
         const activePane = container.querySelector(`.role-dish-chips-box[data-role-pane="${role}"]`);
-        if (activePane) {
-          const currentCount = activePane.querySelectorAll('.role-dish-tag').length;
-          const countEl = container.querySelector(`.role-count-num[data-role-count="${role}"]`);
-          if (countEl) countEl.textContent = `(${currentCount})`;
-          const countBadge = container.querySelector('.role-count-badge');
-          if (countBadge && ui.foodieActiveRoleTab === role) {
-            countBadge.textContent = `(${currentCount})`;
-          }
-          if (currentCount === 0) {
-            activePane.innerHTML = '<div class="role-dishes-empty">暂无菜品</div>';
-          }
+        if (activePane && activePane.querySelectorAll('.role-dish-tag').length === 0) {
+          activePane.innerHTML = '<div class="role-dishes-empty">暂无菜品</div>';
         }
 
         // 同步从隐藏 textarea 中移除
@@ -4048,49 +4128,30 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           textarea.value = textarea.value.split('\n').filter(Boolean).filter(d => d !== dishName).join('\n');
         }
 
-        // 更新总菜品数药丸
-        const totalPill = container.querySelector('#foodie-total-dishes-badge, .drawer-summary-pill');
-        if (totalPill) {
-          let totalCount = 0;
-          container.querySelectorAll('.role-dish-chips-box').forEach(box => {
-            totalCount += box.querySelectorAll('.role-dish-tag').length;
-          });
-          totalPill.textContent = `${totalCount} 道菜品`;
-        }
-
         const dbId = button.dataset.dbId || ui.foodieSelectedDbId || '';
+        const state = store.read();
+        const isCustom = dbId.startsWith('custom:');
+        const { categories, items } = collectFoodieCategoriesFromDom(container);
+        updateFoodieEditStatsDom(container, categories, isCustom, state.foodie?.template);
+
         if (dbId) {
-          const state = store.read();
-          const isCustom = dbId.startsWith('custom:');
           if (isCustom) {
             const customs = { ...(state.foodie?.customDatabases || {}) };
             if (customs[dbId]) {
-              const db = { ...customs[dbId] };
-              const categories = (db.categories || []).map(cat => {
-                if (cat.role === role) {
-                  return { ...cat, items: (cat.items || []).filter(i => i !== dishName) };
-                }
-                return cat;
-              });
-              db.categories = categories;
-              db.items = categories.flatMap(c => c.items || []);
+              const db = { ...customs[dbId], categories, items };
               customs[dbId] = db;
-              void store.setFoodieState({ customDatabases: customs });
+              void store.setFoodieState({ customDatabases: customs }).then(() => {
+                onContextChange();
+              });
             }
           } else {
             const modified = { ...(state.foodie?.modifiedBuiltins || {}) };
             const orig = getEffectiveDatabases(state).find(d => d.id === dbId) || {};
-            const db = { ...(modified[dbId] || orig) };
-            const categories = (db.categories || []).map(cat => {
-              if (cat.role === role) {
-                return { ...cat, items: (cat.items || []).filter(i => i !== dishName) };
-              }
-              return cat;
-            });
-            db.categories = categories;
-            db.items = categories.flatMap(c => c.items || []);
+            const db = { ...(modified[dbId] || orig), categories, items };
             modified[dbId] = db;
-            void store.setFoodieState({ modifiedBuiltins: modified });
+            void store.setFoodieState({ modifiedBuiltins: modified }).then(() => {
+              onContextChange();
+            });
           }
         }
         break;
@@ -4119,47 +4180,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
           return text.split(/[\n,，]/).map(s => s.trim()).filter(Boolean);
         };
 
-        const getRoleDishes = (role, selector) => {
-          const domBox = container.querySelector(`.role-dish-chips-box[data-role-pane="${role}"]`);
-          if (domBox) {
-            const tags = domBox.querySelectorAll('.role-dish-tag');
-            return Array.from(tags).map(t => t.dataset.dishName || t.textContent.trim()).filter(Boolean);
-          }
-          return parseList(selector) || [];
-        };
-
-        const hot = getRoleDishes('hot', '#edit-db-hot');
-        const staple = getRoleDishes('staple', '#edit-db-staple');
-        const soup = getRoleDishes('soup', '#edit-db-soup');
-        const drink = getRoleDishes('drink', '#edit-db-drink');
-        const cold = getRoleDishes('cold', '#edit-db-cold');
-        const dessert = getRoleDishes('dessert', '#edit-db-dessert');
-
-        // 如果用户在输入框有尚未敲回车或点击添加的文字，保存时自动合并到当前选中的分类中
         const pendingInput = container.querySelector('#foodie-new-dish-input');
         const pendingVal = pendingInput?.value?.trim();
         const activeRole = ui.foodieActiveRoleTab || 'hot';
-        if (pendingVal) {
-          const pendingDishes = splitDishesInput(pendingVal);
-          const targetListMap = { hot, staple, soup, drink, cold, dessert };
-          const roleTargetList = targetListMap[activeRole];
-          if (roleTargetList) {
-            for (const d of pendingDishes) {
-              if (!roleTargetList.includes(d)) roleTargetList.push(d);
-            }
-          }
-        }
-
-        let categories = [
-          { name: '主菜', role: 'hot', items: hot },
-          { name: '主食', role: 'staple', items: staple },
-          { name: '羹汤', role: 'soup', items: soup },
-          { name: '饮品', role: 'drink', items: drink },
-          { name: '凉菜', role: 'cold', items: cold },
-          { name: '点心', role: 'dessert', items: dessert }
-        ].filter(c => c.items.length > 0);
-
-        let items = [...hot, ...staple, ...soup, ...drink, ...cold, ...dessert];
+        const pendingDishes = pendingVal ? splitDishesInput(pendingVal) : [];
+        const { categories, items } = collectFoodieCategoriesFromDom(container, pendingDishes, activeRole);
 
         const calSlotsInput = container.querySelector('#edit-db-cal-slots');
         const calSlots = calSlotsInput ? (parseList('#edit-db-cal-slots') || []) : (existingDb?.calendarSlots || []);
@@ -4185,7 +4210,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             calendarSlots: calSlots,
             weatherConditions,
             calendarSeasons,
-            calendarFestivals,
+            calendarFestivals: calFestivals,
             categories,
             items
           };
@@ -4193,6 +4218,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             ui.foodieSettingsTab = 'list';
             ui.feedback = { text: `已保存自建库【${label}】` };
             render();
+            onContextChange();
           });
         } else {
           const modified = { ...(state.foodie?.modifiedBuiltins || {}) };
@@ -4206,7 +4232,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             calendarSlots: calSlots,
             weatherConditions,
             calendarSeasons,
-            calendarFestivals,
+            calendarFestivals: calFestivals,
             categories,
             items
           };
@@ -4214,6 +4240,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
             ui.foodieSettingsTab = 'list';
             ui.feedback = { text: `已保存内置库【${label}】修改` };
             render();
+            onContextChange();
           });
         }
         break;
@@ -4230,11 +4257,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
         void store.setFoodieState({ modifiedBuiltins: modified }).then(() => {
 
-          ui.foodieEditDbId = null;
-
           ui.feedback = { text: '已恢复内置默认数据' };
 
           render();
+
+          onContextChange();
 
         });
 
@@ -4248,11 +4275,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         const customs = { ...(state.foodie?.customDatabases || {}) };
         delete customs[dbId];
         void store.setFoodieState({ customDatabases: customs }).then(() => {
-          ui.foodieEditDbId = null;
           ui.foodieSettingsTab = 'list';
           ui.foodieSelectedDbId = null;
           ui.feedback = { text: '已删除自建库' };
           render();
+          onContextChange();
         });
         break;
       }
@@ -7905,6 +7932,16 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
     }
 
+    if (event.target.id === 'foodie-db-search-input') {
+
+      ui.foodieSearchQuery = event.target.value;
+
+      render();
+
+      return;
+
+    }
+
     if (event.target.closest('.attachment-form') && event.target.name) ui.attachmentDraft[event.target.name] = event.target.value;
 
     if (event.target.id === 'sms-draft') {
@@ -7967,7 +8004,7 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
   }
 
-  function change(event) {
+  async function change(event) {
 
     if (event.target.matches('[data-action="import-prompt-preset-file"]')) {
 
@@ -8295,6 +8332,56 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
     }
 
+    if (event.target.matches('[data-action="foodie-toggle-db-enable"]')) {
+
+      const dbId = event.target.dataset.dbId || ui.foodieSelectedDbId;
+
+      if (!dbId) return;
+
+      const enabled = Boolean(event.target.checked);
+
+      if (ui.foodieSettingsTab === 'edit') {
+
+        await syncFoodieFormDraft(root);
+
+      }
+
+      const state = store.read();
+
+      const isCustom = dbId.startsWith('custom:');
+
+      if (isCustom) {
+
+        const customs = { ...(state.foodie?.customDatabases || {}) };
+
+        if (customs[dbId]) {
+
+          customs[dbId] = { ...customs[dbId], enabled };
+
+          await store.setFoodieState({ customDatabases: customs });
+
+        }
+
+      } else {
+
+        const modified = { ...(state.foodie?.modifiedBuiltins || {}) };
+
+        const orig = getEffectiveDatabases(state).find(d => d.id === dbId) || {};
+
+        modified[dbId] = { ...(modified[dbId] || orig), id: dbId, enabled };
+
+        await store.setFoodieState({ modifiedBuiltins: modified });
+
+      }
+
+      render();
+
+      onContextChange();
+
+      return;
+
+    }
+
     if (event.target.id === 'foodie-db-select' || event.target.dataset.action === 'foodie-switch-db') {
 
       ui.foodieSelectedDbId = event.target.value;
@@ -8309,7 +8396,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
       const val = Math.min(5, Math.max(1, Number(event.target.value) || 2));
 
-      void store.setFoodieState({ count: val });
+      void store.setFoodieState({ count: val }).then(() => {
+
+        onContextChange();
+
+      });
 
     }
 
@@ -8317,7 +8408,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
       const val = event.target.value;
 
-      void store.setFoodieState({ template: val });
+      void store.setFoodieState({ template: val }).then(() => {
+
+        onContextChange();
+
+      });
 
     }
 
@@ -8325,27 +8420,11 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
       const val = event.target.value.trim();
 
-      void store.setFoodieState({ customIntentWords: val });
+      void store.setFoodieState({ customIntentWords: val }).then(() => {
 
-    }
+        onContextChange();
 
-    if (event.target.id === 'foodie-db-search-input') {
-
-      ui.foodieSearchQuery = event.target.value;
-
-      const cursor = event.target.selectionStart;
-
-      render();
-
-      const nextInput = root.querySelector('#foodie-db-search-input');
-
-      if (nextInput) {
-
-        nextInput.focus();
-
-        try { nextInput.setSelectionRange(cursor, cursor); } catch (_) {}
-
-      }
+      });
 
     }
 

@@ -5211,6 +5211,11 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   background: var(--pp-pale);
 }
 
+.trace-state-tag.locked {
+  color: var(--pp-bronze);
+  background: color-mix(in srgb, var(--pp-bronze) 14%, transparent);
+}
+
 .trace-caret {
   display: flex;
   align-items: center;
@@ -5263,7 +5268,7 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--pp-active);
+  background: var(--pp-rule);
   border: 1.5px solid var(--pp-surface);
 }
 

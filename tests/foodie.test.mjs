@@ -117,7 +117,7 @@ test('foodie: renderFoodie edit view renders map-derived places and time ranges 
   assert.match(html, /data-action="foodie-back-to-list"/, 'Should contain back-to-list action');
   assert.match(html, /data-action="foodie-close-settings"/, 'Should contain close-settings action');
   assert.match(html, /data-action="foodie-save-db"/, 'Should contain save action');
-  assert.match(html, /保存预设/, 'Should have clear save button text');
+  assert.match(html, />保存</, 'Should have clear save button text');
 
   // 验证在编辑模式下，不渲染全局基础参数（避免混淆），而在清单模式下正常展示
   assert.doesNotMatch(html, /id="foodie-count-input"/, 'Edit view should not render global count input');

@@ -479,7 +479,7 @@ function renderFoodieSettingsView(state, ui) {
               <input type="number" id="foodie-count-input" class="foodie-select-number" min="1" max="5" value="${count}">
             </div>
             <div class="panel-row vertical">
-              <span class="panel-label">进食契机词（剧情提及任一词时激发就餐感知）</span>
+              <span class="panel-label">进食契机词</span>
               <input type="text" id="foodie-custom-intents-input" class="foodie-input-clean" value="${escape(foodieState.customIntentWords || '吃, 喝, 饿, 尝, 吃饭, 做饭, 点餐, 宵夜, 饮茶, 饱, 嘴馋')}" placeholder="逗号分隔，如：吃, 喝, 饿, 吃饭, 做饭, 点餐">
             </div>
             <div class="panel-row vertical">
@@ -507,12 +507,12 @@ function renderFoodieSettingsView(state, ui) {
                 ${searchQuery ? `<button type="button" class="icon-button foodie-filter-clear" data-action="foodie-clear-search">${icon('close')}</button>` : ''}
               </div>
               <div class="foodie-list-quick-actions">
-                <button type="button" class="quick-chip-btn" data-action="foodie-trigger-import" title="导入美食预设库 (JSON)">${icon('upload')} 导入库</button>
+                <button type="button" class="quick-chip-btn" data-action="foodie-trigger-import" title="导入美食预设库 (JSON)">导入</button>
                 <input type="file" id="foodie-import-file-input" accept=".json,.foodie.json" style="display:none;">
-                <button type="button" class="quick-chip-btn" data-action="foodie-new-db" title="新建自建预设库">${icon('plus')} 新建</button>
+                <button type="button" class="quick-chip-btn" data-action="foodie-new-db" title="新建自建预设库">新建</button>
                 ${activeGroupId === 'custom' && databases.some(d => !d.builtin || d.id.startsWith('custom:')) ? `
-                  <button type="button" class="quick-chip-btn" data-action="foodie-export-all-custom" title="导出全部自建预设库">${icon('download')} 导出全部</button>
-                  <button type="button" class="quick-chip-btn danger-chip" data-action="foodie-delete-all-custom" title="清空全部自建美食库">${icon('trash')} 清空自建</button>
+                  <button type="button" class="quick-chip-btn" data-action="foodie-export-all-custom" title="导出全部自建预设库">导出全部</button>
+                  <button type="button" class="quick-chip-btn danger-chip" data-action="foodie-delete-all-custom" title="清空全部自建美食库">清空</button>
                 ` : ''}
               </div>
             </div>
@@ -561,7 +561,7 @@ function renderFoodieSettingsView(state, ui) {
                       <span class="db-origin-chip ${isCustom ? 'custom' : 'builtin'}">${isCustom ? '自建' : '内置'}</span>
                       <span class="db-count-chip">${getDbItemList(d).length}道菜品</span>
                       ${d.keywords?.length ? `
-                        <span class="db-meta-chip kw-chip"><span class="chip-svg">${icon('edit')}</span>${escape(d.keywords.slice(0, 3).join('、'))}</span>
+                        <span class="db-meta-chip kw-chip">${escape(d.keywords.slice(0, 3).join('、'))}</span>
                       ` : ''}
                       ${boundMeta.map(m => `<span class="db-meta-chip">${m}</span>`).join('')}
                     </button>
@@ -572,7 +572,7 @@ function renderFoodieSettingsView(state, ui) {
                   ${filterMode === 'enabled' ? '暂无开启的美食库，请在上方选择【全部】进行开启' : (activeGroupId === 'custom' ? '暂无自建预设库，点击右上角加号或下方按钮创建' : '未找到匹配的美食库')}
                   ${activeGroupId === 'custom' ? `
                     <div style="margin-top:10px;">
-                      <button type="button" class="quick-chip-btn" data-action="foodie-new-db" style="padding:6px 14px;font-size:12px;">${icon('plus')} 新建预设库</button>
+                      <button type="button" class="quick-chip-btn" data-action="foodie-new-db" style="padding:6px 14px;font-size:12px;">新建预设库</button>
                     </div>
                   ` : ''}
                 </div>
@@ -617,7 +617,6 @@ function renderFoodieSettingsView(state, ui) {
               <!-- 基本信息 -->
               <div class="guided-step-card">
                 <div class="section-badge-title">
-                  <span class="section-title-icon">${icon('edit')}</span>
                   <span class="step-name">基本信息</span>
                 </div>
                 <div class="guided-step-body">
@@ -626,17 +625,16 @@ function renderFoodieSettingsView(state, ui) {
                     <input type="text" class="foodie-input-clean" id="edit-db-label" value="${escape(selectedDb?.label || '')}" placeholder="如：深夜食堂、姑苏家宴">
                   </label>
                   <label class="db-form-field">
-                    <span class="field-label">触发词（正文提及任一词时直接激发）</span>
+                    <span class="field-label">触发词</span>
                     <input type="text" class="foodie-input-clean" id="edit-db-keywords" value="${escape((selectedDb?.keywords || selectedDb?.tags || []).join(', '))}" placeholder="逗号分隔，如：小聚, 喝酒, 饿了, 烤肉">
                   </label>
                 </div>
               </div>
 
-              <!-- 菜品清单（核心编辑区，直铺展示，随手打标签即可分组） -->
+              <!-- 菜品清单（核心编辑区） -->
               <div class="guided-step-card">
                 <div class="section-badge-title">
-                  <span class="section-title-icon">${icon('foodie')}</span>
-                  <span class="step-name">菜品清单与时令/时段分组</span>
+                  <span class="step-name">菜品清单</span>
                   <span class="drawer-summary-pill" id="foodie-total-dishes-badge" style="margin-left:auto;">${selectedDb ? getDbItemList(selectedDb).length : 0} 道菜品</span>
                 </div>
                 <div class="guided-step-body">
@@ -670,10 +668,10 @@ function renderFoodieSettingsView(state, ui) {
                     `).join('')}
                   </div>
 
-                  <!-- 快速添加菜品栏（放在分类标签正下方，选完分类直接加，根本无需滑动到底部） -->
+                  <!-- 快速添加菜品栏 -->
                   <div class="role-add-row">
                     <input type="text" id="foodie-new-dish-input" class="foodie-input-clean" placeholder="如：[清明] 青团, 螺蛳 或直接输入常食菜品，回车添加..." data-role="${activeRole}" data-db-id="${escape(selectedDb?.id || '')}">
-                    <button type="button" class="quick-chip-btn add-dish-btn" data-action="foodie-add-role-dish" data-db-id="${escape(selectedDb?.id || '')}" data-role="${activeRole}">${icon('plus')} 添加</button>
+                    <button type="button" class="quick-chip-btn add-dish-btn" data-action="foodie-add-role-dish" data-db-id="${escape(selectedDb?.id || '')}" data-role="${activeRole}">添加</button>
                   </div>
 
                   <!-- 菜品展示区折叠开关栏 -->
@@ -724,28 +722,16 @@ function renderFoodieSettingsView(state, ui) {
                 </div>
               </div>
 
-              <!-- 底部操作栏：返回清单与保存预设 -->
+              <!-- 底部操作栏：返回、导出、恢复/删除、保存 -->
               <div class="guided-db-footer">
-                <button type="button" class="foodie-footer-btn secondary" data-action="foodie-back-to-list">返回清单</button>
-                <button type="button" class="foodie-footer-btn secondary" data-action="foodie-export-db" data-db-id="${escape(selectedDb?.id || '')}">
-                  <span class="btn-icon-svg">${icon('download')}</span>
-                  <span>导出预设</span>
-                </button>
+                <button type="button" class="foodie-footer-btn secondary" data-action="foodie-back-to-list" title="返回清单">返回</button>
+                <button type="button" class="foodie-footer-btn secondary" data-action="foodie-export-db" data-db-id="${escape(selectedDb?.id || '')}" title="导出为 JSON 文件">导出</button>
                 ${isCustomDb ? `
-                  <button type="button" class="foodie-footer-btn danger" data-action="foodie-delete-db" data-db-id="${escape(selectedDb?.id || '')}">
-                    <span class="btn-icon-svg">${icon('trash')}</span>
-                    <span>整库删除</span>
-                  </button>
+                  <button type="button" class="foodie-footer-btn danger" data-action="foodie-delete-db" data-db-id="${escape(selectedDb?.id || '')}" title="删除该自建库">删除</button>
                 ` : `
-                  <button type="button" class="foodie-footer-btn secondary" data-action="foodie-reset-db" data-db-id="${escape(selectedDb?.id || '')}">
-                    <span class="btn-icon-svg">${icon('undo')}</span>
-                    <span>恢复内置</span>
-                  </button>
+                  <button type="button" class="foodie-footer-btn secondary" data-action="foodie-reset-db" data-db-id="${escape(selectedDb?.id || '')}" title="恢复初始菜品">恢复</button>
                 `}
-                <button type="button" class="foodie-footer-btn primary" data-action="foodie-save-db" data-db-id="${escape(selectedDb?.id || '')}">
-                  <span class="btn-icon-svg">${icon('save')}</span>
-                  <span>保存预设</span>
-                </button>
+                <button type="button" class="foodie-footer-btn primary" data-action="foodie-save-db" data-db-id="${escape(selectedDb?.id || '')}" title="保存修改并生效">保存</button>
               </div>
             </div>
           </div>

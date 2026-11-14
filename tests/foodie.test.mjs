@@ -480,3 +480,24 @@ test('foodie: ancient twelve shichen parsing, slot mapping and condition matchin
   const meal = assembleMealCombo(ancientDb, 2, { calSense: calSenseFromStory });
   assert.ok(meal.includes('龙须酥与碧螺春'), `Should prioritize Chen-shi breakfast dish, got: ${meal.join(', ')}`);
 });
+
+test('foodie: japanese cuisine database and import/export pack structure', async () => {
+  const { getEffectiveDatabases, BUILTIN_JAPAN_CUISINE_DB, assembleMealCombo } = await import('../src/foodie-engine.js');
+  const dbs = getEffectiveDatabases({});
+  const jp = dbs.find(d => d.id === 'scene:japanese');
+  assert.ok(jp, 'Builtin Japanese cuisine database should exist');
+  assert.equal(jp.categories.length, 6, 'Should have all 6 role categories');
+  assert.ok(jp.items.length >= 60, 'Should have over 60 curated Japanese dishes');
+
+  // 场景与节日菜品提取
+  const summerMeal = assembleMealCombo(jp, 3, {
+    calSense: { festivals: ['夏祭'], season: '夏季' }
+  });
+  assert.ok(summerMeal.some(f => /章鱼小丸子|炒面|苹果糖/.test(f)), `Summer festival should pick festival specialties: ${summerMeal.join(', ')}`);
+
+  // 居酒屋夜宵场景
+  const izakayaMeal = assembleMealCombo(jp, 3, {
+    storyText: '今晚去居酒屋喝一杯，点些下酒菜'
+  });
+  assert.ok(izakayaMeal.some(f => /唐扬炸鸡|烤鸡肉串|毛豆|Highball|生啤酒|大吟酿/.test(f)));
+});

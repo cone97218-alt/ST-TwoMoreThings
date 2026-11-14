@@ -506,6 +506,15 @@ function renderFoodieSettingsView(state, ui) {
                 <input type="search" id="foodie-db-search-input" class="foodie-filter-input" placeholder="搜索库名、城市、菜品..." value="${escape(searchQuery)}">
                 ${searchQuery ? `<button type="button" class="icon-button foodie-filter-clear" data-action="foodie-clear-search">${icon('close')}</button>` : ''}
               </div>
+              <div class="foodie-list-quick-actions">
+                <button type="button" class="quick-chip-btn" data-action="foodie-trigger-import" title="导入美食预设库 (JSON)">${icon('upload')} 导入库</button>
+                <input type="file" id="foodie-import-file-input" accept=".json,.foodie.json" style="display:none;">
+                <button type="button" class="quick-chip-btn" data-action="foodie-new-db" title="新建自建预设库">${icon('plus')} 新建</button>
+                ${activeGroupId === 'custom' && databases.some(d => !d.builtin || d.id.startsWith('custom:')) ? `
+                  <button type="button" class="quick-chip-btn" data-action="foodie-export-all-custom" title="导出全部自建预设库">${icon('download')} 导出全部</button>
+                  <button type="button" class="quick-chip-btn danger-chip" data-action="foodie-delete-all-custom" title="清空全部自建美食库">${icon('trash')} 清空自建</button>
+                ` : ''}
+              </div>
             </div>
 
             <!-- 状态快速筛选药丸 -->
@@ -581,6 +590,7 @@ function renderFoodieSettingsView(state, ui) {
                 </span>
               </div>
               <div class="db-actions-right">
+                <button type="button" class="icon-button micro-btn" data-action="foodie-export-db" data-db-id="${escape(selectedDb?.id || '')}" aria-label="导出当前美食库" title="导出当前美食库 (JSON)">${icon('download')}</button>
                 <label class="switch" title="启用/禁用">
                   <input type="checkbox" role="switch" data-action="foodie-toggle-db-enable" data-db-id="${escape(selectedDb?.id || '')}" ${selectedDb?.enabled ? 'checked' : ''}>
                   <span></span>
@@ -717,6 +727,21 @@ function renderFoodieSettingsView(state, ui) {
               <!-- 底部操作栏：返回清单与保存预设 -->
               <div class="guided-db-footer">
                 <button type="button" class="foodie-footer-btn secondary" data-action="foodie-back-to-list">返回清单</button>
+                <button type="button" class="foodie-footer-btn secondary" data-action="foodie-export-db" data-db-id="${escape(selectedDb?.id || '')}">
+                  <span class="btn-icon-svg">${icon('download')}</span>
+                  <span>导出预设</span>
+                </button>
+                ${isCustomDb ? `
+                  <button type="button" class="foodie-footer-btn danger" data-action="foodie-delete-db" data-db-id="${escape(selectedDb?.id || '')}">
+                    <span class="btn-icon-svg">${icon('trash')}</span>
+                    <span>整库删除</span>
+                  </button>
+                ` : `
+                  <button type="button" class="foodie-footer-btn secondary" data-action="foodie-reset-db" data-db-id="${escape(selectedDb?.id || '')}">
+                    <span class="btn-icon-svg">${icon('undo')}</span>
+                    <span>恢复内置</span>
+                  </button>
+                `}
                 <button type="button" class="foodie-footer-btn primary" data-action="foodie-save-db" data-db-id="${escape(selectedDb?.id || '')}">
                   <span class="btn-icon-svg">${icon('save')}</span>
                   <span>保存预设</span>

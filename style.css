@@ -5389,7 +5389,37 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .foodie-filter-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.foodie-list-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.quick-chip-btn.danger-chip {
+  color: var(--pp-error);
+  border-color: color-mix(in srgb, var(--pp-error) 30%, transparent);
+}
+
+.quick-chip-btn.danger-chip:hover {
+  background: var(--pp-error-surface);
+  border-color: var(--pp-error);
+}
+
+.foodie-footer-btn.danger {
+  background: var(--pp-error-surface);
+  color: var(--pp-error);
+  border: 1px solid color-mix(in srgb, var(--pp-error) 30%, transparent);
+}
+
+.foodie-footer-btn.danger:hover {
+  background: var(--pp-error);
+  color: #fff;
 }
 
 .foodie-filter-bar {

@@ -4272,15 +4272,127 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
       }
 
-      case 'foodie-delete-db': {
-        const dbId = button.dataset.dbId;
+      case 'foodie-trigger-import': {
+        const fileInput = root.querySelector('#foodie-import-file-input');
+        if (fileInput) fileInput.click();
+        break;
+      }
+
+      case 'foodie-export-db': {
+        const dbId = button.dataset.dbId || ui.foodieSelectedDbId;
+        if (!dbId) break;
         const state = store.read();
+        const effectiveDb = getEffectiveDatabases(state).find(d => d.id === dbId);
+        if (!effectiveDb) break;
+        const isCustom = !effectiveDb.builtin || effectiveDb.id.startsWith('custom:');
+        const exportPack = {
+          format: 'st-foodie-pack',
+          version: '1.0',
+          exportedAt: new Date().toISOString(),
+          type: 'single',
+          data: {
+            id: effectiveDb.id,
+            label: effectiveDb.label,
+            builtin: isCustom ? false : Boolean(effectiveDb.builtin),
+            enabled: Boolean(effectiveDb.enabled),
+            keywords: effectiveDb.keywords || effectiveDb.tags || [],
+            tags: effectiveDb.tags || effectiveDb.keywords || [],
+            mapLocations: effectiveDb.mapLocations || [],
+            calendarSlots: effectiveDb.calendarSlots || [],
+            weatherConditions: effectiveDb.weatherConditions || [],
+            calendarSeasons: effectiveDb.calendarSeasons || [],
+            calendarFestivals: effectiveDb.calendarFestivals || [],
+            categories: effectiveDb.categories || [],
+            items: effectiveDb.items || []
+          }
+        };
+        const blob = new Blob([JSON.stringify(exportPack, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const safeName = (effectiveDb.label || effectiveDb.id).replace(/[\\/:*?"<>|]/g, '_');
+        a.download = `foodie_${safeName}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        ui.feedback = { text: `已导出美食库【${effectiveDb.label || effectiveDb.id}】` };
+        render();
+        break;
+      }
+
+      case 'foodie-export-all-custom': {
+        const state = store.read();
+        const customs = state.foodie?.customDatabases || {};
+        const customList = Object.values(customs);
+        if (!customList.length) {
+          ui.feedback = { text: '当前没有自建美食库可导出' };
+          render();
+          break;
+        }
+        const exportPack = {
+          format: 'st-foodie-pack',
+          version: '1.0',
+          exportedAt: new Date().toISOString(),
+          type: 'bundle',
+          count: customList.length,
+          data: customList
+        };
+        const blob = new Blob([JSON.stringify(exportPack, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `foodie_all_custom_presets_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        ui.feedback = { text: `已导出全部 ${customList.length} 个自建美食预设` };
+        render();
+        break;
+      }
+
+      case 'foodie-delete-all-custom': {
+        if (!window.confirm('确定要清空全部自建美食预设库吗？此操作无法撤销。')) {
+          break;
+        }
+        void store.setFoodieState({ customDatabases: {} }).then(() => {
+          ui.foodieSettingsTab = 'list';
+          ui.foodieSelectedDbId = null;
+          ui.feedback = { text: '已清空全部自建美食预设' };
+          render();
+          onContextChange();
+        });
+        break;
+      }
+
+      case 'foodie-delete-db': {
+        const dbId = button.dataset.dbId || ui.foodieSelectedDbId;
+        if (!dbId) break;
+        const state = store.read();
+        const isCustom = !dbId || dbId.startsWith('custom:');
+        if (!isCustom) {
+          // 内置库引导为恢复默认数据
+          const modified = { ...(state.foodie?.modifiedBuiltins || {}) };
+          delete modified[dbId];
+          void store.setFoodieState({ modifiedBuiltins: modified }).then(() => {
+            ui.foodieSettingsTab = 'list';
+            ui.feedback = { text: '已恢复内置默认预设' };
+            render();
+            onContextChange();
+          });
+          break;
+        }
         const customs = { ...(state.foodie?.customDatabases || {}) };
+        const label = customs[dbId]?.label || '自建预设';
+        if (!window.confirm(`确定要彻底删除美食库【${label}】吗？`)) {
+          break;
+        }
         delete customs[dbId];
         void store.setFoodieState({ customDatabases: customs }).then(() => {
           ui.foodieSettingsTab = 'list';
           ui.foodieSelectedDbId = null;
-          ui.feedback = { text: '已删除自建库' };
+          ui.feedback = { text: `已删除美食库【${label}】` };
           render();
           onContextChange();
         });
@@ -8333,6 +8445,91 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
 
       });
 
+    }
+
+    if (event.target.id === 'foodie-import-file-input') {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const state = store.read();
+        const customs = { ...(state.foodie?.customDatabases || {}) };
+
+        let importedList = [];
+        if (Array.isArray(json)) {
+          importedList = json;
+        } else if (json.format === 'st-foodie-pack') {
+          importedList = Array.isArray(json.data) ? json.data : (json.data ? [json.data] : []);
+        } else if (json.data && (Array.isArray(json.data) || typeof json.data === 'object')) {
+          importedList = Array.isArray(json.data) ? json.data : [json.data];
+        } else if (json.label || json.categories || json.items) {
+          importedList = [json];
+        }
+
+        if (!importedList.length) {
+          ui.feedback = { text: '导入失败：未识别到有效的美食库数据' };
+          render();
+          return;
+        }
+
+        let importCount = 0;
+        let lastImportedId = null;
+        for (const raw of importedList) {
+          if (!raw || typeof raw !== 'object') continue;
+          const label = String(raw.label || raw.name || '导入美食预设').trim();
+          const origId = String(raw.id || '').trim();
+          // 如果是内置库ID或未带 custom: 前缀，赋予自建唯一 ID
+          const finalId = (origId && origId.startsWith('custom:')) ? origId : `custom:${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+          const items = Array.isArray(raw.items) ? raw.items.map(s => String(s).trim()).filter(Boolean) : [];
+          const categories = Array.isArray(raw.categories)
+            ? raw.categories.map(c => ({
+              name: String(c.name || '分类').trim(),
+              role: String(c.role || 'hot').trim(),
+              items: Array.isArray(c.items) ? c.items.map(s => String(s).trim()).filter(Boolean) : []
+            }))
+            : [];
+          if (!categories.length && items.length) {
+            categories.push({ name: '推荐菜品', role: 'hot', items: [...items] });
+          }
+
+          customs[finalId] = {
+            id: finalId,
+            label,
+            builtin: false,
+            enabled: raw.enabled !== undefined ? Boolean(raw.enabled) : true,
+            keywords: Array.isArray(raw.keywords) ? raw.keywords : (Array.isArray(raw.tags) ? raw.tags : []),
+            tags: Array.isArray(raw.tags) ? raw.tags : (Array.isArray(raw.keywords) ? raw.keywords : []),
+            mapLocations: Array.isArray(raw.mapLocations) ? raw.mapLocations : [],
+            calendarSlots: Array.isArray(raw.calendarSlots) ? raw.calendarSlots : [],
+            weatherConditions: Array.isArray(raw.weatherConditions) ? raw.weatherConditions : [],
+            calendarSeasons: Array.isArray(raw.calendarSeasons) ? raw.calendarSeasons : [],
+            calendarFestivals: Array.isArray(raw.calendarFestivals) ? raw.calendarFestivals : [],
+            categories,
+            items: categories.length ? categories.flatMap(c => c.items) : items
+          };
+          importCount++;
+          lastImportedId = finalId;
+        }
+
+        await store.setFoodieState({ customDatabases: customs });
+        ui.foodieActiveGroup = 'custom';
+        if (importCount === 1 && lastImportedId) {
+          ui.foodieSelectedDbId = lastImportedId;
+          ui.foodieSettingsTab = 'edit';
+          ui.foodieActiveRoleTab = null;
+        } else {
+          ui.foodieSettingsTab = 'list';
+        }
+        ui.feedback = { text: `成功导入 ${importCount} 个美食预设库！` };
+        render();
+        onContextChange();
+      } catch (err) {
+        console.error('[foodie] 导入文件解析失败:', err);
+        ui.feedback = { text: '导入失败：JSON 格式不正确' };
+        render();
+      }
+      return;
     }
 
     if (event.target.matches('[data-action="foodie-toggle-db-enable"]')) {

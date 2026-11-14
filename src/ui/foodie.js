@@ -651,6 +651,7 @@ function renderFoodieSettingsView(state, ui) {
                     <span class="quick-cond-title">快捷分组:</span>
                     ${[
                       '立春', '清明', '端午', '中秋', '冬至',
+                      '辰时', '午时', '戌时',
                       '07:00-09:30', '11:30-13:30', '21:00-02:00',
                       '春季', '夏季', '冬季',
                       ...availableMapPlaces.slice(0, 6)

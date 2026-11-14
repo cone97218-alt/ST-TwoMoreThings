@@ -431,3 +431,52 @@ test('foodie: every effective builtin database shows non-zero count and non-empt
   const healedMin = healed.find(d => d.id === 'cn:cuisine:3-1');
   assert.ok(getDbItemList(healedMin).length > 100, 'Empty modifiedBuiltins items/categories should fall back to builtin data');
 });
+
+test('foodie: ancient twelve shichen parsing, slot mapping and condition matching', async () => {
+  const { parseShichen, senseCalendar, isTimeSlotMatched, isConditionMatched, assembleMealCombo } = await import('../src/foodie-engine.js');
+
+  // 1. 测试十二时辰解析及初/正/刻度换算
+  const chen = parseShichen('辰时');
+  assert.equal(chen.char, '辰');
+  assert.equal(chen.slot, 'morning');
+  assert.equal(chen.meal, '早膳');
+  assert.equal(chen.minutes, 480); // 08:00
+
+  const wuKe = parseShichen('午时三刻');
+  assert.equal(wuKe.char, '午');
+  assert.equal(wuKe.slot, 'noon');
+  assert.equal(wuKe.meal, '午膳');
+  assert.equal(wuKe.minutes, 11 * 60 + 30); // 11:30
+
+  const xuZheng = parseShichen('戌时正');
+  assert.equal(xuZheng.char, '戌');
+  assert.equal(xuZheng.slot, 'evening');
+  assert.equal(xuZheng.meal, '晚膳');
+  assert.equal(xuZheng.minutes, 20 * 60); // 20:00
+
+  // 2. 测试正文古代时辰感知与日历感知
+  const calSenseFromStory = senseCalendar({ weather: {} }, {}, new Date(), '转眼已至辰时，街上炊烟袅袅，行人纷纷出门寻些吃食');
+  assert.equal(calSenseFromStory.timeSlot, 'morning');
+  assert.equal(calSenseFromStory.timeSlotLabel, '辰时·食时');
+  assert.ok(calSenseFromStory.timeSlots.includes('早膳'));
+  assert.ok(calSenseFromStory.timeSlots.includes('辰时'));
+
+  // 3. 测试时段与条件匹配
+  assert.equal(isTimeSlotMatched('辰时', calSenseFromStory), true);
+  assert.equal(isTimeSlotMatched('早膳', calSenseFromStory), true);
+  assert.equal(isTimeSlotMatched('07:00-09:30', calSenseFromStory), true);
+  assert.equal(isTimeSlotMatched('午时', calSenseFromStory), false);
+
+  assert.equal(isConditionMatched('辰时', { calSense: calSenseFromStory }), true);
+  assert.equal(isConditionMatched('早膳', { calSense: calSenseFromStory }), true);
+  assert.equal(isConditionMatched('戌时', { calSense: calSenseFromStory }), false);
+
+  // 4. 测试配餐抽取：在辰时优先挑选 [辰时] 菜品
+  const ancientDb = {
+    id: 'custom:ancient-tea',
+    label: '古风客栈食肆',
+    items: ['[辰时] 龙须酥与碧螺春', '[午时] 叫花鸡', '[戌时] 桂花酿', '清炒时蔬']
+  };
+  const meal = assembleMealCombo(ancientDb, 2, { calSense: calSenseFromStory });
+  assert.ok(meal.includes('龙须酥与碧螺春'), `Should prioritize Chen-shi breakfast dish, got: ${meal.join(', ')}`);
+});

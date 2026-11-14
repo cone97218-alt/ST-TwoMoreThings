@@ -129,6 +129,50 @@ export function senseMapLocation(mapProjection, core) {
   };
 }
 
+// 十二时辰定义与映射（支持子丑寅卯辰巳午未申酉戌亥，初/正/刻度换算）
+export const SHICHEN_META = [
+  { name: '子时', char: '子', start: 23 * 60, end: 1 * 60, rep: 0, slot: 'lateNight', label: '子时·夜半', meal: '夜宵' },
+  { name: '丑时', char: '丑', start: 1 * 60, end: 3 * 60, rep: 2 * 60, slot: 'lateNight', label: '丑时·鸡鸣', meal: '夜宵' },
+  { name: '寅时', char: '寅', start: 3 * 60, end: 5 * 60, rep: 4 * 60, slot: 'lateNight', label: '寅时·平旦', meal: '晨起早点' },
+  { name: '卯时', char: '卯', start: 5 * 60, end: 7 * 60, rep: 6 * 60, slot: 'morning', label: '卯时·日出', meal: '早膳' },
+  { name: '辰时', char: '辰', start: 7 * 60, end: 9 * 60, rep: 8 * 60, slot: 'morning', label: '辰时·食时', meal: '早膳' },
+  { name: '巳时', char: '巳', start: 9 * 60, end: 11 * 60, rep: 10 * 60, slot: 'morning', label: '巳时·隅中', meal: '早午小食' },
+  { name: '午时', char: '午', start: 11 * 60, end: 13 * 60, rep: 12 * 60, slot: 'noon', label: '午时·日中', meal: '午膳' },
+  { name: '未时', char: '未', start: 13 * 60, end: 15 * 60, rep: 14 * 60, slot: 'afternoon', label: '未时·日昳', meal: '午后茶歇' },
+  { name: '申时', char: '申', start: 15 * 60, end: 17 * 60, rep: 16 * 60, slot: 'afternoon', label: '申时·晡时', meal: '申饮茶点' },
+  { name: '酉时', char: '酉', start: 17 * 60, end: 19 * 60, rep: 18 * 60, slot: 'evening', label: '酉时·日入', meal: '晚膳' },
+  { name: '戌时', char: '戌', start: 19 * 60, end: 21 * 60, rep: 20 * 60, slot: 'evening', label: '戌时·黄昏', meal: '晚膳' },
+  { name: '亥时', char: '亥', start: 21 * 60, end: 23 * 60, rep: 22 * 60, slot: 'lateNight', label: '亥时·人定', meal: '夜饮夜宵' }
+];
+
+export function parseShichen(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/(子|丑|寅|卯|辰|巳|午|未|申|酉|戌|亥)时(?:(初|正)?(?:([一二三四1-4])刻)?)?/);
+  if (!match) return null;
+  const char = match[1];
+  const meta = SHICHEN_META.find(m => m.char === char);
+  if (!meta) return null;
+  let baseMinute = meta.char === '子' ? 23 * 60 : meta.start;
+  const chuZheng = match[2];
+  if (chuZheng === '正') baseMinute += 60;
+  const ke = match[3];
+  if (ke) {
+    const keNum = { '一': 1, '二': 2, '三': 3, '四': 4, '1': 1, '2': 2, '3': 3, '4': 4 }[ke] || 1;
+    baseMinute += (keNum - 1) * 15;
+  } else if (!chuZheng) {
+    baseMinute = meta.rep;
+  }
+  baseMinute = ((baseMinute % 1440) + 1440) % 1440;
+  return {
+    name: meta.name,
+    char: meta.char,
+    minutes: baseMinute,
+    slot: meta.slot,
+    label: meta.label,
+    meal: meta.meal
+  };
+}
+
 // 解析时间段字符串（如 "11:30-13:30" 或 "21:00~02:00"）
 export function parseTimeRange(rangeStr) {
   if (!rangeStr || typeof rangeStr !== 'string') return null;
@@ -162,6 +206,24 @@ export function isTimeSlotMatched(slot, calSense) {
   if (label && (label.includes(s) || s.includes(label))) return true;
   if (aliasList.some(a => a.includes(s) || s.includes(a))) return true;
   if (calSense.timeSlot && (calSense.timeSlot === s || s.toLowerCase().includes(calSense.timeSlot.toLowerCase()))) return true;
+
+  // 3. 中国古代十二时辰匹配（如：辰时、午时、申时、戌时）
+  if (calSense.shichen) {
+    if (s.includes(calSense.shichen.name) || s.includes(calSense.shichen.char + '时') || s === calSense.shichen.char) return true;
+  }
+  const targetShichen = parseShichen(s);
+  if (targetShichen && calSense.currentMinutes != null) {
+    const cur = calSense.currentMinutes;
+    const meta = SHICHEN_META.find(m => m.char === targetShichen.char);
+    if (meta) {
+      if (meta.start <= meta.end) {
+        if (cur >= meta.start && cur < meta.end) return true;
+      } else {
+        if (cur >= meta.start || cur < meta.end) return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -173,6 +235,7 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
     timeSlots: [],
     currentMinutes: null,
     timeSource: '时钟',
+    shichen: null,
     festival: null,
     festivals: [],
     jieqi: null,
@@ -191,7 +254,10 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
     }
   }
 
-  // 2. 提取当前实际时间分钟数（正文明确 HH:MM 优先 -> 日历时间 -> 正文时段推导 -> 系统时钟）
+  // 1.1 从正文提取古代十二时辰（如：辰时、午时三刻、申时等）
+  const storyShichen = parseShichen(storyText);
+
+  // 2. 提取当前实际时间分钟数（正文明确 HH:MM 优先 -> 正文十二时辰 -> 日历时间 -> 正文时段推导 -> 系统时钟）
   let currentMinutes = null;
   let hasExplicitMinutes = false;
   if (storyText && typeof storyText === 'string') {
@@ -210,15 +276,31 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
       break;
     }
   }
+  if (currentMinutes == null && storyShichen) {
+    currentMinutes = storyShichen.minutes;
+    hasExplicitMinutes = true;
+    detectedSlot = detectedSlot || storyShichen.slot;
+    result.shichen = storyShichen;
+    result.timeSource = `正文时辰(${storyShichen.name})`;
+  }
   if (currentMinutes == null && calendarContext?.time && typeof calendarContext.time === 'string') {
-    const m = calendarContext.time.match(/^(\d{1,2})[:：](\d{2})/);
-    if (m) {
-      const h = Number(m[1]);
-      const mins = Number(m[2]);
-      if (h <= 23 && mins <= 59) {
-        currentMinutes = h * 60 + mins;
-        hasExplicitMinutes = true;
-        result.timeSource = '日历时间';
+    const calShichen = parseShichen(calendarContext.time);
+    if (calShichen) {
+      currentMinutes = calShichen.minutes;
+      hasExplicitMinutes = true;
+      detectedSlot = detectedSlot || calShichen.slot;
+      result.shichen = calShichen;
+      result.timeSource = `日历时辰(${calShichen.name})`;
+    } else {
+      const m = calendarContext.time.match(/^(\d{1,2})[:：](\d{2})/);
+      if (m) {
+        const h = Number(m[1]);
+        const mins = Number(m[2]);
+        if (h <= 23 && mins <= 59) {
+          currentMinutes = h * 60 + mins;
+          hasExplicitMinutes = true;
+          result.timeSource = '日历时间';
+        }
       }
     }
   }
@@ -242,6 +324,25 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
   }
   result.currentMinutes = currentMinutes;
 
+  // 根据当前分钟数确定古代时辰对象
+  if (!result.shichen && currentMinutes != null) {
+    const cur = currentMinutes;
+    const hitMeta = SHICHEN_META.find(m => {
+      if (m.start <= m.end) return cur >= m.start && cur < m.end;
+      return cur >= m.start || cur < m.end;
+    });
+    if (hitMeta) {
+      result.shichen = {
+        name: hitMeta.name,
+        char: hitMeta.char,
+        minutes: hitMeta.rep,
+        slot: hitMeta.slot,
+        label: hitMeta.label,
+        meal: hitMeta.meal
+      };
+    }
+  }
+
   const hours = currentMinutes != null ? Math.floor(currentMinutes / 60) : now.getHours();
   const effectiveSlot = detectedSlot || (
     (hours >= 5 && hours < 10) ? 'morning' :
@@ -251,7 +352,10 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
   );
 
   result.timeSlot = effectiveSlot;
-  if (hasExplicitMinutes && currentMinutes != null) {
+  const hasStoryHHMM = storyText && /(?:(?:早上|上午|中午|下午|傍晚|晚上|深夜|凌晨)\s*)?(\d{1,2})[:：](\d{2})/.test(storyText);
+  if (result.shichen && !hasStoryHHMM && !calendarContext?.time?.includes(':')) {
+    result.timeSlotLabel = result.shichen.label;
+  } else if (hasExplicitMinutes && currentMinutes != null) {
     const hh = String(Math.floor(currentMinutes / 60) % 24).padStart(2, '0');
     const mm = String(currentMinutes % 60).padStart(2, '0');
     result.timeSlotLabel = `${hh}:${mm}`;
@@ -270,7 +374,11 @@ export function senseCalendar(calendarContext, core, now = new Date(), storyText
   } else {
     result.timeSlotLabel = '深夜宵夜';
   }
-  result.timeSlots = ['早餐', '早点', '午餐', '正餐', '下午茶', '晚餐', '夜宵', '宵夜'];
+  result.timeSlots = [
+    '早餐', '早点', '早膳', '午餐', '中饭', '正餐', '午膳',
+    '下午茶', '茶歇', '申饮', '晚餐', '晚饭', '晚膳', '夜宵', '宵夜',
+    ...(result.shichen ? [result.shichen.name, result.shichen.meal, result.shichen.label] : [])
+  ];
 
   // 季节感知：正文描写优先，日历日期月份次之，系统月份兜底
   const calTodayMonthMatch = String(calendarContext?.today || calendarContext?.date || '').match(/(\d{1,2})\s*月/);

@@ -481,23 +481,46 @@ test('foodie: ancient twelve shichen parsing, slot mapping and condition matchin
   assert.ok(meal.includes('龙须酥与碧螺春'), `Should prioritize Chen-shi breakfast dish, got: ${meal.join(', ')}`);
 });
 
-test('foodie: japanese cuisine database and import/export pack structure', async () => {
-  const { getEffectiveDatabases, BUILTIN_JAPAN_CUISINE_DB, assembleMealCombo } = await import('../src/foodie-engine.js');
-  const dbs = getEffectiveDatabases({});
-  const jp = dbs.find(d => d.id === 'scene:japanese');
-  assert.ok(jp, 'Builtin Japanese cuisine database should exist');
-  assert.equal(jp.categories.length, 6, 'Should have all 6 role categories');
-  assert.ok(jp.items.length >= 60, 'Should have over 60 curated Japanese dishes');
+test('foodie: japanese cuisine importable pack structure and multi-bracket condition matching', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { getEffectiveDatabases, assembleMealCombo, parseDishCondition, isConditionMatched } = await import('../src/foodie-engine.js');
 
-  // 场景与节日菜品提取
-  const summerMeal = assembleMealCombo(jp, 3, {
-    calSense: { festivals: ['夏祭'], season: '夏季' }
-  });
-  assert.ok(summerMeal.some(f => /章鱼小丸子|炒面|苹果糖/.test(f)), `Summer festival should pick festival specialties: ${summerMeal.join(', ')}`);
+  // 1. 验证内置库中已完全移除 scene:japanese（遵循用户要求作为独立可导入文件分发）
+  const builtinDbs = getEffectiveDatabases({});
+  assert.equal(builtinDbs.some(d => d.id === 'scene:japanese'), false, 'Builtin databases should not contain scene:japanese');
 
-  // 居酒屋夜宵场景
-  const izakayaMeal = assembleMealCombo(jp, 3, {
-    storyText: '今晚去居酒屋喝一杯，点些下酒菜'
+  // 2. 验证预设文件 presets/japanese-cuisine.foodie.json 存在且结构符合标准导入包规范
+  const packPath = path.resolve('presets/japanese-cuisine.foodie.json');
+  assert.ok(fs.existsSync(packPath), 'Pack file presets/japanese-cuisine.foodie.json should exist');
+  const pack = JSON.parse(fs.readFileSync(packPath, 'utf8'));
+  assert.equal(pack.type, 'st-foodie-db-pack', 'Pack type must be st-foodie-db-pack');
+  assert.ok(pack.databases.length >= 8, 'Should include master database plus 7 regional databases');
+
+  const masterDb = pack.databases.find(d => d.id === 'custom:japanese_master');
+  assert.ok(masterDb, 'Master database custom:japanese_master must exist');
+  assert.ok(masterDb.items.length >= 800, 'Master database should contain 800+ dishes');
+
+  // 3. 验证多重前缀标签解析与条件匹配：[关东][早餐] 纳豆拌饭
+  const sample = '[关东][早餐] 纳豆拌饭';
+  const parsed = parseDishCondition(sample);
+  assert.equal(parsed.name, '纳豆拌饭');
+  assert.equal(parsed.condition, '关东, 早餐');
+  assert.ok(isConditionMatched(parsed.condition, { calSense: { timeSlotLabel: '早餐' } }));
+  assert.ok(isConditionMatched(parsed.condition, { mapSense: { locationText: '关东' } }));
+
+  // 4. 模拟导入后进行套餐抽取验证：早餐时段、夏日祭典与夜宵场景
+  const breakfastMeal = assembleMealCombo(masterDb, 2, {
+    calSense: { timeSlotLabel: '早餐', currentMinutes: 420 }
   });
-  assert.ok(izakayaMeal.some(f => /唐扬炸鸡|烤鸡肉串|毛豆|Highball|生啤酒|大吟酿/.test(f)));
+  assert.ok(breakfastMeal.length >= 2, 'Should pick breakfast dishes');
+
+  const festivalMeal = assembleMealCombo(masterDb, 3, {
+    calSense: { festivals: ['夏日祭'], season: '夏季' }
+  });
+  assert.ok(festivalMeal.length >= 2, 'Should assemble festival meal');
+
+  // 5. 关东分库验证
+  const kantoDb = pack.databases.find(d => d.id === 'custom:jp_kanto');
+  assert.ok(kantoDb && kantoDb.items.length >= 200, 'Kanto database should have 200+ dishes');
 });

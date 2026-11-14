@@ -5397,25 +5397,8 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 .foodie-list-quick-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.foodie-list-quick-actions .quick-chip-btn {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--pp-rule);
-  background: var(--pp-surface-soft);
-  color: var(--pp-ink);
-  font-weight: 500;
-  line-height: 1.2;
-}
-
-.foodie-list-quick-actions .quick-chip-btn:hover {
-  background: var(--pp-surface);
-  border-color: var(--pp-active);
-  color: var(--pp-active);
+  gap: 5px;
+  flex-wrap: wrap;
 }
 
 .quick-chip-btn.danger-chip {
@@ -6145,6 +6128,22 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   color: var(--pp-active);
 }
 
+.quick-chip-btn.icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.quick-chip-btn.icon-only svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
 .guided-db-editor {
   display: flex;
   flex-direction: column;
@@ -6314,8 +6313,6 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
 
 .guided-db-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-top: 14px;
   padding-top: 12px;
@@ -6327,17 +6324,15 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 8px 6px;
+  gap: 6px;
+  height: 38px;
+  padding: 0 10px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
-  white-space: nowrap;
-  text-align: center;
   min-width: 0;
-  box-sizing: border-box;
 }
 
 .foodie-footer-btn.secondary {
@@ -6361,9 +6356,15 @@ select, input, .profile-form textarea { width: 100%; border: 1px solid var(--pp-
   opacity: 0.92;
 }
 
+.foodie-footer-btn .btn-icon-svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .foodie-footer-btn .btn-icon-svg svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   display: block;
 }
 

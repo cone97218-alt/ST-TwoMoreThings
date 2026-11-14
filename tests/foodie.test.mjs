@@ -392,3 +392,42 @@ test('foodie: renderFoodie shows locked trace label and chevron-right button on 
   });
   assert.match(listHtml, /data-action="foodie-open-edit-db"[^>]*><svg/);
 });
+
+test('foodie: every effective builtin database shows non-zero count and non-empty active role pane on open', async () => {
+  const { getDbItemList } = await import('../src/foodie-engine.js');
+  const effective = getEffectiveDatabases({});
+  assert.ok(effective.length >= 700);
+
+  for (const db of effective) {
+    assert.ok(getDbItemList(db).length > 0, `DB ${db.id} (${db.label}) should have > 0 items`);
+    const html = renderFoodie({ foodie: {} }, {
+      ui: { foodieShowSettings: true, foodieSettingsTab: 'edit', foodieSelectedDbId: db.id }
+    });
+    const activePaneMatch = html.match(/<div class="role-dish-chips-box is-active" data-role-pane="([^"]+)"[^>]*>([\s\S]*?)<\/div>\s*(?:<div class="role-dish-chips-box|<\/div>)/);
+    assert.ok(activePaneMatch, `DB ${db.id} should render an active role pane`);
+    assert.doesNotMatch(activePaneMatch[2], /暂无菜品/, `DB ${db.id} (${db.label}) active pane (${activePaneMatch[1]}) must not be empty`);
+  }
+
+  // Soup-only slice DB automatically selects 'soup' tab
+  const minSoupHtml = renderFoodie({ foodie: {} }, {
+    ui: { foodieShowSettings: true, foodieSettingsTab: 'edit', foodieSelectedDbId: 'cn:cuisine:3-1:闽菜·汤羹类' }
+  });
+  assert.match(minSoupHtml, /role-dish-chips-box is-active" data-role-pane="soup"/);
+
+  // Standalone excluded-role sauce DB falls back to heuristic classification instead of 0 items
+  const minSauceHtml = renderFoodie({ foodie: {} }, {
+    ui: { foodieShowSettings: true, foodieSettingsTab: 'edit', foodieSelectedDbId: 'cn:cuisine:3-1:闽菜·酱料类' }
+  });
+  assert.doesNotMatch(minSauceHtml, /role-dish-chips-box is-active"[^>]*>\s*<div class="role-dishes-empty">暂无菜品/);
+
+  // Self-heal modifiedBuiltins entry if saved with accidental empty items/categories
+  const healed = getEffectiveDatabases({
+    foodie: {
+      modifiedBuiltins: {
+        'cn:cuisine:3-1': { id: 'cn:cuisine:3-1', enabled: true, items: [], categories: [] }
+      }
+    }
+  });
+  const healedMin = healed.find(d => d.id === 'cn:cuisine:3-1');
+  assert.ok(getDbItemList(healedMin).length > 100, 'Empty modifiedBuiltins items/categories should fall back to builtin data');
+});

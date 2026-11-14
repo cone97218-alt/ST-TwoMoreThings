@@ -1,5 +1,5 @@
 import { escape, icon, pageHeading } from './shared.js';
-import { DEFAULT_FOODIE_TEMPLATE, DEFAULT_FOODIE_COUNT, getEffectiveDatabases, categorizeFoodRole, parseDishCondition, normalizeCategoryRole, hasStructuredCategories } from '../foodie-engine.js';
+import { DEFAULT_FOODIE_TEMPLATE, DEFAULT_FOODIE_COUNT, getEffectiveDatabases, categorizeFoodRole, parseDishCondition, normalizeCategoryRole, hasStructuredCategories, getDbItemList } from '../foodie-engine.js';
 
 function getTraceWeatherIcon(text) {
   const t = String(text || '').toLowerCase();
@@ -358,10 +358,7 @@ function renderFoodieSettingsView(state, ui) {
     dishes: false
   };
 
-  // 当前激活的菜品角色 Tab（默认 hot 主菜）
-  const activeRole = ui.foodieActiveRoleTab || 'hot';
-
-  // 提取自建库的 6 大角色菜品
+  // 提取当前库的 6 大角色菜品
   const roleLabels = { hot: '主菜', staple: '主食', soup: '羹汤', drink: '饮品', cold: '凉菜', dessert: '点心' };
   const roleBuckets = { hot: [], staple: [], soup: [], drink: [], cold: [], dessert: [] };
   if (selectedDb) {
@@ -380,6 +377,17 @@ function renderFoodieSettingsView(state, ui) {
       }
     }
   }
+
+  // 当前激活的菜品角色 Tab（若当前 Tab 在本库为空且非用户在本库内主动切换，则自动切到首个非空角色分类）
+  const roleOrder = ['hot', 'staple', 'soup', 'drink', 'cold', 'dessert'];
+  const firstNonEmptyRole = roleOrder.find(r => (roleBuckets[r]?.length || 0) > 0) || 'hot';
+  const activeRole = (
+    ui.foodieActiveRoleTab &&
+    ((roleBuckets[ui.foodieActiveRoleTab]?.length || 0) > 0 || ui.foodieActiveRoleTabDbId === selectedDb?.id)
+  )
+    ? ui.foodieActiveRoleTab
+    : firstNonEmptyRole;
+  ui.foodieActiveRoleTab = activeRole;
 
   // 1. 地图地点候选：直接从系统地图（places/regions/cities）提取真实地点，拒绝硬编码无关城市
   const availableMapPlaces = [];
@@ -542,7 +550,7 @@ function renderFoodieSettingsView(state, ui) {
                     <!-- 第二排：来源、道数、触发词、关联地点与时令标签 -->
                     <button type="button" class="db-row-badges-line" data-action="foodie-open-edit-db" data-db-id="${escape(d.id)}">
                       <span class="db-origin-chip ${isCustom ? 'custom' : 'builtin'}">${isCustom ? '自建' : '内置'}</span>
-                      <span class="db-count-chip">${d.items?.length || 0}道菜品</span>
+                      <span class="db-count-chip">${getDbItemList(d).length}道菜品</span>
                       ${d.keywords?.length ? `
                         <span class="db-meta-chip kw-chip"><span class="chip-svg">${icon('edit')}</span>${escape(d.keywords.slice(0, 3).join('、'))}</span>
                       ` : ''}
@@ -569,7 +577,7 @@ function renderFoodieSettingsView(state, ui) {
             <div class="selected-db-toolbar">
               <div class="db-chip-left">
                 <span class="db-origin-chip ${isCustomDb ? 'custom' : 'builtin'}">
-                  ${isCustomDb ? '自建' : '内置'} · ${selectedDb?.items?.length || 0} 道
+                  ${isCustomDb ? '自建' : '内置'} · ${selectedDb ? getDbItemList(selectedDb).length : 0} 道
                 </span>
               </div>
               <div class="db-actions-right">
@@ -619,7 +627,7 @@ function renderFoodieSettingsView(state, ui) {
                 <div class="section-badge-title">
                   <span class="section-title-icon">${icon('foodie')}</span>
                   <span class="step-name">菜品清单与时令/时段分组</span>
-                  <span class="drawer-summary-pill" id="foodie-total-dishes-badge" style="margin-left:auto;">${selectedDb?.items?.length || 0} 道菜品</span>
+                  <span class="drawer-summary-pill" id="foodie-total-dishes-badge" style="margin-left:auto;">${selectedDb ? getDbItemList(selectedDb).length : 0} 道菜品</span>
                 </div>
                 <div class="guided-step-body">
                   <!-- 角色单选切换栏 -->

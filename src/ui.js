@@ -3871,6 +3871,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
         if (id) {
           ui.foodieSelectedDbId = id;
           ui.foodieSettingsTab = 'edit';
+          ui.foodieActiveRoleTab = null;
+          ui.foodieActiveRoleTabDbId = null;
           render();
         }
         break;
@@ -3970,7 +3972,8 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
       case 'foodie-switch-role-tab': {
         const targetRole = button.dataset.role || 'hot';
         ui.foodieActiveRoleTab = targetRole;
-        const container = button.closest('.role-dishes-card') || root;
+        ui.foodieActiveRoleTabDbId = ui.foodieSelectedDbId || null;
+        const container = button.closest('.role-dishes-card, .guided-step-card, .foodie-view') || root;
         if (container) {
           container.querySelectorAll('.role-tab-btn').forEach(btn => {
             btn.classList.toggle('is-active', btn.dataset.role === targetRole);
@@ -8385,6 +8388,10 @@ export function mountPhone({ mount, store, messages, groups, directory, forum, s
     if (event.target.id === 'foodie-db-select' || event.target.dataset.action === 'foodie-switch-db') {
 
       ui.foodieSelectedDbId = event.target.value;
+
+      ui.foodieActiveRoleTab = null;
+
+      ui.foodieActiveRoleTabDbId = null;
 
       render();
 

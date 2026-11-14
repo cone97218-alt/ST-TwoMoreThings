@@ -20,17 +20,24 @@ export function normalizeCategoryRole(role) {
 }
 
 export function hasStructuredCategories(db) {
-  const cats = Array.isArray(db?.categories)
+  const allCats = Array.isArray(db?.categories)
     ? db.categories.filter(c => Array.isArray(c?.items) && c.items.length > 0)
     : [];
-  if (cats.length === 0) return false;
-  if (cats.length > 1) return true;
-  const role = normalizeCategoryRole(cats[0].role);
+  const nonExcludedCats = allCats.filter(c => normalizeCategoryRole(c.role) !== 'excluded');
+  if (nonExcludedCats.length === 0) return false;
+  if (allCats.length > 1) return true;
+  const role = normalizeCategoryRole(nonExcludedCats[0].role);
   if (role !== 'hot') return true;
   return !db.builtin || !String(db.id || '').startsWith('scene:');
 }
 
-function getDbItemList(db) {
+export function getDbItemList(db) {
+  if (hasStructuredCategories(db)) {
+    const items = db.categories
+      .filter(c => Array.isArray(c?.items) && c.items.length > 0 && normalizeCategoryRole(c.role) !== 'excluded')
+      .flatMap(c => c.items);
+    if (items.length > 0) return items;
+  }
   if (Array.isArray(db?.items) && db.items.length > 0) return db.items;
   if (Array.isArray(db?.categories)) {
     return db.categories.flatMap(c => (Array.isArray(c?.items) ? c.items : []));
@@ -48,9 +55,13 @@ export function getEffectiveDatabases(state = {}) {
     .map(db => {
       const mod = modifiedBuiltins[db.id];
       if (mod) {
+        const modHasItems = (Array.isArray(mod.items) && mod.items.length > 0) ||
+          (Array.isArray(mod.categories) && mod.categories.some(c => Array.isArray(c?.items) && c.items.length > 0));
         return {
           ...db,
           ...mod,
+          categories: modHasItems ? (mod.categories || db.categories) : db.categories,
+          items: modHasItems ? (mod.items || db.items) : db.items,
           enabled: Boolean(mod.enabled)
         };
       }
